@@ -34,10 +34,17 @@ static uint16 cmap__get_char_glyph_index_format_4(const Font* font, uint32 c);
 
 
 /* -------------- */
+/* cmap functions */
+/* -------------- */
+static void glyf__extract_glyph_coordinate_data          (const Font* font, uint32 glyphIndex);
+static void glyf__extract_simple_glyph_coordinate_data   (const uint8* data);
+static void glyf__extract_composite_glyph_coordinate_data(const uint8* data);
+
+
+/* -------------- */
 /* loca functions */
 /* -------------- */
-static Offset32 loca__get_glyf_block_off (const Font* font, uint32 glyphIndex);
-static uint32   loca__get_glyf_block_size(const Font* font, uint32 glyphIndex);
+static Offset32 loca__get_glyf_block_off(const Font* font, uint32 glyphIndex);
 
 
 /* -------------- */
@@ -47,6 +54,8 @@ static uint16 maxp__get_num_glyphs(Font* font);
 
 
 int font_init(Font* font, const char* path) {
+    memset(font, 0, sizeof(Font));
+
     FILE* f = fopen(path, "rb");
     assert(f);
     
@@ -66,105 +75,10 @@ int font_init(Font* font, const char* path) {
     table_dir__extract_table_info(font);
     cmap__extract_encoding(font);
 
-    uint32 bytes = 0;
+    
 
-    // Inspecting 'A' character
-    char   c           = 'D';
-    uint32 index       = cmap__get_char_glyph_index(font, c);
-    uint8* data        = font->data + font->glyf.off + loca__get_glyf_block_off(font, index);
-    int16  numContours = read_int16(data);
-    int16  xMin        = read_int16(data + 2);
-    int16  yMin        = read_int16(data + 4);
-    int16  xMax        = read_int16(data + 6);
-    int16  yMax        = read_int16(data + 8);
-
-    printf("Character: %c\n", c);
-    printf("Glyph index: %d\n", (int)index);
-    printf("Num contours: %d\n", (int)numContours);
-    printf("Bottom left: (%d, %d)\n", (int)xMin, (int)yMin);
-    printf("Top right: (%d, %d)\n", (int)xMax, (int)yMax);
-
-    for (uint16 i = 0; i < numContours; i++) {
-        int endPoint = read_uint16(data + 10 + 2 * i);
-        printf("End point%d: %d\n", (int)i, endPoint);
-    }
-
-    uint16 numPoints = 1 + read_uint16(data + 8 + 2 * numContours);
-    printf("Num points: %d\n", (int)numPoints);
-
-    data += 10 + 2 * numContours;
-
-    uint16 instructionLen = read_uint16(data);
-    printf("Instruction length: %d\n", instructionLen);
-
-    data += instructionLen + 2;
-
-    enum {
-        ON_CURVE_POINT                       = 0x01,
-        X_SHORT_VECTOR                       = 0x02,
-        Y_SHORT_VECTOR                       = 0x04,
-        REPEAT_FLAG                          = 0x08,
-        X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR = 0x10,
-        Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR = 0x20,
-        OVERLAP_SIMPLE                       = 0x40,
-        RESERVED                             = 0x80,
-    };
-
-    uint32 len   = numPoints;
-    uint32 reps  = 0;
-
-    for (uint32 i = 0; i < len;) {
-        assert((data[i] & RESERVED) == 0);
-
-        if (data[i] & X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR) {
-            if (data[i] & X_SHORT_VECTOR) {
-                bytes++;
-            }
-        }
-        else if (data[i] & X_SHORT_VECTOR) {
-            bytes++;
-        }
-        else {
-            bytes += 2;
-        }
-
-        if (data[i] & Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR) {
-            if (data[i] & Y_SHORT_VECTOR) {
-                bytes++;
-            }
-        }
-        else if (data[i] & Y_SHORT_VECTOR) {
-            bytes++;
-        }
-        else {
-            bytes += 2;
-        }
-
-        if (reps) {
-            reps--;
-            if (!reps) {
-                i++;
-            }
-            else {
-                len--;
-            }
-        }
-        else if (data[i] & REPEAT_FLAG) {
-            printf("REPEAT FOUND\n");
-            len--;
-            reps = data[i];
-            bytes++;
-        }
-        else {
-            bytes++;
-            i++;
-        }
-    }
-
-    size_t s = (size_t)((data + bytes) - (font->data + font->glyf.off + loca__get_glyf_block_off(font, index)));
-
-    printf("%d\n", (int)s);
-    printf("%d\n", (int)loca__get_glyf_block_size(font, index));
+    uint32 glyphIndex = cmap__get_char_glyph_index(font, 'A');
+    glyf__extract_glyph_coordinate_data(font, glyphIndex);
 
     return 1;
 }
@@ -226,10 +140,12 @@ static void table_dir__extract_table_info(Font* font) {
 
         if (table) {
             table->exists = 1;
-            table->off    = read_uint32(data + 8);
+            table->off    = read_Offset32(data + 8);
             table->size   = read_uint32(data + 12);
         }
     }
+
+    assert(font->head.exists);
 }
 
 
@@ -342,6 +258,75 @@ static uint16 cmap__get_char_glyph_index_format_4(const Font* font, uint32 c) {
 
 
 /* -------------- */
+/* cmap functions */
+/* -------------- */
+static void glyf__extract_glyph_coordinate_data(const Font* font, uint32 glyphIndex) {
+    const uint8* data = font->data + 
+                        font->glyf.off + 
+                        loca__get_glyf_block_off(font, glyphIndex);
+
+    if (read_int16(data) >= 0) {
+        glyf__extract_simple_glyph_coordinate_data(data);
+    }
+    else {
+        glyf__extract_composite_glyph_coordinate_data(data);
+    }
+}
+
+static void glyf__extract_simple_glyph_coordinate_data(const uint8* data) {
+    #define IS_REPEATED_COORD(flags, coord)                                 \
+        (!(flags & coord ## _SHORT_VECTOR) &&                               \
+         (flags & coord ## _IS_SAME_OR_POSITIVE_ ## coord ## _SHORT_VECTOR))
+
+    enum {
+        ON_CURVE_POINT                       = 0x01,
+        X_SHORT_VECTOR                       = 0x02,
+        Y_SHORT_VECTOR                       = 0x04,
+        REPEAT_FLAG                          = 0x08,
+        X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR = 0x10,
+        Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR = 0x20,
+        OVERLAP_SIMPLE                       = 0x40,
+        RESERVED                             = 0x80,
+    };
+
+    uint32 numContours = read_int16(data);
+    uint32 numPoints   = 1 + read_uint16(data + 8 + 2 * numContours);
+    uint32 flagsSize   = 0;
+    uint32 xCoordsSize = 0;
+    uint32 yCoordsSize = 0;
+
+    data += 10 + 2 * numContours;
+    data += 2 + read_uint16(data);
+
+    for (uint32 i = 0; i < numPoints;) {
+        uint8  flags     = data[flagsSize];
+        uint32 flagsReps = (flags & REPEAT_FLAG) ? data[flagsSize + 1] : 1;
+
+        for (uint32 j = 0; j < flagsReps; j++) {
+            if (!IS_REPEATED_COORD(flags, X)) {
+                xCoordsSize += (flags & X_SHORT_VECTOR) ? 1 : 2;
+            }
+
+            if (!IS_REPEATED_COORD(flags, Y)) {
+                yCoordsSize += (flags & Y_SHORT_VECTOR) ? 1 : 2;
+            }
+        }
+
+        i += flagsReps;
+        flagsSize++;
+    }
+
+    printf("flagsSize = %d, xCoordsSize = %d, yCoordsSize = %d\n", flagsSize, xCoordsSize, yCoordsSize);
+
+    #undef IS_REPEATED_COORD
+}
+
+static void glyf__extract_composite_glyph_coordinate_data(const uint8* data) {
+    assert(0);
+}
+
+
+/* -------------- */
 /* loca functions */
 /* -------------- */
 static Offset32 loca__get_glyf_block_off(const Font* font, uint32 glyphIndex) {
@@ -356,10 +341,6 @@ static Offset32 loca__get_glyf_block_off(const Font* font, uint32 glyphIndex) {
 
     assert(version == 1);
     return read_Offset32(font->data + font->loca.off + (4 * glyphIndex));
-}
-
-static uint32 loca__get_glyf_block_size(const Font* font, uint32 glyphIndex) {
-    return loca__get_glyf_block_off(font, glyphIndex + 1) - loca__get_glyf_block_off(font, glyphIndex);
 }
 
 
