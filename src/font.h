@@ -20,7 +20,7 @@ typedef uint32 Version16Dot16;
 typedef struct {
     int      exists;
     Offset32 off;
-    uint32   len;
+    uint32   size;
 } Table;
 
 typedef struct {
@@ -33,6 +33,7 @@ typedef struct {
     uint8*   data;
     uint32   size;
     Table    cmap;
+    Table    glyf;
     Table    head;
     Table    maxp;
     Table    loca;
