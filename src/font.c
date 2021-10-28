@@ -34,7 +34,7 @@ static uint16 cmap__get_char_glyph_index_format_4(const Font* font, uint32 c);
 
 
 /* -------------- */
-/* cmap functions */
+/* glyf functions */
 /* -------------- */
 static void glyf__extract_glyph_coordinate_data          (const Font* font, uint32 glyphIndex);
 static void glyf__extract_simple_glyph_coordinate_data   (const uint8* data);
@@ -231,9 +231,9 @@ static uint16 cmap__get_char_glyph_index_format_4(const Font* font, uint32 c) {
 
         if (endCode >= c) {
             if (mid == 0 || read_uint16(data + 14 + 2 * (mid - 1)) < c) {
-                uint16       startCode      = read_uint16(data + 2 * segCount + 16 + 2 * mid);
                 const uint8* idRangeOffsets = data + 6 * segCount + 16 + 2 * mid;
                 uint16       idRangeOffset  = read_uint16(idRangeOffsets);
+                uint16       startCode      = read_uint16(data + 2 * segCount + 16 + 2 * mid);
 
                 if (startCode > c) {
                     return 0;
@@ -258,7 +258,7 @@ static uint16 cmap__get_char_glyph_index_format_4(const Font* font, uint32 c) {
 
 
 /* -------------- */
-/* cmap functions */
+/* glyf functions */
 /* -------------- */
 static void glyf__extract_glyph_coordinate_data(const Font* font, uint32 glyphIndex) {
     const uint8* data = font->data + 
@@ -274,26 +274,31 @@ static void glyf__extract_glyph_coordinate_data(const Font* font, uint32 glyphIn
 }
 
 static void glyf__extract_simple_glyph_coordinate_data(const uint8* data) {
-    #define IS_REPEATED_COORD(flags, coord)                                 \
-        (!(flags & coord ## _SHORT_VECTOR) &&                               \
-         (flags & coord ## _IS_SAME_OR_POSITIVE_ ## coord ## _SHORT_VECTOR))
+    #define IS_REPEATED_COORD(coord, flags) \
+        (!(flags & coord ## _SHORT_VECTOR) && (flags & coord ## _DUAL))
+
+    // Note: When a coordinate is repeated, the absolute value is the same, so 
+    //       the offset is 0.
+    #define READ_COORD_OFF(coord, flags, coordData)                    \
+        ((flags & coord ## _SHORT_VECTOR) ?                            \
+         (flags & coord ## _DUAL ? *coordData : -(*coordData)) :       \
+         (flags & coord ## _DUAL ? 0          : read_int16(coordData)))\
 
     enum {
-        ON_CURVE_POINT                       = 0x01,
-        X_SHORT_VECTOR                       = 0x02,
-        Y_SHORT_VECTOR                       = 0x04,
-        REPEAT_FLAG                          = 0x08,
-        X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR = 0x10,
-        Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR = 0x20,
-        OVERLAP_SIMPLE                       = 0x40,
-        RESERVED                             = 0x80,
+        ON_CURVE_POINT = 0x01,
+        X_SHORT_VECTOR = 0x02,
+        Y_SHORT_VECTOR = 0x04,
+        REPEAT_FLAG    = 0x08,
+        X_DUAL         = 0x10, // X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR
+        Y_DUAL         = 0x20, // Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR
+        OVERLAP_SIMPLE = 0x40,
+        RESERVED       = 0x80,
     };
 
     uint32 numContours = read_int16(data);
     uint32 numPoints   = 1 + read_uint16(data + 8 + 2 * numContours);
     uint32 flagsSize   = 0;
-    uint32 xCoordsSize = 0;
-    uint32 yCoordsSize = 0;
+    uint32 xDataSize   = 0;
 
     data += 10 + 2 * numContours;
     data += 2 + read_uint16(data);
@@ -303,12 +308,8 @@ static void glyf__extract_simple_glyph_coordinate_data(const uint8* data) {
         uint32 flagsReps = (flags & REPEAT_FLAG) ? data[flagsSize + 1] : 1;
 
         for (uint32 j = 0; j < flagsReps; j++) {
-            if (!IS_REPEATED_COORD(flags, X)) {
-                xCoordsSize += (flags & X_SHORT_VECTOR) ? 1 : 2;
-            }
-
-            if (!IS_REPEATED_COORD(flags, Y)) {
-                yCoordsSize += (flags & Y_SHORT_VECTOR) ? 1 : 2;
+            if (!IS_REPEATED_COORD(X, flags)) {
+                xDataSize += (flags & X_SHORT_VECTOR) ? 1 : 2;
             }
         }
 
@@ -316,9 +317,38 @@ static void glyf__extract_simple_glyph_coordinate_data(const uint8* data) {
         flagsSize++;
     }
 
-    printf("flagsSize = %d, xCoordsSize = %d, yCoordsSize = %d\n", flagsSize, xCoordsSize, yCoordsSize);
+    const uint8* xData = data + flagsSize;
+    const uint8* yData = xData + xDataSize;
+
+    int xAbs = 0;
+    int yAbs = 0;
+
+    for (uint32 i = 0; i < flagsSize; i++) {
+        uint8  flags     = data[i];
+        uint32 flagsReps = (flags & REPEAT_FLAG) ? data[i + 1] : 1;
+
+        for (uint32 j = 0; j < flagsReps; j++) {
+            int16 x = READ_COORD_OFF(X, flags, xData);
+            int16 y = READ_COORD_OFF(Y, flags, yData);
+
+            xAbs += x;
+            yAbs += y;
+
+            printf("Rel = (%5d, %5d)\t", (int)x, (int)y);
+            printf("Abs = (%5d, %5d)\n", (int)xAbs, (int)yAbs);
+
+            if (!IS_REPEATED_COORD(X, flags)) {
+                xData += (flags & X_SHORT_VECTOR) ? 1 : 2;
+            }
+
+            if (!IS_REPEATED_COORD(Y, flags)) {
+                yData += (flags & Y_SHORT_VECTOR) ? 1 : 2;
+            }
+        }
+    }
 
     #undef IS_REPEATED_COORD
+    #undef READ_COORD_OFF
 }
 
 static void glyf__extract_composite_glyph_coordinate_data(const uint8* data) {
