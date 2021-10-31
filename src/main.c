@@ -1,6 +1,7 @@
-#include "font.h"
+#include "ttf.h"
 
 int main() {
-    Font font;
-    font_init(&font, "./resources/fonts/Roboto-Regular.ttf");
+	TTF font;
+	ttf_init(&font, "./resources/fonts/Roboto-Regular.ttf");
+	return 0;
 }
