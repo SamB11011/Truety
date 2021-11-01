@@ -6,7 +6,7 @@
 #include "ttf.h"
 
 
-enum {
+typedef enum {
     TTF_ON_CURVE_POINT = 0x01,
     TTF_X_SHORT_VECTOR = 0x02,
     TTF_Y_SHORT_VECTOR = 0x04,
@@ -17,6 +17,11 @@ enum {
     TTF_RESERVED       = 0x80,
 } TTF_Simple_Glyph_Flag;
 
+typedef struct {
+    const TTF_uint8* bytes;
+    TTF_uint32       off;
+} TTF_IStream;
+
 
 /* ---------------- */
 /* Helper functions */
@@ -25,15 +30,35 @@ enum {
 #define ttf__read_Offset32(data)       ttf__read_uint32(data)
 #define ttf__read_Version16Dot16(data) ttf__read_uint32(data)
 
-static TTF_uint16 ttf__read_uint16(const TTF_uint8* data);
-static TTF_uint32 ttf__read_uint32(const TTF_uint8* data);
-static TTF_int16  ttf__read_int16 (const TTF_uint8* data);
+static TTF_uint16 ttf__read_uint16  (const TTF_uint8* data);
+static TTF_uint32 ttf__read_uint32  (const TTF_uint8* data);
+static TTF_int16  ttf__read_int16   (const TTF_uint8* data);
 
 
 /* ------------------------- */
 /* Table directory functions */
 /* ------------------------- */
 static void table_dir__extract_table_info(TTF* font);
+
+
+/* --------------------- */
+/* Instruction functions */
+/* --------------------- */
+static TTF_uint8 ttf__get_next_ins(TTF_IStream* stream);
+static void      ttf__PUSHB       (TTF* font, TTF_IStream* stream, TTF_uint8 ins);
+static void      ttf__FDEF        (TTF* font, TTF_IStream* stream);
+static void      ttf__IDEF        (TTF* font, TTF_IStream* stream);
+
+
+/* --------------- */
+/* Stack functions */
+/* --------------- */
+#define ttf__stack_push_F2Dot14(font, val) ttf__stack_push_int32(font, val)
+
+static void       ttf__stack_push_uint32(TTF* font, TTF_uint32 val);
+static void       ttf__stack_push_int32 (TTF* font, TTF_int32  val);
+static TTF_uint32 ttf__stack_pop_uint32 (TTF* font);
+static TTF_int32  ttf__stack_pop_int32  (TTF* font);
 
 
 /* -------------- */
@@ -48,7 +73,7 @@ static TTF_uint16 cmap__get_char_glyph_index_format_4(const TTF_uint8* subtable,
 /* -------------- */
 /* fpgm functions */
 /* -------------- */
-static void fpgm__execute_instructions(TTF* font);
+static void fpgm__execute(TTF* font);
 
 
 /* -------------- */
@@ -68,42 +93,75 @@ static TTF_Offset32 loca__get_glyf_block_off(const TTF* font, TTF_uint32 glyphIn
 /* -------------- */
 /* prep functions */
 /* -------------- */
-static void prep__execute_instructions(TTF* font);
+static void prep__execute(TTF* font);
 
 
 int ttf_init(TTF* font, const char* path) {
     memset(font, 0, sizeof(TTF));
 
     FILE* f = fopen(path, "rb");
-    assert(f);
+    if (f == NULL) {
+        return 0;
+    }
     
     fseek(f, 0, SEEK_END);
     font->size = ftell(f);
     fseek(f, 0, SEEK_SET);
     
     font->data = calloc(font->size, 1);
-    assert(font->data);
-    fread(font->data, 1, font->size, f);
+    if (font->data == NULL) {
+        fclose(f);
+        return 0;
+    }
 
+    fread(font->data, 1, font->size, f);
     fclose(f);
 
     // sfntVersion is 0x00010000 for fonts that contain TrueType outlines
     assert(ttf__read_uint32(font->data) == 0x00010000);
 
     table_dir__extract_table_info(font);
-    
+
+    {
+        const TTF_uint8* maxp = font->data + font->maxp.off;
+
+        TTF_uint32 stackFrameSize    = sizeof(TTF_Stack_Frame)    * ttf__read_uint16(maxp + 24);
+        TTF_uint32 funcsSize         = sizeof(TTF_Func)           * ttf__read_uint16(maxp + 20);
+        TTF_uint32 graphicsStateSize = sizeof(TTF_Graphics_State);
+
+        font->buffers = calloc(1, stackFrameSize + funcsSize + graphicsStateSize);
+        if (font->buffers == NULL) {
+            free(font->data);
+            return 0;
+        }
+
+        font->stack.frames  = (TTF_Stack_Frame*)   (font->buffers);
+        font->funcs         = (TTF_Func*)          (font->buffers + stackFrameSize);
+        font->graphicsState = (TTF_Graphics_State*)(font->buffers + stackFrameSize + funcsSize);
+    }
+
+    font->graphicsState->xProjectionVector = 1 << 14;
+    font->graphicsState->yProjectionVector = 0;
+
     if (!cmap__extract_encoding(font)) {
-        free(font->data);
+        ttf_free(font);
         return 0;
     }
 
-    fpgm__execute_instructions(font);
+    fpgm__execute(font);
 
-    TTF_uint32 glyphIndex = cmap__get_char_glyph_index(font, 'e');
-    printf("glyphIndex = %d\n", (int)glyphIndex);
-    glyf__extract_glyph_coordinate_data(font, glyphIndex);
+    // TTF_uint32 glyphIndex = cmap__get_char_glyph_index(font, 'e');
+    // printf("glyphIndex = %d\n", (int)glyphIndex);
+    // glyf__extract_glyph_coordinate_data(font, glyphIndex);
 
     return 1;
+}
+
+void ttf_free(TTF* font) {
+    if (font) {
+        free(font->data);
+        free(font->buffers);
+    }
 }
 
 /* ---------------- */
@@ -163,6 +221,66 @@ static void table_dir__extract_table_info(TTF* font) {
             table->size   = ttf__read_uint32(record + 12);
         }
     }
+}
+
+
+/* --------------------- */
+/* Instruction functions */
+/* --------------------- */
+static TTF_uint8 ttf__get_next_ins(TTF_IStream* stream) {
+    return stream->bytes[stream->off++];
+}
+
+static void ttf__PUSHB(TTF* font, TTF_IStream* stream, TTF_uint8 ins) {
+    TTF_uint8 n = 1 + (ins & 0x7);
+
+    do {
+        TTF_uint8 byte = ttf__get_next_ins(stream);
+        ttf__stack_push_uint32(font, byte);
+        n--;
+    } while (n);
+}
+
+static void ttf__FDEF(TTF* font, TTF_IStream* stream) {
+    TTF_uint32 index = ttf__stack_pop_uint32(font);
+    font->funcs[index].firstIns = stream->bytes + stream->off;
+
+    while (ttf__get_next_ins(stream) != 0x2D);
+}
+
+static void ttf__IDEF(TTF* font, TTF_IStream* stream) {
+    // TODO
+    assert(0);
+}
+
+static void ttf__GPV(TTF* font) {
+    ttf__stack_push_F2Dot14(font, font->graphicsState->xProjectionVector);
+    ttf__stack_push_F2Dot14(font, font->graphicsState->yProjectionVector);
+}
+
+static void ttf__call_func(TTF* font, TTF_Func* func) {
+    // Starting with the first instruction, a call to a function executes 
+    // instructions until instruction 0x2D (ENDF) is reached.
+}
+
+
+/* --------------- */
+/* Stack functions */
+/* --------------- */
+static void ttf__stack_push_uint32(TTF* font, TTF_uint32 val) {
+    font->stack.frames[font->stack.numFrames++].uValue = val;
+}
+
+static void ttf__stack_push_int32(TTF* font, TTF_int32 val) {
+    font->stack.frames[font->stack.numFrames++].sValue = val;
+}
+
+static TTF_uint32 ttf__stack_pop_uint32(TTF* font) {
+    return font->stack.frames[font->stack.numFrames--].uValue;
+}
+
+static TTF_int32 ttf__stack_pop_int32(TTF* font) {
+    return font->stack.frames[font->stack.numFrames--].sValue;
 }
 
 
@@ -296,9 +414,28 @@ static TTF_uint16 cmap__get_char_glyph_index_format_4(const TTF_uint8* subtable,
 /* -------------- */
 /* fpgm functions */
 /* -------------- */
-static void fpgm__execute_instructions(TTF* font) {
-    for (TTF_uint32 i = 0; i < font->fpgm.size; i++) {
+static void fpgm__execute(TTF* font) {
+    TTF_IStream stream;
+    stream.bytes = font->data + font->fpgm.off;
+    stream.off   = 0;
+    
+    while (stream.off < font->fpgm.size) {
+        TTF_uint8 ins = ttf__get_next_ins(&stream);
 
+        switch (ins) {
+            case 0xB0:
+                ttf__PUSHB(font, &stream, ins);
+                break;
+            case 0x2C:
+                ttf__FDEF(font, &stream);
+                break;
+            case 0x89:
+                ttf__IDEF(font, &stream);
+                break;
+            default:
+                assert(0);
+                break;
+        }
     }
 }
 
@@ -363,7 +500,7 @@ static void glyf__extract_simple_glyph_coordinate_data(const TTF_uint8* data) {
             TTF_int16 x = TTF_READ_COORD_OFF(X, flags, xData);
             TTF_int16 y = TTF_READ_COORD_OFF(Y, flags, yData);
 
-            printf("(%d, %d)\n", (int)x, (int)y);
+            // printf("(%d, %d)\n", (int)x, (int)y);
 
             if (!TTF_IS_REPEATED_COORD(X, flags)) {
                 xData += (flags & TTF_X_SHORT_VECTOR) ? 1 : 2;
@@ -405,6 +542,25 @@ static TTF_Offset32 loca__get_glyf_block_off(const TTF* font, TTF_uint32 glyphIn
 /* -------------- */
 /* prep functions */
 /* -------------- */
-static void prep__execute_instructions(TTF* font) {
+static void prep__execute(TTF* font) {
+    TTF_IStream stream;
+    stream.bytes = font->data + font->prep.off;
+    stream.off   = 0;
+    
+    while (stream.off < font->prep.size) {
+        TTF_uint8 ins = ttf__get_next_ins(&stream);
 
+        if (ins >= 0xB0 && ins <= 0xB7) {
+            ttf__PUSHB(font, &stream, ins);
+        }
+        else if (ins == 0x2C) {
+            ttf__FDEF(font, &stream);
+        }
+        else if (ins == 0x89) {
+            ttf__IDEF(font, &stream);
+        }
+        else {
+            assert(0);
+        }
+    }
 }
