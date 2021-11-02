@@ -56,7 +56,7 @@ typedef struct {
 typedef struct {
     TTF_uint8*          data;
     TTF_uint32          size;
-    TTF_uint8*          buffers;
+    TTF_uint8*          mem;
     TTF_Table           cmap;
     TTF_Table           fpgm;
     TTF_Table           glyf;
