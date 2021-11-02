@@ -16,6 +16,10 @@
 #endif
 
 
+/* Inverse of 26.6 fixed point scaling factor */
+#define TTF_F26DOT6_SF_INV 64
+
+
 typedef enum {
     TTF_ON_CURVE_POINT = 0x01,
     TTF_X_SHORT_VECTOR = 0x02,
@@ -43,6 +47,9 @@ typedef enum {
     TTF_IF        = 0x58,
     TTF_ELSE      = 0x1B,
     TTF_EIF       = 0x59,
+    TTF_PUSHW     = 0xB8,
+    TTF_PUSHW_ABC = 0xBF,
+    TTF_MUL       = 0x63,
 } TTF_Insruction;
 
 typedef struct {
@@ -85,6 +92,8 @@ static void      ttf__DUP                (TTF* font);
 static void      ttf__ROLL               (TTF* font);
 static void      ttf__GTEQ               (TTF* font);
 static void      ttf__IF                 (TTF* font, TTF_IStream* stream);
+static void      ttf__PUSHW              (TTF* font, TTF_IStream* stream, TTF_uint8 ins);
+static void      ttf__MUL                (TTF* font);
 static TTF_uint8 ttf__jump_to_else_or_eif(TTF_IStream* stream);
 
 
@@ -92,6 +101,9 @@ static TTF_uint8 ttf__jump_to_else_or_eif(TTF_IStream* stream);
 /* Stack functions */
 /* --------------- */
 #define ttf__stack_push_F2Dot14(font, val) ttf__stack_push_int32(font, val)
+#define ttf__stack_push_F26Dot6(font, val) ttf__stack_push_int32(font, val)
+#define ttf__stack_pop_F2Dot14(font)       ttf__stack_pop_int32(font)
+#define ttf__stack_pop_F26Dot6(font)       ttf__stack_pop_int32(font)
 
 static void       ttf__stack_push_uint32(TTF* font, TTF_uint32 val);
 static void       ttf__stack_push_int32 (TTF* font, TTF_int32  val);
@@ -305,10 +317,17 @@ static void ttf__execute_ins(TTF* font, TTF_IStream* stream, TTF_uint8 ins) {
         case TTF_IF:
             ttf__IF(font, stream);
             return;
+        case TTF_MUL:
+            ttf__MUL(font);
+            return;
     }
 
     if (ins >= TTF_PUSHB && ins <= TTF_PUSHB_ABC) {
         ttf__PUSHB(font, stream, ins);
+        return;
+    }
+    else if (ins >= TTF_PUSHW && ins <= TTF_PUSHW_ABC) {
+        ttf__PUSHW(font, stream, ins);
         return;
     }
 
@@ -438,6 +457,26 @@ static void ttf__IF(TTF* font, TTF_IStream* stream) {
 
         ttf__execute_ins(font, stream, ins);
     }
+}
+
+static void ttf__PUSHW(TTF* font, TTF_IStream* stream, TTF_uint8 ins) {
+    TTF_uint32 n = 1 + (ins & 0x07);
+    TTF_PRINTF("PUSHW %d\n", n);
+
+    do {
+        TTF_uint8 ms  = ttf__istream_next(stream);
+        TTF_uint8 ls  = ttf__istream_next(stream);
+        TTF_int16 val = (TTF_int16)((ms << 8) | ls);
+        TTF_PRINTF("\t%d\n", val);
+        ttf__stack_push_int32(font, val);
+    } while (--n);
+}
+
+static void ttf__MUL(TTF* font) {
+    TTF_PRINT("MUL\n");
+    TTF_F26Dot6 n1 = ttf__stack_pop_F26Dot6(font);
+    TTF_F26Dot6 n2 = ttf__stack_pop_F26Dot6(font);
+    ttf__stack_push_F26Dot6(font, (n1 * n2) / TTF_F26DOT6_SF_INV);
 }
 
 static TTF_uint8 ttf__jump_to_else_or_eif(TTF_IStream* stream) {
