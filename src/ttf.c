@@ -19,17 +19,16 @@
 /* Inverse of 26.6 fixed point scaling factor */
 #define TTF_F26DOT6_SF_INV 64
 
-
 typedef enum {
-    TTF_ON_CURVE_POINT = 0x01,
-    TTF_X_SHORT_VECTOR = 0x02,
-    TTF_Y_SHORT_VECTOR = 0x04,
-    TTF_REPEAT_FLAG    = 0x08,
-    TTF_X_DUAL         = 0x10, // X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR
-    TTF_Y_DUAL         = 0x20, // Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR
-    TTF_OVERLAP_SIMPLE = 0x40,
-    TTF_RESERVED       = 0x80,
-} TTF_Simple_Glyph_Flag;
+    GLYF_ON_CURVE_POINT = 0x01,
+    GLYF_X_SHORT_VECTOR = 0x02,
+    GLYF_Y_SHORT_VECTOR = 0x04,
+    GLYF_REPEAT_FLAG    = 0x08,
+    GLYF_X_DUAL         = 0x10, // X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR
+    GLYF_Y_DUAL         = 0x20, // Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR
+    GLYF_OVERLAP_SIMPLE = 0x40,
+    GLYF_RESERVED       = 0x80,
+} Glyf_Simple_Glyph_Flags;
 
 typedef enum {
     TTF_NPUSHB    = 0x40,
@@ -50,24 +49,59 @@ typedef enum {
     TTF_PUSHW     = 0xB8,
     TTF_PUSHW_ABC = 0xBF,
     TTF_MUL       = 0x63,
-} TTF_Insruction;
+} TTF_Instruction;
 
 typedef struct {
     const TTF_uint8* bytes;
     TTF_uint32       off;
 } TTF_IStream;
 
+typedef struct {
+    float x, y;
+} TTF_Point;
+
+typedef struct {
+    TTF_Point p0;
+    TTF_Point p1;
+    TTF_Point ctrl;
+} TTF_Curve;
+
+typedef struct {
+    TTF_Curve* curve;
+    float      xIntersect;
+} TTF_Active_Curve;
+
+typedef struct {
+    TTF_uint8* flagData;
+    TTF_uint8* xData;
+    TTF_uint8* yData;
+    TTF_Point  absPos;
+    TTF_uint8  flagsReps;
+} Glyf_Simple_Glyph;
+
 
 /* ---------------- */
 /* Helper functions */
 /* ---------------- */
-#define ttf__read_Offset16(data)       ttf__read_uint16(data)
-#define ttf__read_Offset32(data)       ttf__read_uint32(data)
-#define ttf__read_Version16Dot16(data) ttf__read_uint32(data)
+#define ttf__get_Offset16(data)       ttf__get_uint16(data)
+#define ttf__get_Offset32(data)       ttf__get_uint32(data)
+#define ttf__get_Version16Dot16(data) ttf__get_uint32(data)
 
-static TTF_uint16 ttf__read_uint16(const TTF_uint8* data);
-static TTF_uint32 ttf__read_uint32(const TTF_uint8* data);
-static TTF_int16  ttf__read_int16 (const TTF_uint8* data);
+static TTF_uint16 ttf__get_uint16   (const TTF_uint8* data);
+static TTF_uint32 ttf__get_uint32   (const TTF_uint8* data);
+static TTF_int16  ttf__get_int16    (const TTF_uint8* data);
+static float      ttf__maxf         (float a, float b);
+static float      ttf__minf         (float a, float b);
+static float      ttf__linear_interp(float p0, float p1, float t);
+
+
+/* -------------- */
+/* List functions */
+/* -------------- */
+static TTF_Node* ttf__list_alloc_node  (TTF_List* list);
+static void*     ttf__list_insert      (TTF_List* list);
+static void      ttf__list_remove      (TTF_List* list, TTF_Node* node);
+static void*     ttf__list_get_node_val(const TTF_List* list, const TTF_Node* node);
 
 
 /* ------------------------- */
@@ -130,9 +164,11 @@ static int  fpgm__ins_is_valid(TTF_uint8 ins);
 /* -------------- */
 /* glyf functions */
 /* -------------- */
-static void glyf__extract_glyph_coordinate_data          (const TTF* font, TTF_uint32 glyphIndex);
-static void glyf__extract_simple_glyph_coordinate_data   (const TTF_uint8* data);
-static void glyf__extract_composite_glyph_coordinate_data(const TTF_uint8* data);
+static void glyf__extract_glyph_curves          (TTF* font, TTF_uint32 glyphIndex);
+static void glyf__extract_simple_glyph_curves   (TTF* font, TTF_uint8* glyphData);
+static void glyf__extract_composite_glyph_curves(TTF* font, TTF_uint8* glyphData);
+static int  glyf__get_next_simple_glyph_point   (Glyf_Simple_Glyph* glyph, TTF_Point* point);
+static int  glyf__peek_next_simple_glyph_point  (const Glyf_Simple_Glyph* glyph, TTF_Point* point);
 
 
 /* -------------- */
@@ -169,26 +205,46 @@ int ttf_init(TTF* font, const char* path) {
     fclose(f);
 
     // sfntVersion is 0x00010000 for fonts that contain TrueType outlines
-    assert(ttf__read_uint32(font->data) == 0x00010000);
+    if (ttf__get_uint32(font->data) != 0x00010000) {
+        return 0;
+    }
 
     table_dir__extract_table_info(font);
 
     {
-        const TTF_uint8* maxp = font->data + font->maxp.off;
+        const TTF_uint8* maxp      = font->data + font->maxp.off;
+        size_t           maxCurves = ttf__get_uint16(maxp + 6);
 
-        TTF_uint32 stackFrameSize    = sizeof(TTF_Stack_Frame)    * ttf__read_uint16(maxp + 24);
-        TTF_uint32 funcsSize         = sizeof(TTF_Func)           * ttf__read_uint16(maxp + 20);
-        TTF_uint32 graphicsStateSize = sizeof(TTF_Graphics_State);
+        size_t stackFrameSize    =  sizeof(TTF_Stack_Frame) * ttf__get_uint16(maxp + 24);
+        size_t funcsSize         =  sizeof(TTF_Func) * ttf__get_uint16(maxp + 20);
+        size_t curvesSize        = (sizeof(TTF_Curve) + sizeof(TTF_Node)) * maxCurves;
+        size_t activeCurvesSize  = (sizeof(TTF_Active_Curve) + sizeof(TTF_Node)) * maxCurves;
+        size_t graphicsStateSize =  sizeof(TTF_Graphics_State);
+        size_t totalSize         = stackFrameSize   + 
+                                   funcsSize        + 
+                                   curvesSize       + 
+                                   activeCurvesSize + 
+                                   graphicsStateSize;
 
-        font->mem = calloc(1, stackFrameSize + funcsSize + graphicsStateSize);
+        font->mem = calloc(1, totalSize);
         if (font->mem == NULL) {
             free(font->data);
             return 0;
         }
 
-        font->stack.frames  = (TTF_Stack_Frame*)   (font->mem);
-        font->funcs         = (TTF_Func*)          (font->mem + stackFrameSize);
-        font->graphicsState = (TTF_Graphics_State*)(font->mem + stackFrameSize + funcsSize);
+        size_t off = 0;
+
+        font->stack.frames     = (TTF_Stack_Frame*)(font->mem);
+        font->funcs            = (TTF_Func*)(font->mem + (off += stackFrameSize));
+        font->curves.mem       = (font->mem + (off += funcsSize));
+        font->activeCurves.mem = (font->mem + (off += curvesSize));
+        font->graphicsState    = (TTF_Graphics_State*)(font->mem + (off += activeCurvesSize));
+
+        font->curves.cap     = maxCurves;
+        font->curves.valSize = sizeof(TTF_Curve);
+
+        font->activeCurves.cap     = maxCurves;
+        font->activeCurves.valSize = sizeof(TTF_Active_Curve);
     }
 
     font->graphicsState->xProjectionVector = 1 << 14;
@@ -199,10 +255,10 @@ int ttf_init(TTF* font, const char* path) {
         return 0;
     }
 
-    fpgm__execute(font);
-    prep__execute(font);
+    // fpgm__execute(font);
+    // prep__execute(font);
 
-    // TTF_uint32 glyphIndex = cmap__get_char_glyph_index(font, 'e');
+    // TTF_uint32 glyphIndex = cmap__get_char_glyph_index(font, 'B');
     // printf("glyphIndex = %d\n", (int)glyphIndex);
     // glyf__extract_glyph_coordinate_data(font, glyphIndex);
 
@@ -216,19 +272,101 @@ void ttf_free(TTF* font) {
     }
 }
 
+void ttf_render_glyph(TTF* font, TTF_uint32 c, TTF_Glyph_Image* image) {
+    TTF_uint32 glyphIndex = cmap__get_char_glyph_index(font, c);
+    glyf__extract_glyph_curves(font, glyphIndex);
+}
+
 /* ---------------- */
 /* Helper functions */
 /* ---------------- */
-static TTF_uint16 ttf__read_uint16(const TTF_uint8* data) {
+static TTF_uint16 ttf__get_uint16(const TTF_uint8* data) {
     return data[0] << 8 | data[1];
 }
 
-static TTF_uint32 ttf__read_uint32(const TTF_uint8* data) {
+static TTF_uint32 ttf__get_uint32(const TTF_uint8* data) {
     return (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
 }
 
-static TTF_int16 ttf__read_int16(const TTF_uint8* data) {
+static TTF_int16 ttf__get_int16(const TTF_uint8* data) {
     return data[0] << 8 | data[1];
+}
+
+static float ttf__maxf(float a, float b) {
+    return a > b ? a : b;
+}
+
+static float ttf__minf(float a, float b) {
+    return a < b ? a : b;
+}
+
+static float ttf__linear_interp(float p0, float p1, float t) {
+    return p0 + t * (p1 - p0);
+}
+
+
+/* -------------- */
+/* List functions */
+/* -------------- */
+static TTF_Node* ttf__list_alloc_node(TTF_List* list) {
+    TTF_Node* node = NULL;
+    
+    if (list->reuse == NULL) {
+        node = (TTF_Node*)list->mem + list->count;
+    }
+    else {
+        node        = list->reuse;
+        list->reuse = list->reuse->next;
+    }
+   
+    node->next = NULL;
+    node->prev = NULL;
+    list->count++;
+    return node;
+}
+
+static void* ttf__list_insert(TTF_List* list) {
+    TTF_Node* node = ttf__list_alloc_node(list);
+    
+    if (list->head == NULL) {
+        list->head = node;
+    }
+    else {
+        node->prev = list->tail;
+        list->tail->next = node;
+    }
+    list->tail = node;
+    
+    return ttf__list_get_node_val(list, node);
+}
+
+static void ttf__list_remove(TTF_List* list, TTF_Node* node) {
+    assert(list->count > 0);
+    assert(node != NULL);
+
+    if (node != list->head) {
+        node->prev->next = node->next;
+    }
+    else {
+        list->head = list->head->next;
+    }
+
+    if (node != list->tail) {
+        node->next->prev = node->prev;
+    }
+    else {
+        list->tail = list->tail->prev;
+    }
+
+    node->next  = list->reuse;
+    list->reuse = node;
+    list->count--;
+}
+
+static void* ttf__list_get_node_val(const TTF_List* list, const TTF_Node* node) {
+    size_t idx = node - (TTF_Node*)(list->mem);
+    size_t off = sizeof(TTF_Node) * list->cap + list->valSize * idx;
+    return list->mem + off;
 }
 
 
@@ -236,7 +374,7 @@ static TTF_int16 ttf__read_int16(const TTF_uint8* data) {
 /* Table directory functions */
 /* ------------------------- */
 static void table_dir__extract_table_info(TTF* font) {
-    TTF_uint16 numTables = ttf__read_uint16(font->data + 4);
+    TTF_uint16 numTables = ttf__get_uint16(font->data + 4);
 
     for (TTF_uint16 i = 0; i < numTables; i++) {
         TTF_uint8* record = font->data + (12 + 16 * i);
@@ -269,8 +407,8 @@ static void table_dir__extract_table_info(TTF* font) {
 
         if (table) {
             table->exists = 1;
-            table->off    = ttf__read_Offset32(record + 8);
-            table->size   = ttf__read_uint32(record + 12);
+            table->off    = ttf__get_Offset32(record + 8);
+            table->size   = ttf__get_uint32(record + 12);
         }
     }
 }
@@ -393,6 +531,8 @@ static void ttf__CALL(TTF* font) {
 static void ttf__GETINFO(TTF* font) {
     TTF_uint32 selector = ttf__stack_pop_uint32(font);
     TTF_PRINTF("GETINFO %d\n", selector);
+
+    // TODO: can select multiple pieces of information
 
     if (selector & 0x1) {
         // Scalar version number
@@ -529,13 +669,13 @@ static TTF_int32 ttf__stack_pop_int32(TTF* font) {
 /* cmap functions */
 /* -------------- */
 static int cmap__extract_encoding(TTF* font) {
-    TTF_uint16 numTables = ttf__read_uint16(font->data + font->cmap.off + 2);
+    TTF_uint16 numTables = ttf__get_uint16(font->data + font->cmap.off + 2);
     
     for (TTF_uint16 i = 0; i < numTables; i++) {
         const TTF_uint8* data = font->data + font->cmap.off + 4 + i * 8;
 
-        TTF_uint16 platformID = ttf__read_uint16(data);
-        TTF_uint16 encodingID = ttf__read_uint16(data + 2);
+        TTF_uint16 platformID = ttf__get_uint16(data);
+        TTF_uint16 encodingID = ttf__get_uint16(data + 2);
         int        foundValid = 0;
 
         switch (platformID) {
@@ -550,10 +690,10 @@ static int cmap__extract_encoding(TTF* font) {
         if (foundValid) {
             font->encoding.platformID = platformID;
             font->encoding.encodingID = encodingID;
-            font->encoding.off        = ttf__read_Offset32(data + 4);
+            font->encoding.off        = ttf__get_Offset32(data + 4);
 
             TTF_uint8* subtable = font->data + font->cmap.off + font->encoding.off;
-            TTF_uint16 format   = ttf__read_uint16(subtable);
+            TTF_uint16 format   = ttf__get_uint16(subtable);
             if (cmap__encoding_format_is_supported(format)) {
                 return 1;
             }
@@ -580,7 +720,7 @@ static int cmap__encoding_format_is_supported(TTF_uint16 format) {
 static TTF_uint32 cmap__get_char_glyph_index(const TTF* font, TTF_uint32 c) {
     const TTF_uint8* subtable = font->data + font->cmap.off + font->encoding.off;
 
-    switch (ttf__read_uint16(subtable)) {
+    switch (ttf__get_uint16(subtable)) {
         case 4:
             return cmap__get_char_glyph_index_format_4(subtable, c);
         case 6:
@@ -611,35 +751,36 @@ static TTF_uint16 cmap__get_char_glyph_index_format_4(const TTF_uint8* subtable,
     // TODO: Not sure how these values are supposed to be used in the binary search so it will be
     //       done without them.
     //
-    // TTF_uint16 searchRange   = ttf__read_uint16(data + 8);
-    // TTF_uint16 entrySelector = ttf__read_uint16(data + 10);
-    // TTF_uint16 rangeShift    = ttf__read_uint16(data + 12);
+    // TTF_uint16 searchRange   = ttf__get_uint16(data + 8);
+    // TTF_uint16 entrySelector = ttf__get_uint16(data + 10);
+    // TTF_uint16 rangeShift    = ttf__get_uint16(data + 12);
+    #define CMAP_GET_END_CODE(subtable, index) ttf__get_uint16(subtable + 14 + 2 * (index))
     
-    TTF_uint16 segCount = ttf__read_uint16(subtable + 6) >> 1;
+    TTF_uint16 segCount = ttf__get_uint16(subtable + 6) >> 1;
     TTF_uint16 left     = 0;
     TTF_uint16 right    = segCount - 1;
 
     while (left <= right) {
         TTF_uint16 mid     = (left + right) / 2;
-        TTF_uint16 endCode = ttf__read_uint16(subtable + 14 + 2 * mid);
+        TTF_uint16 endCode = CMAP_GET_END_CODE(subtable, mid);
 
         if (endCode >= c) {
-            if (mid == 0 || ttf__read_uint16(subtable + 14 + 2 * (mid - 1)) < c) {
+            if (mid == 0 || CMAP_GET_END_CODE(subtable, mid - 1) < c) {
                 TTF_uint32       off            = 16 + 2 * mid;
                 const TTF_uint8* idRangeOffsets = subtable + 6 * segCount + off;
-                TTF_uint16       idRangeOffset  = ttf__read_uint16(idRangeOffsets);
-                TTF_uint16       startCode      = ttf__read_uint16(subtable + 2 * segCount + off);
+                TTF_uint16       idRangeOffset  = ttf__get_uint16(idRangeOffsets);
+                TTF_uint16       startCode      = ttf__get_uint16(subtable + 2 * segCount + off);
 
                 if (startCode > c) {
                     return 0;
                 }
                 
                 if (idRangeOffset == 0) {
-                    TTF_uint16 idDelta = ttf__read_int16(subtable + 4 * segCount + off);
+                    TTF_uint16 idDelta = ttf__get_int16(subtable + 4 * segCount + off);
                     return c + idDelta;
                 }
 
-                return ttf__read_uint16(idRangeOffset + 2 * (c - startCode) + idRangeOffsets);
+                return ttf__get_uint16(idRangeOffset + 2 * (c - startCode) + idRangeOffsets);
             }
             right = mid - 1;
         }
@@ -649,6 +790,8 @@ static TTF_uint16 cmap__get_char_glyph_index_format_4(const TTF_uint8* subtable,
     }
 
     return 0;
+
+    #undef CMAP_GET_END_CODE
 }
 
 
@@ -676,81 +819,167 @@ static int fpgm__ins_is_valid(TTF_uint8 ins) {
 /* -------------- */
 /* glyf functions */
 /* -------------- */
-static void glyf__extract_glyph_coordinate_data(const TTF* font, TTF_uint32 glyphIndex) {
-    const TTF_uint8* data = font->data + 
-                            font->glyf.off + 
-                            loca__get_glyf_block_off(font, glyphIndex);
+#define GLYF_IS_REPEATED_COORD(coord, flags) \
+    (!(flags & GLYF_ ## coord ## _SHORT_VECTOR) && (flags & GLYF_ ## coord ## _DUAL))
 
-    if (ttf__read_int16(data) >= 0) {
-        glyf__extract_simple_glyph_coordinate_data(data);
+#define GLYF_READ_COORD_OFF(coord, flags, coordData)                            \
+    ((flags & GLYF_ ## coord ## _SHORT_VECTOR) ?                                \
+     (flags & GLYF_ ## coord ## _DUAL ? *coordData : -(*coordData)) :           \
+     (flags & GLYF_ ## coord ## _DUAL ? 0          : ttf__get_int16(coordData)))\
+
+static void glyf__extract_glyph_curves(TTF* font, TTF_uint32 glyphIndex) {
+    TTF_uint8* glyphData = font->data     + 
+                           font->glyf.off + 
+                           loca__get_glyf_block_off(font, glyphIndex);
+
+    if (ttf__get_int16(glyphData) >= 0) {
+        glyf__extract_simple_glyph_curves(font, glyphData);
     }
     else {
-        glyf__extract_composite_glyph_coordinate_data(data);
+        glyf__extract_composite_glyph_curves(font, glyphData);
     }
 }
 
-static void glyf__extract_simple_glyph_coordinate_data(const TTF_uint8* data) {
-    #define TTF_IS_REPEATED_COORD(coord, flags) \
-        (!(flags & TTF_ ## coord ## _SHORT_VECTOR) && (flags & TTF_ ## coord ## _DUAL))
-
-    // Note: When a coordinate is repeated, the absolute value is the same, so 
-    //       the offset is 0.
-    #define TTF_READ_COORD_OFF(coord, flags, coordData)                             \
-        ((flags & TTF_ ## coord ## _SHORT_VECTOR) ?                                 \
-         (flags & TTF_ ## coord ## _DUAL ? *coordData : -(*coordData)) :            \
-         (flags & TTF_ ## coord ## _DUAL ? 0          : ttf__read_int16(coordData)))\
-
-    TTF_uint32 numContours = ttf__read_int16(data);
-    TTF_uint32 numPoints   = 1 + ttf__read_uint16(data + 8 + 2 * numContours);
-    TTF_uint32 flagsSize   = 0;
-    TTF_uint32 xDataSize   = 0;
-
-    data += 10 + 2 * numContours;
-    data += 2 + ttf__read_uint16(data);
-
-    for (TTF_uint32 i = 0; i < numPoints;) {
-        TTF_uint8  flags     = data[flagsSize];
-        TTF_uint32 flagsReps = (flags & TTF_REPEAT_FLAG) ? data[flagsSize + 1] : 1;
-
-        for (TTF_uint32 j = 0; j < flagsReps; j++) {
-            if (!TTF_IS_REPEATED_COORD(X, flags)) {
-                xDataSize += (flags & TTF_X_SHORT_VECTOR) ? 1 : 2;
-            }
-        }
-
-        i += flagsReps;
-        flagsSize++;
-    }
-
-    const TTF_uint8* xData = data + flagsSize;
-    const TTF_uint8* yData = xData + xDataSize;
-
-    for (TTF_uint32 i = 0; i < flagsSize; i++) {
-        TTF_uint8  flags     = data[i];
-        TTF_uint32 flagsReps = (flags & TTF_REPEAT_FLAG) ? data[i + 1] : 1;
-
-        for (TTF_uint32 j = 0; j < flagsReps; j++) {
-            TTF_int16 x = TTF_READ_COORD_OFF(X, flags, xData);
-            TTF_int16 y = TTF_READ_COORD_OFF(Y, flags, yData);
-
-            // printf("(%d, %d)\n", (int)x, (int)y);
-
-            if (!TTF_IS_REPEATED_COORD(X, flags)) {
-                xData += (flags & TTF_X_SHORT_VECTOR) ? 1 : 2;
-            }
-
-            if (!TTF_IS_REPEATED_COORD(Y, flags)) {
-                yData += (flags & TTF_Y_SHORT_VECTOR) ? 1 : 2;
-            }
-        }
-    }
-
-    #undef TTF_IS_REPEATED_COORD
-    #undef TTF_READ_COORD_OFF
+// TODO: remove
+static int count = 1;
+static void print_curve(const TTF_Curve* curve) {
+    printf("%2d) p0 = (%.2f, %.2f), ", count, curve->p0.x, curve->p0.y);
+    printf("p1 = (%.2f, %.2f), ", curve->p1.x, curve->p1.y);
+    printf("ctrl = (%.2f, %.2f)\n", curve->ctrl.x, curve->ctrl.y);
+    count++;
 }
 
-static void glyf__extract_composite_glyph_coordinate_data(const TTF_uint8* data) {
+static void glyf__extract_simple_glyph_curves(TTF* font, TTF_uint8* glyphData) {
+    Glyf_Simple_Glyph glyph       = { 0 };
+    TTF_int16         numContours = ttf__get_int16(glyphData);
+
+    {
+        TTF_uint32 numPoints = 1 + ttf__get_uint16(glyphData + 8 + 2 * numContours);
+        TTF_uint32 flagsSize = 0;
+        TTF_uint32 xDataSize = 0;
+
+        glyph.flagData = glyphData + (10 + 2 * numContours);
+        glyph.flagData += 2 + ttf__get_uint16(glyph.flagData);
+
+        for (TTF_uint32 i = 0; i < numPoints;) {
+            TTF_uint8  flags     = glyph.flagData[flagsSize];
+            TTF_uint32 flagsReps = (flags & GLYF_REPEAT_FLAG) ? glyph.flagData[flagsSize + 1] : 1;
+
+            for (TTF_uint32 j = 0; j < flagsReps; j++) {
+                if (!GLYF_IS_REPEATED_COORD(X, flags)) {
+                    xDataSize += (flags & GLYF_X_SHORT_VECTOR) ? 1 : 2;
+                }
+            }
+
+            i         += flagsReps;
+            flagsSize += (flagsReps == 1 ? 1 : 2);
+        }
+
+        glyph.xData = glyph.flagData + flagsSize;
+        glyph.yData = glyph.xData + xDataSize;
+    }
+
+    TTF_uint16 startPointIdx = 0;
+
+    for (TTF_uint32 i = 0; i < numContours; i++) {
+        TTF_Point startPoint;
+        glyf__get_next_simple_glyph_point(&glyph, &startPoint);
+
+        TTF_Point  nextP0      = startPoint;
+        TTF_uint16 endPointIdx = ttf__get_uint16(glyphData + 10 + 2 * i);
+
+        for (TTF_uint16 j = startPointIdx + 1; j <= endPointIdx; j++) {
+            int insertFinalCurve = 0;
+
+            TTF_Curve* curve = ttf__list_insert(&font->curves);
+            curve->p0 = nextP0;
+
+            if (glyf__get_next_simple_glyph_point(&glyph, &curve->ctrl)) {
+                curve->p1        = curve->ctrl;
+                insertFinalCurve = j == endPointIdx;
+                print_curve(curve);
+            }
+            else if (j == endPointIdx) {
+                curve->p1 = startPoint;
+            }
+            else {
+                TTF_Point point;
+
+                if (glyf__peek_next_simple_glyph_point(&glyph, &point)) {
+                    curve->p1        = point;
+                    insertFinalCurve = ++j == endPointIdx;
+                    glyf__get_next_simple_glyph_point(&glyph, &point);
+                    print_curve(curve);
+                }
+                else { // Implied on-curve point
+                    curve->p1.x = ttf__linear_interp(point.x, curve->ctrl.x, 0.5f);
+                    curve->p1.y = ttf__linear_interp(point.y, curve->ctrl.y, 0.5f);
+                    print_curve(curve);
+                }
+            }
+
+            if (insertFinalCurve) {
+                TTF_Curve* finalCurve = ttf__list_insert(&font->curves);
+                finalCurve->p0   = curve->p1;
+                finalCurve->p1   = startPoint;
+                finalCurve->ctrl = startPoint;
+                print_curve(finalCurve);
+            }
+
+            nextP0 = curve->p1;
+        }
+
+        startPointIdx = endPointIdx + 1;
+    }
+}
+
+static void glyf__extract_composite_glyph_curves(TTF* font, TTF_uint8* glyphData) {
+    // TODO
     assert(0);
+}
+
+static int glyf__get_next_simple_glyph_point(Glyf_Simple_Glyph* glyph, TTF_Point* point) {
+    TTF_uint8 flags = *glyph->flagData;
+
+    point->x = glyph->absPos.x + GLYF_READ_COORD_OFF(X, flags, glyph->xData);
+    point->y = glyph->absPos.y + GLYF_READ_COORD_OFF(Y, flags, glyph->yData);
+
+    if (glyph->flagsReps > 0) {
+        glyph->flagsReps--;
+        
+        if (glyph->flagsReps == 0) {
+            glyph->flagData += 2;
+        }
+    }
+    else if (glyph->flagsReps == 0) {
+        if (flags & GLYF_REPEAT_FLAG) {
+            glyph->flagsReps = glyph->flagData[1];
+        }
+        else {
+            glyph->flagData++;
+        }
+    }
+
+    if (!GLYF_IS_REPEATED_COORD(X, flags)) {
+        glyph->xData += (flags & GLYF_X_SHORT_VECTOR) ? 1 : 2;
+    }
+
+    if (!GLYF_IS_REPEATED_COORD(Y, flags)) {
+        glyph->yData += (flags & GLYF_Y_SHORT_VECTOR) ? 1 : 2;
+    }
+
+    glyph->absPos = *point;
+
+    return flags & GLYF_ON_CURVE_POINT;
+}
+
+static int glyf__peek_next_simple_glyph_point(const Glyf_Simple_Glyph* glyph, TTF_Point* point) {
+    TTF_uint8 flags = *glyph->flagData;
+
+    point->x = glyph->absPos.x + GLYF_READ_COORD_OFF(X, flags, glyph->xData);
+    point->y = glyph->absPos.y + GLYF_READ_COORD_OFF(Y, flags, glyph->yData);
+    
+    return flags & GLYF_ON_CURVE_POINT;
 }
 
 
@@ -760,15 +989,15 @@ static void glyf__extract_composite_glyph_coordinate_data(const TTF_uint8* data)
 static TTF_Offset32 loca__get_glyf_block_off(const TTF* font, TTF_uint32 glyphIndex) {
     assert(glyphIndex);
 
-    TTF_int16 version = ttf__read_int16(font->data + font->head.off + 50);
+    TTF_int16 version = ttf__get_int16(font->data + font->head.off + 50);
 
     if (version == 0) {
         // The offset divided by 2 is stored
-        return 2 * ttf__read_Offset16(font->data + font->loca.off + (2 * glyphIndex));
+        return 2 * ttf__get_Offset16(font->data + font->loca.off + (2 * glyphIndex));
     }
 
     assert(version == 1);
-    return ttf__read_Offset32(font->data + font->loca.off + (4 * glyphIndex));
+    return ttf__get_Offset32(font->data + font->loca.off + (4 * glyphIndex));
 }
 
 

@@ -53,6 +53,21 @@ typedef struct {
     TTF_F2Dot14 yProjectionVector;
 } TTF_Graphics_State;
 
+typedef struct TTF_Node {
+    struct TTF_Node* next;
+    struct TTF_Node* prev;
+} TTF_Node;
+
+typedef struct {
+    TTF_Node*  reuse;
+    TTF_Node*  head;
+    TTF_Node*  tail;
+    TTF_uint8* mem;
+    TTF_uint32 cap;
+    TTF_uint32 count;
+    TTF_uint32 valSize;
+} TTF_List;
+
 typedef struct {
     TTF_uint8*          data;
     TTF_uint32          size;
@@ -67,11 +82,22 @@ typedef struct {
     TTF_Encoding        encoding;
     TTF_Stack           stack;
     TTF_Func*           funcs;
+    TTF_List            curves;
+    TTF_List            activeCurves;
     TTF_Graphics_State* graphicsState;
 } TTF;
 
+typedef struct {
+    TTF_uint8* pixels;
+    size_t     w;
+    size_t     h;
+    size_t     stride;
+    size_t     size;
+} TTF_Glyph_Image;
 
-int  ttf_init(TTF* font, const char* path);
-void ttf_free(TTF* font);
+
+int  ttf_init        (TTF* font, const char* path);
+void ttf_free        (TTF* font);
+void ttf_render_glyph(TTF* font, TTF_uint32 c, TTF_Glyph_Image* image);
 
 #endif
