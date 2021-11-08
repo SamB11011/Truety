@@ -92,7 +92,7 @@ typedef struct {
     size_t     w;
     size_t     h;
     size_t     stride;
-    size_t     size;
+    size_t     ppem;
 } TTF_Glyph_Image;
 
 

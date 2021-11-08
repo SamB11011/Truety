@@ -87,12 +87,13 @@ typedef struct {
 #define ttf__get_Offset32(data)       ttf__get_uint32(data)
 #define ttf__get_Version16Dot16(data) ttf__get_uint32(data)
 
-static TTF_uint16 ttf__get_uint16   (const TTF_uint8* data);
-static TTF_uint32 ttf__get_uint32   (const TTF_uint8* data);
-static TTF_int16  ttf__get_int16    (const TTF_uint8* data);
-static float      ttf__maxf         (float a, float b);
-static float      ttf__minf         (float a, float b);
-static float      ttf__linear_interp(float p0, float p1, float t);
+static TTF_uint16 ttf__get_uint16     (const TTF_uint8* data);
+static TTF_uint32 ttf__get_uint32     (const TTF_uint8* data);
+static TTF_int16  ttf__get_int16      (const TTF_uint8* data);
+static float      ttf__maxf           (float a, float b);
+static float      ttf__minf           (float a, float b);
+static float      ttf__linear_interp  (float p0, float p1, float t);
+static float      ttf__get_curve_max_y(const TTF_Curve* curve);
 
 
 /* -------------- */
@@ -102,6 +103,7 @@ static TTF_Node* ttf__list_alloc_node  (TTF_List* list);
 static void*     ttf__list_insert      (TTF_List* list);
 static void      ttf__list_remove      (TTF_List* list, TTF_Node* node);
 static void*     ttf__list_get_node_val(const TTF_List* list, const TTF_Node* node);
+static void*     ttf__list_get_value_buffer(const TTF_List* list);
 
 
 /* ------------------------- */
@@ -169,6 +171,7 @@ static void glyf__extract_simple_glyph_curves   (TTF* font, TTF_uint8* glyphData
 static void glyf__extract_composite_glyph_curves(TTF* font, TTF_uint8* glyphData);
 static int  glyf__get_next_simple_glyph_point   (Glyf_Simple_Glyph* glyph, TTF_Point* point);
 static int  glyf__peek_next_simple_glyph_point  (const Glyf_Simple_Glyph* glyph, TTF_Point* point);
+static int  glyf__compare_simple_glyph_curves   (const void* a, const void* b);
 
 
 /* -------------- */
@@ -272,9 +275,47 @@ void ttf_free(TTF* font) {
     }
 }
 
+// TODO: remove
+static int count = 1;
+static void print_curve(TTF* font, const TTF_Curve* curve) {
+    // printf("%2d) p0 = (%.2f, %.2f), ", count, factor * curve->p0.x, factor * curve->p0.y);
+    // printf("p1 = (%.2f, %.2f), ", factor * curve->p1.x, factor * curve->p1.y);
+    // printf("ctrl = (%.2f, %.2f)\n", factor * curve->ctrl.x, factor * curve->ctrl.y);
+    float ymax = ttf__maxf(ttf__maxf(curve->p0.y, curve->p1.y), curve->ctrl.y);
+    printf("%d) %f\n", count, ymax);
+    count++;
+}
+
 void ttf_render_glyph(TTF* font, TTF_uint32 c, TTF_Glyph_Image* image) {
     TTF_uint32 glyphIndex = cmap__get_char_glyph_index(font, c);
     glyf__extract_glyph_curves(font, glyphIndex);
+
+    // TODO: need to figure out if y=0 is top or bottom
+
+    for (float scanline = 0.5f; scanline < image->h; scanline++) {
+        TTF_Node* node = font->activeCurves.head;
+
+        while (node) {
+            TTF_Curve* curve    = ttf__list_get_node_val(&font->activeCurves, node);
+            TTF_Node*  nextNode = node->next;
+            
+            if (ttf__get_curve_max_y(curve) <= scanline) {
+                // Bottommost point of the curve is above the scanline
+                ttf__list_remove(&font->activeCurves, node);
+            }
+
+            node = nextNode;
+        }
+    }
+
+    TTF_Node* node = font->curves.head;
+    while (node != NULL) {
+        TTF_Curve* curve = ttf__list_get_node_val(&font->curves, node);
+        // float ymax = ttf__maxf(ttf__maxf(curve->p0.y, curve->p1.y), curve->ctrl.y);
+        // printf("%f\n", ymax);
+        print_curve(font, curve);
+        node = node->next;
+    }
 }
 
 /* ---------------- */
@@ -302,6 +343,10 @@ static float ttf__minf(float a, float b) {
 
 static float ttf__linear_interp(float p0, float p1, float t) {
     return p0 + t * (p1 - p0);
+}
+
+static float ttf__get_curve_max_y(const TTF_Curve* curve) {
+    return ttf__maxf(ttf__maxf(curve->p0.y, curve->p1.y), curve->ctrl.y);
 }
 
 
@@ -367,6 +412,10 @@ static void* ttf__list_get_node_val(const TTF_List* list, const TTF_Node* node) 
     size_t idx = node - (TTF_Node*)(list->mem);
     size_t off = sizeof(TTF_Node) * list->cap + list->valSize * idx;
     return list->mem + off;
+}
+
+static void* ttf__list_get_value_buffer(const TTF_List* list) {
+    return list->mem + sizeof(TTF_Node) * list->cap;
 }
 
 
@@ -840,15 +889,6 @@ static void glyf__extract_glyph_curves(TTF* font, TTF_uint32 glyphIndex) {
     }
 }
 
-// TODO: remove
-static int count = 1;
-static void print_curve(const TTF_Curve* curve) {
-    printf("%2d) p0 = (%.2f, %.2f), ", count, curve->p0.x, curve->p0.y);
-    printf("p1 = (%.2f, %.2f), ", curve->p1.x, curve->p1.y);
-    printf("ctrl = (%.2f, %.2f)\n", curve->ctrl.x, curve->ctrl.y);
-    count++;
-}
-
 static void glyf__extract_simple_glyph_curves(TTF* font, TTF_uint8* glyphData) {
     Glyf_Simple_Glyph glyph       = { 0 };
     TTF_int16         numContours = ttf__get_int16(glyphData);
@@ -897,7 +937,7 @@ static void glyf__extract_simple_glyph_curves(TTF* font, TTF_uint8* glyphData) {
             if (glyf__get_next_simple_glyph_point(&glyph, &curve->ctrl)) {
                 curve->p1        = curve->ctrl;
                 insertFinalCurve = j == endPointIdx;
-                print_curve(curve);
+                // print_curve(curve);
             }
             else if (j == endPointIdx) {
                 curve->p1 = startPoint;
@@ -909,12 +949,12 @@ static void glyf__extract_simple_glyph_curves(TTF* font, TTF_uint8* glyphData) {
                     curve->p1        = point;
                     insertFinalCurve = ++j == endPointIdx;
                     glyf__get_next_simple_glyph_point(&glyph, &point);
-                    print_curve(curve);
+                    // print_curve(curve);
                 }
                 else { // Implied on-curve point
                     curve->p1.x = ttf__linear_interp(point.x, curve->ctrl.x, 0.5f);
                     curve->p1.y = ttf__linear_interp(point.y, curve->ctrl.y, 0.5f);
-                    print_curve(curve);
+                    // print_curve(curve);
                 }
             }
 
@@ -923,7 +963,7 @@ static void glyf__extract_simple_glyph_curves(TTF* font, TTF_uint8* glyphData) {
                 finalCurve->p0   = curve->p1;
                 finalCurve->p1   = startPoint;
                 finalCurve->ctrl = startPoint;
-                print_curve(finalCurve);
+                // print_curve(finalCurve);
             }
 
             nextP0 = curve->p1;
@@ -931,6 +971,13 @@ static void glyf__extract_simple_glyph_curves(TTF* font, TTF_uint8* glyphData) {
 
         startPointIdx = endPointIdx + 1;
     }
+
+    // Since nothing has been removed from the list, the value buffer is guaranteed to be 
+    // contiguous, so it can be sorted.
+    qsort(ttf__list_get_value_buffer(&font->curves), 
+          font->curves.count, 
+          sizeof(TTF_Curve), 
+          glyf__compare_simple_glyph_curves);
 }
 
 static void glyf__extract_composite_glyph_curves(TTF* font, TTF_uint8* glyphData) {
@@ -980,6 +1027,10 @@ static int glyf__peek_next_simple_glyph_point(const Glyf_Simple_Glyph* glyph, TT
     point->y = glyph->absPos.y + GLYF_READ_COORD_OFF(Y, flags, glyph->yData);
     
     return flags & GLYF_ON_CURVE_POINT;
+}
+
+static int glyf__compare_simple_glyph_curves(const void* a, const void* b) {
+    return ttf__get_curve_max_y(a) > ttf__get_curve_max_y(b) ? -1 : 1;
 }
 
 

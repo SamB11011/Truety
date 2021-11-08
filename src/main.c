@@ -12,7 +12,15 @@ int main() {
 
 	TTF font;
 	ttf_init(&font, "./resources/fonts/Roboto-Regular.ttf");
-	ttf_render_glyph(&font, 'B', NULL);
+
+	TTF_Glyph_Image image;
+	image.w      = 100;
+	image.h      = 100;
+	image.stride = 100;
+	image.ppem   = 50;
+	image.pixels = malloc(image.w * image.h);
+	assert(image.pixels);
+	ttf_render_glyph(&font, 'E', &image);
 
 	// stbi_write_png("./output.png", SIZE, SIZE, 1, SIZE, pixels);
 	return 0;
