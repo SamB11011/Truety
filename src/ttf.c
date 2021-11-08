@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
+#include <math.h>
 #include <assert.h>
 #include "ttf.h"
 
@@ -93,6 +93,7 @@ static TTF_int16  ttf__get_int16      (const TTF_uint8* data);
 static float      ttf__maxf           (float a, float b);
 static float      ttf__minf           (float a, float b);
 static float      ttf__linear_interp  (float p0, float p1, float t);
+static float      ttf__linear_map     (float x, float x0, float y0, float x1, float y1);
 static float      ttf__get_curve_max_y(const TTF_Curve* curve);
 
 
@@ -166,12 +167,13 @@ static int  fpgm__ins_is_valid(TTF_uint8 ins);
 /* -------------- */
 /* glyf functions */
 /* -------------- */
-static void glyf__extract_glyph_curves          (TTF* font, TTF_uint32 glyphIndex);
-static void glyf__extract_simple_glyph_curves   (TTF* font, TTF_uint8* glyphData);
-static void glyf__extract_composite_glyph_curves(TTF* font, TTF_uint8* glyphData);
-static int  glyf__get_next_simple_glyph_point   (Glyf_Simple_Glyph* glyph, TTF_Point* point);
-static int  glyf__peek_next_simple_glyph_point  (const Glyf_Simple_Glyph* glyph, TTF_Point* point);
-static int  glyf__compare_simple_glyph_curves   (const void* a, const void* b);
+static TTF_uint8* glyf__get_glyph_data_block          (const TTF* font, TTF_uint32 glyphIndex);
+static void       glyf__extract_glyph_curves          (TTF* font, TTF_uint32 glyphIndex);
+static void       glyf__extract_simple_glyph_curves   (TTF* font, TTF_uint8* glyphData);
+static void       glyf__extract_composite_glyph_curves(TTF* font, TTF_uint8* glyphData);
+static int        glyf__get_next_simple_glyph_point   (Glyf_Simple_Glyph* glyph, TTF_Point* point);
+static int        glyf__peek_next_simple_glyph_point  (const Glyf_Simple_Glyph* glyph, TTF_Point* point);
+static int        glyf__compare_simple_glyph_curves   (const void* a, const void* b);
 
 
 /* -------------- */
@@ -290,7 +292,37 @@ void ttf_render_glyph(TTF* font, TTF_uint32 c, TTF_Glyph_Image* image) {
     TTF_uint32 glyphIndex = cmap__get_char_glyph_index(font, c);
     glyf__extract_glyph_curves(font, glyphIndex);
 
-    // TODO: need to figure out if y=0 is top or bottom
+    {
+        #define TTF_X_TO_PIXELS(xval) sf * ttf__linear_map(xval, min.x, 0.0f, max.x, width)
+        #define TTF_Y_TO_PIXELS(yval) sf * ttf__linear_map(yval, max.y, 0.0f, min.y, height)
+
+        TTF_Node*  node      = font->curves.head;
+        TTF_uint8* glyphData = glyf__get_glyph_data_block(font, glyphIndex);
+        TTF_Point  min       = { ttf__get_int16(glyphData + 2), ttf__get_int16(glyphData + 4) };
+        TTF_Point  max       = { ttf__get_int16(glyphData + 6), ttf__get_int16(glyphData + 8) };
+        float      width     = fabs(min.x) + fabs(max.x);
+        float      height    = fabs(min.y) + fabs(max.y);
+        float      upem      = ttf__get_uint16(font->data + font->head.off + 18);
+        float      sf        = image->ppem / upem;
+
+        while (node) {
+            TTF_Curve* curve = ttf__list_get_node_val(&font->curves, node);
+            
+            curve->p0.x = TTF_X_TO_PIXELS(curve->p0.x);
+            curve->p0.y = TTF_Y_TO_PIXELS(curve->p0.y);
+            
+            curve->p1.x = TTF_X_TO_PIXELS(curve->p1.x);
+            curve->p1.y = TTF_Y_TO_PIXELS(curve->p1.y);
+
+            curve->ctrl.x = TTF_X_TO_PIXELS(curve->ctrl.x);
+            curve->ctrl.y = TTF_Y_TO_PIXELS(curve->ctrl.y);
+
+            node = node->next;
+        }
+
+        #undef TTF_X_TO_PIXELS
+        #undef TTF_Y_TO_PIXELS
+    }
 
     for (float scanline = 0.5f; scanline < image->h; scanline++) {
         TTF_Node* node = font->activeCurves.head;
@@ -343,6 +375,12 @@ static float ttf__minf(float a, float b) {
 
 static float ttf__linear_interp(float p0, float p1, float t) {
     return p0 + t * (p1 - p0);
+}
+
+static float ttf__linear_map(float x, float x0, float y0, float x1, float y1) {
+    float m = (y1 - y0) / (x1 - x0);
+    float b = y1 - m * x1;
+    return m * x + b;
 }
 
 static float ttf__get_curve_max_y(const TTF_Curve* curve) {
@@ -876,10 +914,12 @@ static int fpgm__ins_is_valid(TTF_uint8 ins) {
      (flags & GLYF_ ## coord ## _DUAL ? *coordData : -(*coordData)) :           \
      (flags & GLYF_ ## coord ## _DUAL ? 0          : ttf__get_int16(coordData)))\
 
+static TTF_uint8* glyf__get_glyph_data_block(const TTF* font, TTF_uint32 glyphIndex) {
+    return font->data + font->glyf.off + loca__get_glyf_block_off(font, glyphIndex);
+}
+
 static void glyf__extract_glyph_curves(TTF* font, TTF_uint32 glyphIndex) {
-    TTF_uint8* glyphData = font->data     + 
-                           font->glyf.off + 
-                           loca__get_glyf_block_off(font, glyphIndex);
+    TTF_uint8* glyphData = glyf__get_glyph_data_block(font, glyphIndex);
 
     if (ttf__get_int16(glyphData) >= 0) {
         glyf__extract_simple_glyph_curves(font, glyphData);
