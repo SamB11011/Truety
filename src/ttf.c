@@ -499,15 +499,6 @@ static TTF_uint8 ttf__get_curve_scanline_x_intersection(const TTF_Curve* curve, 
         }
     }
 
-    float rat = 
-        -2.0f * scanline * curve->ctrl.y + 
-        curve->p0.y * (scanline - curve->p1.y) + 
-        scanline * curve->p1.y + curve->ctrl.y * curve->ctrl.y;
-    
-    if (rat < 0.0f) {
-        return 0;
-    }
-
     if (curve->p0.y + curve->p1.y == 2.0f * curve->ctrl.y) {
         if (curve->ctrl.y == curve->p1.y) {
             return 0;
@@ -521,6 +512,15 @@ static TTF_uint8 ttf__get_curve_scanline_x_intersection(const TTF_Curve* curve, 
 
         *x0 = ttf__quad_bezier(curve->p0.x, curve->p1.x, curve->ctrl.x, t);
         return 1;
+    }
+
+    float rat = 
+        -2.0f * scanline * curve->ctrl.y + 
+        curve->p0.y * (scanline - curve->p1.y) + 
+        scanline * curve->p1.y + curve->ctrl.y * curve->ctrl.y;
+    
+    if (rat < 0.0f) {
+        return 0;
     }
 
     float denom = curve->p0.y - 2.0f * curve->ctrl.y + curve->p1.y;
