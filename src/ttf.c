@@ -109,6 +109,7 @@ static void*     ttf__list_insert_before   (TTF_List* list, TTF_Node* node);
 static void      ttf__list_remove          (TTF_List* list, TTF_Node* node);
 static void*     ttf__list_get_node_val    (const TTF_List* list, const TTF_Node* node);
 static void*     ttf__list_get_value_buffer(const TTF_List* list);
+static void      ttf__list_remove_all      (TTF_List* list);
 
 
 /* ------------------------- */
@@ -296,18 +297,20 @@ void ttf_render_glyph(TTF* font, TTF_uint32 c, TTF_Glyph_Image* image) {
     TTF_uint32 glyphIndex = cmap__get_char_glyph_index(font, c);
     glyf__extract_glyph_curves(font, glyphIndex);
 
+    TTF_uint8* glyphData = glyf__get_glyph_data_block(font, glyphIndex);
+    TTF_Point  min       = { ttf__get_int16(glyphData + 2), ttf__get_int16(glyphData + 4) };
+    TTF_Point  max       = { ttf__get_int16(glyphData + 6), ttf__get_int16(glyphData + 8) };
+    float      width     = fabs(min.x) + fabs(max.x);
+    float      height    = fabs(min.y) + fabs(max.y);
+    float      upem      = ttf__get_uint16(font->data + font->head.off + 18);
+    float      sf        = (float)image->ppem / 2048.0f;
+
     {
         #define TTF_X_TO_PIXELS(xval) sf * ttf__linear_map(xval, min.x, 0.0f, max.x, width)
         #define TTF_Y_TO_PIXELS(yval) sf * ttf__linear_map(yval, max.y, 0.0f, min.y, height)
 
         TTF_Node*  node      = font->curves.head;
-        TTF_uint8* glyphData = glyf__get_glyph_data_block(font, glyphIndex);
-        TTF_Point  min       = { ttf__get_int16(glyphData + 2), ttf__get_int16(glyphData + 4) };
-        TTF_Point  max       = { ttf__get_int16(glyphData + 6), ttf__get_int16(glyphData + 8) };
-        float      width     = fabs(min.x) + fabs(max.x);
-        float      height    = fabs(min.y) + fabs(max.y);
-        float      upem      = ttf__get_uint16(font->data + font->head.off + 18);
-        float      sf        = (float)image->ppem / upem;
+        
 
         while (node != NULL) {
             TTF_Curve* curve = ttf__list_get_node_val(&font->curves, node);
@@ -329,6 +332,10 @@ void ttf_render_glyph(TTF* font, TTF_uint32 c, TTF_Glyph_Image* image) {
     }
 
     for (float scanline = 0.5f; scanline < image->h; scanline++) {
+        if (scanline > height) {
+            break;
+        }
+
         TTF_Node* node = font->activeCurves.head;
 
         while (node != NULL) {
@@ -433,6 +440,9 @@ void ttf_render_glyph(TTF* font, TTF_uint32 c, TTF_Glyph_Image* image) {
 
         }
     }
+
+    ttf__list_remove_all(&font->activeCurves);
+    ttf__list_remove_all(&font->curves);
 
     // TTF_Node* node = font->curves.head;
     // while (node != NULL) {
@@ -643,6 +653,13 @@ static void ttf__list_remove(TTF_List* list, TTF_Node* node) {
     node->next  = list->reuse;
     list->reuse = node;
     list->count--;
+}
+
+static void ttf__list_remove_all(TTF_List* list) {
+    list->count = 0;
+    list->head  = NULL;
+    list->tail  = NULL;
+    list->reuse = NULL;
 }
 
 static void* ttf__list_get_node_val(const TTF_List* list, const TTF_Node* node) {
