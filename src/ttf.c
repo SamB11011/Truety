@@ -87,23 +87,27 @@ typedef struct {
 #define ttf__get_Offset32(data)       ttf__get_uint32(data)
 #define ttf__get_Version16Dot16(data) ttf__get_uint32(data)
 
-static TTF_uint16 ttf__get_uint16     (const TTF_uint8* data);
-static TTF_uint32 ttf__get_uint32     (const TTF_uint8* data);
-static TTF_int16  ttf__get_int16      (const TTF_uint8* data);
-static float      ttf__maxf           (float a, float b);
-static float      ttf__minf           (float a, float b);
-static float      ttf__linear_interp  (float p0, float p1, float t);
-static float      ttf__linear_map     (float x, float x0, float y0, float x1, float y1);
-static float      ttf__get_curve_max_y(const TTF_Curve* curve);
+static TTF_uint16 ttf__get_uint16                       (const TTF_uint8* data);
+static TTF_uint32 ttf__get_uint32                       (const TTF_uint8* data);
+static TTF_int16  ttf__get_int16                        (const TTF_uint8* data);
+static float      ttf__maxf                             (float a, float b);
+static float      ttf__minf                             (float a, float b);
+static float      ttf__linear_interp                    (float p0, float p1, float t);
+static float      ttf__linear_map                       (float x, float x0, float y0, float x1, float y1);
+static float      ttf__get_curve_max_y                  (const TTF_Curve* curve);
+static float      ttf__get_curve_min_y                  (const TTF_Curve* curve);
+static void       ttf__get_min_and_max                  (float* min, float* max, float a, float b);
+static TTF_uint8  ttf__get_curve_scanline_x_intersection(const TTF_Curve* curve, float* x0, float* x1, float scanline);
 
 
 /* -------------- */
 /* List functions */
 /* -------------- */
-static TTF_Node* ttf__list_alloc_node  (TTF_List* list);
-static void*     ttf__list_insert      (TTF_List* list);
-static void      ttf__list_remove      (TTF_List* list, TTF_Node* node);
-static void*     ttf__list_get_node_val(const TTF_List* list, const TTF_Node* node);
+static TTF_Node* ttf__list_alloc_node      (TTF_List* list);
+static void*     ttf__list_insert          (TTF_List* list);
+static void*     ttf__list_insert_before   (TTF_List* list, TTF_Node* node);
+static void      ttf__list_remove          (TTF_List* list, TTF_Node* node);
+static void*     ttf__list_get_node_val    (const TTF_List* list, const TTF_Node* node);
 static void*     ttf__list_get_value_buffer(const TTF_List* list);
 
 
@@ -279,12 +283,12 @@ void ttf_free(TTF* font) {
 
 // TODO: remove
 static int count = 1;
-static void print_curve(TTF* font, const TTF_Curve* curve) {
-    // printf("%2d) p0 = (%.2f, %.2f), ", count, factor * curve->p0.x, factor * curve->p0.y);
-    // printf("p1 = (%.2f, %.2f), ", factor * curve->p1.x, factor * curve->p1.y);
-    // printf("ctrl = (%.2f, %.2f)\n", factor * curve->ctrl.x, factor * curve->ctrl.y);
-    float ymax = ttf__maxf(ttf__maxf(curve->p0.y, curve->p1.y), curve->ctrl.y);
-    printf("%d) %f\n", count, ymax);
+static void print_curve(const TTF_Curve* curve) {
+    printf("%2d) p0 = (%.2f, %.2f), ", count, curve->p0.x, curve->p0.y);
+    printf("p1 = (%.2f, %.2f), ", curve->p1.x, curve->p1.y);
+    printf("ctrl = (%.2f, %.2f)\n", curve->ctrl.x, curve->ctrl.y);
+    // float ymin = ttf__minf(ttf__minf(curve->p0.y, curve->p1.y), curve->ctrl.y);
+    // printf("%d) %f\n", count, ymin);
     count++;
 }
 
@@ -292,62 +296,134 @@ void ttf_render_glyph(TTF* font, TTF_uint32 c, TTF_Glyph_Image* image) {
     TTF_uint32 glyphIndex = cmap__get_char_glyph_index(font, c);
     glyf__extract_glyph_curves(font, glyphIndex);
 
-    {
-        #define TTF_X_TO_PIXELS(xval) sf * ttf__linear_map(xval, min.x, 0.0f, max.x, width)
-        #define TTF_Y_TO_PIXELS(yval) sf * ttf__linear_map(yval, max.y, 0.0f, min.y, height)
+    TTF_Curve curve;
+    curve.p0.x = 0.0f;
+    curve.p0.y = 0.0f;
 
-        TTF_Node*  node      = font->curves.head;
-        TTF_uint8* glyphData = glyf__get_glyph_data_block(font, glyphIndex);
-        TTF_Point  min       = { ttf__get_int16(glyphData + 2), ttf__get_int16(glyphData + 4) };
-        TTF_Point  max       = { ttf__get_int16(glyphData + 6), ttf__get_int16(glyphData + 8) };
-        float      width     = fabs(min.x) + fabs(max.x);
-        float      height    = fabs(min.y) + fabs(max.y);
-        float      upem      = ttf__get_uint16(font->data + font->head.off + 18);
-        float      sf        = image->ppem / upem;
+    curve.p1.x = 2.0f;
+    curve.p1.y = 2.0f;
 
-        while (node) {
-            TTF_Curve* curve = ttf__list_get_node_val(&font->curves, node);
-            
-            curve->p0.x = TTF_X_TO_PIXELS(curve->p0.x);
-            curve->p0.y = TTF_Y_TO_PIXELS(curve->p0.y);
-            
-            curve->p1.x = TTF_X_TO_PIXELS(curve->p1.x);
-            curve->p1.y = TTF_Y_TO_PIXELS(curve->p1.y);
+    curve.ctrl.x = 2.0f;
+    curve.ctrl.y = 2.0f;
 
-            curve->ctrl.x = TTF_X_TO_PIXELS(curve->ctrl.x);
-            curve->ctrl.y = TTF_Y_TO_PIXELS(curve->ctrl.y);
-
-            node = node->next;
-        }
-
-        #undef TTF_X_TO_PIXELS
-        #undef TTF_Y_TO_PIXELS
+    float scanline = 2.5f;
+    float x0, x1;
+    TTF_uint8 count = ttf__get_curve_scanline_x_intersection(&curve, &x0, &x1, scanline);
+    if (count == 0) {
+        printf("NO INTERSECTION\n");
     }
+    else {
+        printf("Intersect at x=%f\n", x0);
 
-    for (float scanline = 0.5f; scanline < image->h; scanline++) {
-        TTF_Node* node = font->activeCurves.head;
-
-        while (node) {
-            TTF_Curve* curve    = ttf__list_get_node_val(&font->activeCurves, node);
-            TTF_Node*  nextNode = node->next;
-            
-            if (ttf__get_curve_max_y(curve) <= scanline) {
-                // Bottommost point of the curve is above the scanline
-                ttf__list_remove(&font->activeCurves, node);
-            }
-
-            node = nextNode;
+        if (count == 2) {
+            printf("Intersect at x=%f\n", x1);
         }
     }
 
-    TTF_Node* node = font->curves.head;
-    while (node != NULL) {
-        TTF_Curve* curve = ttf__list_get_node_val(&font->curves, node);
-        // float ymax = ttf__maxf(ttf__maxf(curve->p0.y, curve->p1.y), curve->ctrl.y);
-        // printf("%f\n", ymax);
-        print_curve(font, curve);
-        node = node->next;
-    }
+    // There can be multiple intersection points ---_-
+
+    // {
+    //     #define TTF_X_TO_PIXELS(xval) sf * ttf__linear_map(xval, min.x, 0.0f, max.x, width)
+    //     #define TTF_Y_TO_PIXELS(yval) sf * ttf__linear_map(yval, max.y, 0.0f, min.y, height)
+
+    //     TTF_Node*  node      = font->curves.head;
+    //     TTF_uint8* glyphData = glyf__get_glyph_data_block(font, glyphIndex);
+    //     TTF_Point  min       = { ttf__get_int16(glyphData + 2), ttf__get_int16(glyphData + 4) };
+    //     TTF_Point  max       = { ttf__get_int16(glyphData + 6), ttf__get_int16(glyphData + 8) };
+    //     float      width     = fabs(min.x) + fabs(max.x);
+    //     float      height    = fabs(min.y) + fabs(max.y);
+    //     float      upem      = ttf__get_uint16(font->data + font->head.off + 18);
+    //     float      sf        = (float)image->ppem / upem;
+
+    //     while (node != NULL) {
+    //         TTF_Curve* curve = ttf__list_get_node_val(&font->curves, node);
+            
+    //         curve->p0.x = TTF_X_TO_PIXELS(curve->p0.x);
+    //         curve->p0.y = TTF_Y_TO_PIXELS(curve->p0.y);
+            
+    //         curve->p1.x = TTF_X_TO_PIXELS(curve->p1.x);
+    //         curve->p1.y = TTF_Y_TO_PIXELS(curve->p1.y);
+
+    //         curve->ctrl.x = TTF_X_TO_PIXELS(curve->ctrl.x);
+    //         curve->ctrl.y = TTF_Y_TO_PIXELS(curve->ctrl.y);
+
+    //         node = node->next;
+    //     }
+
+    //     #undef TTF_X_TO_PIXELS
+    //     #undef TTF_Y_TO_PIXELS
+    // }
+
+    // for (float scanline = 0.5f; scanline < image->h; scanline++) {
+    //     TTF_Node* node = font->activeCurves.head;
+
+    //     while (node != NULL) {
+    //         TTF_Node*         nextNode    = node->next;
+    //         TTF_Active_Curve* activeCurve = ttf__list_get_node_val(&font->activeCurves, node);
+            
+    //         if (ttf__get_curve_max_y(activeCurve->curve) <= scanline) {
+    //             // Bottommost point of the curve is above the scanline
+    //             ttf__list_remove(&font->activeCurves, node);
+    //         }
+    //         else {
+    //             // Update the x-intersection
+    //             float xIntersect;
+    //             ttf__get_curve_scanline_x_intersection(activeCurve->curve, &xIntersect, scanline);
+    //         }
+
+    //         node = nextNode;
+    //     }
+
+    //     node = font->curves.head;
+
+    //     while (node != NULL) {
+    //         TTF_Node*  nextNode = node->next;
+    //         TTF_Curve* curve    = ttf__list_get_node_val(&font->curves, node);
+
+    //         if (ttf__get_curve_min_y(curve) <= scanline) {
+    //             if (ttf__get_curve_max_y(curve) > scanline) {
+    //                 TTF_Node* activeNode = font->activeCurves.head;
+
+    //                 float xIntersect;
+    //                 if (!ttf__get_curve_scanline_x_intersection(curve, &xIntersect, scanline)) {
+    //                     // The scanline intersects the line extending to the curve's control point
+    //                     continue;
+    //                 }
+
+    //                 while (activeNode != NULL) {
+    //                     TTF_Active_Curve* activeCurve = 
+    //                         ttf__list_get_node_val(&font->activeCurves, activeNode);
+
+    //                     if (activeCurve->xIntersect >= xIntersect) {
+    //                         break;
+    //                     }
+
+    //                     activeNode = activeNode->next;
+    //                 }
+
+    //                 TTF_Active_Curve* activeCurve = 
+    //                     activeNode == NULL ?
+    //                     ttf__list_insert(&font->activeCurves) :
+    //                     ttf__list_insert_before(&font->activeCurves, activeNode);
+
+    //                 activeCurve->curve      = curve;
+    //                 activeCurve->xIntersect = xIntersect;
+    //                 ttf__list_remove(&font->curves, node);
+    //             }
+    //         }
+
+    //         node = nextNode;
+    //     }
+    // }
+
+    // TTF_Node* node = font->curves.head;
+    // while (node != NULL) {
+    //     TTF_Curve* curve = ttf__list_get_node_val(&font->curves, node);
+    //     // float ymax = ttf__maxf(ttf__maxf(curve->p0.y, curve->p1.y), curve->ctrl.y);
+    //     // printf("%f\n", ymax);
+    //     print_curve(curve);
+    //     node = node->next;
+    // }
 }
 
 /* ---------------- */
@@ -383,8 +459,95 @@ static float ttf__linear_map(float x, float x0, float y0, float x1, float y1) {
     return m * x + b;
 }
 
+static float ttf__quad_bezier(float p0, float p1, float ctrl, float t) {
+    float t1 = 1.0f - t;
+    return t1 * t1 * p0 + 2.0f * t1 * t * ctrl + t * t * p1;
+}
+
 static float ttf__get_curve_max_y(const TTF_Curve* curve) {
     return ttf__maxf(ttf__maxf(curve->p0.y, curve->p1.y), curve->ctrl.y);
+}
+
+static float ttf__get_curve_min_y(const TTF_Curve* curve) {
+    return ttf__minf(ttf__minf(curve->p0.y, curve->p1.y), curve->ctrl.y);
+}
+
+static void ttf__get_min_and_max(float* min, float* max, float a, float b) {
+    if (a < b) {
+        *min = a;
+        *max = b;
+    }
+    else {
+        *min = b;
+        *max = a;
+    }
+}
+
+static TTF_uint8 ttf__get_curve_scanline_x_intersection(const TTF_Curve* curve, float* x0, float* x1, float scanline) {
+    if (curve->ctrl.x == curve->p1.x) {
+        if (curve->ctrl.y == curve->p1.y) {
+            // The curve is a straight line
+            float yMin, yMax;
+            ttf__get_min_and_max(&yMin, &yMax, curve->p0.y, curve->p1.y);
+            if (scanline < yMin || scanline > yMax) {
+                return 0;
+            }
+            
+            float m = (curve->p1.y - curve->p0.y) / (curve->p1.x - curve->p0.x);
+            *x0 = (scanline - curve->p0.y) / m + curve->p0.x;
+            return 1;
+        }
+    }
+
+    float rat = 
+        -2.0f * scanline * curve->ctrl.y + 
+        curve->p0.y * (scanline - curve->p1.y) + 
+        scanline * curve->p1.y + curve->ctrl.y * curve->ctrl.y;
+    
+    if (rat < 0.0f) {
+        return 0;
+    }
+
+    if (curve->p0.y + curve->p1.y == 2.0f * curve->ctrl.y) {
+        if (curve->ctrl.y == curve->p1.y) {
+            return 0;
+        }
+
+        float t = 
+            (scanline - 2.0f * curve->ctrl.y + curve->p1.y) / 
+            (2.0f * (curve->p1.y - curve->ctrl.y));
+
+        assert(t >= 0.0f && t <= 1.0f);
+
+        *x0 = ttf__quad_bezier(curve->p0.x, curve->p1.x, curve->ctrl.x, t);
+        return 1;
+    }
+
+    float denom = curve->p0.y - 2.0f * curve->ctrl.y + curve->p1.y;
+    assert(denom != 0.0f);
+
+    float t0 = -(sqrtf(rat) - curve->p0.y + curve->ctrl.y) / denom;
+    float t1 =  (sqrtf(rat) + curve->p0.y - curve->ctrl.y) / denom;
+
+    TTF_uint8 count = 0;
+
+    if (t0 >= 0.0f && t0 <= 1.0f) {
+        *x0 = ttf__quad_bezier(curve->p0.x, curve->p1.x, curve->ctrl.x, t0);
+        count++;
+    }
+
+    if (t1 >= 0.0f && t1 <= 1.0f) {
+        float x = ttf__quad_bezier(curve->p0.x, curve->p1.x, curve->ctrl.x, t1);
+        if (count == 0) {
+            *x0 = x;
+        }
+        else {
+            *x1 = x;
+        }
+        count++;
+    }
+
+    return count;
 }
 
 
@@ -421,6 +584,23 @@ static void* ttf__list_insert(TTF_List* list) {
     list->tail = node;
     
     return ttf__list_get_node_val(list, node);
+}
+
+static void* ttf__list_insert_before(TTF_List* list, TTF_Node* node) {
+    TTF_Node* newNode = ttf__list_alloc_node(list);
+
+    if (node == list->head) {
+        list->head = newNode;
+    }
+    else {
+        node->prev->next = newNode;
+        newNode->prev    = node->prev;
+    }
+
+    node->prev    = newNode;
+    newNode->next = node;
+
+    return ttf__list_get_node_val(list, newNode);
 }
 
 static void ttf__list_remove(TTF_List* list, TTF_Node* node) {
