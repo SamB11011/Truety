@@ -2,8 +2,8 @@
 #include <assert.h>
 #include "ttf.h"
 
-// #define STB_IMAGE_WRITE_IMPLEMENTATION
-// #include "stb_image_write.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 int main() {
 	const size_t SIZE = 13;
@@ -17,11 +17,10 @@ int main() {
 	image.w      = 100;
 	image.h      = 100;
 	image.stride = 100;
-	image.ppem   = 50;
-	image.pixels = malloc(image.w * image.h);
+	image.ppem   = 75;
+	image.pixels = calloc(image.w * image.h, 1);
 	assert(image.pixels);
-	ttf_render_glyph(&font, 'E', &image);
-
-	// stbi_write_png("./output.png", SIZE, SIZE, 1, SIZE, pixels);
+	ttf_render_glyph(&font, 'g', &image);
+	stbi_write_png("./output.png", image.w, image.h, 1, image.pixels, image.stride);
 	return 0;
 }
