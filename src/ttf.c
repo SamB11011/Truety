@@ -406,6 +406,9 @@ void ttf_render_glyph(TTF* font, TTF_uint32 c, TTF_Glyph_Image* image) {
                     activeCurve->xIntersect = x0;
                     ttf__list_remove(&font->curves, node);
                 }
+                else {
+                    ttf__list_remove(&font->curves, node);
+                }
             }
 
             node = nextNode;
@@ -418,7 +421,9 @@ void ttf_render_glyph(TTF* font, TTF_uint32 c, TTF_Glyph_Image* image) {
         node = font->activeCurves.head;
         TTF_int32 windingNumber = 0;
 
-        for (TTF_uint32 i = 0; i < image->w; i++) {
+        TTF_Active_Curve* n = ttf__list_get_node_val(&font->activeCurves, node);
+
+        for (TTF_uint32 i = floorf(n->xIntersect); i < image->w; i++) {
             float             pixCenter   = i + 0.5f;
             TTF_Active_Curve* activeCurve = ttf__list_get_node_val(&font->activeCurves, node);
 
@@ -437,7 +442,6 @@ void ttf_render_glyph(TTF* font, TTF_uint32 c, TTF_Glyph_Image* image) {
                 assert(x + y * image->stride < image->w * image->h);
                 image->pixels[x + y * image->stride] = 255;
             }
-
         }
     }
 
@@ -1057,7 +1061,7 @@ static TTF_uint16 cmap__get_char_glyph_index_format_4(const TTF_uint8* subtable,
     // TTF_uint16 searchRange   = ttf__get_uint16(data + 8);
     // TTF_uint16 entrySelector = ttf__get_uint16(data + 10);
     // TTF_uint16 rangeShift    = ttf__get_uint16(data + 12);
-    #define CMAP_GET_END_CODE(subtable, index) ttf__get_uint16(subtable + 14 + 2 * (index))
+    #define CMAP_GET_END_CODE(index) ttf__get_uint16(subtable + 14 + 2 * (index))
     
     TTF_uint16 segCount = ttf__get_uint16(subtable + 6) >> 1;
     TTF_uint16 left     = 0;
@@ -1065,10 +1069,10 @@ static TTF_uint16 cmap__get_char_glyph_index_format_4(const TTF_uint8* subtable,
 
     while (left <= right) {
         TTF_uint16 mid     = (left + right) / 2;
-        TTF_uint16 endCode = CMAP_GET_END_CODE(subtable, mid);
+        TTF_uint16 endCode = CMAP_GET_END_CODE(mid);
 
         if (endCode >= c) {
-            if (mid == 0 || CMAP_GET_END_CODE(subtable, mid - 1) < c) {
+            if (mid == 0 || CMAP_GET_END_CODE(mid - 1) < c) {
                 TTF_uint32       off            = 16 + 2 * mid;
                 const TTF_uint8* idRangeOffsets = subtable + 6 * segCount + off;
                 TTF_uint16       idRangeOffset  = ttf__get_uint16(idRangeOffsets);
