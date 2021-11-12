@@ -330,117 +330,146 @@ void ttf_render_glyph(TTF* font, TTF_uint32 c, TTF_Glyph_Image* image) {
         #undef TTF_Y_TO_PIXELS
     }
 
-    for (float scanline = 0.5f; scanline < image->h; scanline++) {
-        if (scanline > height) {
-            break;
-        }
+    for (float y = 0.25f; y <= 1.0f; y += 0.25f) {
+        print_curve(ttf__list_get_node_val(&font->curves, font->curves.head));
+        TTF_Node* startNode = font->curves.head;
 
-        TTF_Node* node = font->activeCurves.head;
-
-        while (node != NULL) {
-            TTF_Node*         nextNode    = node->next;
-            TTF_Active_Curve* activeCurve = ttf__list_get_node_val(&font->activeCurves, node);
-            
-            if (ttf__get_curve_max_y(activeCurve->curve) <= scanline) {
-                // The bottommost point of the curve is above the scanline so the curve is no 
-                // longer active.
-                ttf__list_remove(&font->activeCurves, node);
-            }
-            else {
-                // Update the x position where scanline intersects the curve
-                float x0, x1;
-
-                TTF_uint8 numIntersections = 
-                    ttf__get_curve_scanline_x_intersection(activeCurve->curve, &x0, &x1, scanline);
-
-                // TODO: Handle cases where the scanline intersects the curve twice
-                assert(numIntersections == 1);
-                activeCurve->xIntersect = x0;
+        for (float scanline = y; scanline < image->h; scanline++) {
+            if (scanline > height) {
+                break;
             }
 
-            node = nextNode;
-        }
+            TTF_Node* node = font->activeCurves.head;
 
-        node = font->curves.head;
-
-        while (node != NULL) {
-            TTF_Node*  nextNode = node->next;
-            TTF_Curve* curve    = ttf__list_get_node_val(&font->curves, node);
-
-            if (ttf__get_curve_min_y(curve) <= scanline) {
-                if (ttf__get_curve_max_y(curve) > scanline) {
-                    TTF_Node* activeNode = font->activeCurves.head;
-
+            while (node != NULL) {
+                TTF_Node*         nextNode    = node->next;
+                TTF_Active_Curve* activeCurve = ttf__list_get_node_val(&font->activeCurves, node);
+                
+                if (ttf__get_curve_max_y(activeCurve->curve) <= scanline) {
+                    // The bottommost point of the curve is above the scanline so the curve is no 
+                    // longer active.
+                    ttf__list_remove(&font->activeCurves, node);
+                }
+                else {
+                    // Update the x position where scanline intersects the curve
                     float x0, x1;
 
                     TTF_uint8 numIntersections = 
-                        ttf__get_curve_scanline_x_intersection(curve, &x0, &x1, scanline);
+                        ttf__get_curve_scanline_x_intersection(activeCurve->curve, &x0, &x1, scanline);
 
-                    if (numIntersections == 0) {
-                        // The curve is parallel with the x-axis or only the curve's control point 
-                        // is above the scanline
-                        continue;
-                    }
-
-                    // TODO: handle cases where the scanline intersects the curve twice
+                    // TODO: Handle cases where the scanline intersects the curve twice
                     assert(numIntersections == 1);
+                    activeCurve->xIntersect = x0;
+                }
 
-                    while (activeNode != NULL) {
-                        TTF_Active_Curve* activeCurve = 
-                            ttf__list_get_node_val(&font->activeCurves, activeNode);
+                node = nextNode;
+            }
 
-                        if (activeCurve->xIntersect >= x0) {
-                            break;
+            node = startNode;
+
+            while (node != NULL) {
+                TTF_Node*  nextNode = node->next;
+                TTF_Curve* curve    = ttf__list_get_node_val(&font->curves, node);
+
+                if (ttf__get_curve_min_y(curve) <= scanline) {
+                    if (ttf__get_curve_max_y(curve) > scanline) {
+                        TTF_Node* activeNode = font->activeCurves.head;
+
+                        float x0, x1;
+
+                        TTF_uint8 numIntersections = 
+                            ttf__get_curve_scanline_x_intersection(curve, &x0, &x1, scanline);
+
+                        if (numIntersections == 0) {
+                            // The curve is parallel with the x-axis or only the curve's control point 
+                            // is above the scanline
+                            continue;
                         }
 
-                        activeNode = activeNode->next;
+                        // TODO: handle cases where the scanline intersects the curve twice
+                        assert(numIntersections == 1);
+
+                        while (activeNode != NULL) {
+                            TTF_Active_Curve* activeCurve = 
+                                ttf__list_get_node_val(&font->activeCurves, activeNode);
+
+                            if (activeCurve->xIntersect >= x0) {
+                                break;
+                            }
+
+                            activeNode = activeNode->next;
+                        }
+
+                        TTF_Active_Curve* activeCurve = 
+                            activeNode == NULL ?
+                            ttf__list_insert(&font->activeCurves) :
+                            ttf__list_insert_before(&font->activeCurves, activeNode);
+
+                        activeCurve->curve      = curve;
+                        activeCurve->xIntersect = x0;
+                        // ttf__list_remove(&font->curves, node);
+                        startNode = nextNode;
                     }
-
-                    TTF_Active_Curve* activeCurve = 
-                        activeNode == NULL ?
-                        ttf__list_insert(&font->activeCurves) :
-                        ttf__list_insert_before(&font->activeCurves, activeNode);
-
-                    activeCurve->curve      = curve;
-                    activeCurve->xIntersect = x0;
-                    ttf__list_remove(&font->curves, node);
+                    else {
+                        startNode = nextNode;
+                        // ttf__list_remove(&font->curves, node);
+                    }
                 }
-                else {
-                    ttf__list_remove(&font->curves, node);
-                }
+
+                node = nextNode;
             }
 
-            node = nextNode;
-        }
+            if (font->activeCurves.head == NULL) {
+                continue;
+            }
 
-        if (font->activeCurves.head == NULL) {
-            continue;
-        }
+            node = font->activeCurves.head;
+            TTF_int32 windingNumber = 0;
 
-        node = font->activeCurves.head;
-        TTF_int32 windingNumber = 0;
+            float last  = ((TTF_Active_Curve*)ttf__list_get_node_val(&font->activeCurves, font->activeCurves.tail))->xIntersect;
+            float x     = ((TTF_Active_Curve*)ttf__list_get_node_val(&font->activeCurves, node))->xIntersect;
+            float xPrev = floorf(fabs(x));
+            if (xPrev == x) {
+                float intersect = ((TTF_Active_Curve*)ttf__list_get_node_val(&font->activeCurves, node->next))->xIntersect;
+                x = intersect < x + 1.0f ? intersect : x + 1.0f;
+            }
 
-        TTF_Active_Curve* n = ttf__list_get_node_val(&font->activeCurves, node);
-        for (TTF_uint32 i = floorf(fabs(n->xIntersect)); i < image->w; i++) {
-            float             pixCenter   = i + 0.5f;
             TTF_Active_Curve* activeCurve = ttf__list_get_node_val(&font->activeCurves, node);
 
-            if (pixCenter >= activeCurve->xIntersect) {
-                if (node->next == NULL) {
-                    break;
+            while (xPrev < last) {
+                float alpha;
+                if (windingNumber != 0) {
+                    // Filled
+                    alpha = 255.0f * (x - xPrev);
                 }
-                windingNumber += activeCurve->curve->p1.y - activeCurve->curve->p0.y < 0.0f ? 1 : -1;
-                node          = node->next;
-                activeCurve   = ttf__list_get_node_val(&font->activeCurves, node);
-            }
+                else if (x != xPrev + 1) {
+                    // Not filled
+                    alpha = 255.0f * (xPrev + 1 - x);
+                }
+                else {
+                    alpha = 0.0f;
+                }
 
-            if (windingNumber != 0) {
-                TTF_uint32 x = floorf(pixCenter);
-                TTF_uint32 y = floorf(scanline);
-                assert(x + y * image->stride < image->w * image->h);
-                image->pixels[x + y * image->stride] = 255;
+                TTF_uint32 xPix = xPrev;
+                TTF_uint32 yPix = floorf(scanline);
+                assert(xPix + yPix * image->stride < image->w * image->h);
+                image->pixels[xPix + yPix * image->stride] += 0.25f * alpha;
+
+                if (x == activeCurve->xIntersect) {
+                    if (node->next == NULL) {
+                        break;
+                    }
+                    windingNumber += activeCurve->curve->p1.y - activeCurve->curve->p0.y < 0.0f ? 1 : -1;
+                    node          = node->next;
+                    activeCurve   = ttf__list_get_node_val(&font->activeCurves, node);
+                }
+
+                xPrev = ceilf(x);
+                x = activeCurve->xIntersect < xPrev + 1.0f ? activeCurve->xIntersect : xPrev + 1.0f;
             }
         }
+
+        ttf__list_remove_all(&font->activeCurves);
     }
 
     // TTF_Node* node = font->curves.head;
@@ -452,7 +481,6 @@ void ttf_render_glyph(TTF* font, TTF_uint32 c, TTF_Glyph_Image* image) {
     //     node = node->next;
     // }
 
-    ttf__list_remove_all(&font->activeCurves);
     ttf__list_remove_all(&font->curves);
 }
 
