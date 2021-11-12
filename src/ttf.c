@@ -453,7 +453,9 @@ void ttf_render_glyph(TTF* font, TTF_uint32 c, TTF_Glyph_Image* image) {
                 TTF_uint32 xPix = xPrev;
                 TTF_uint32 yPix = floorf(scanline);
                 assert(xPix + yPix * image->stride < image->w * image->h);
-                image->pixels[xPix + yPix * image->stride] += 0.25f * alpha;
+                float foo = image->pixels[xPix + yPix * image->stride] + 0.25f * alpha;
+                if (foo > 255.0f) foo = 255.0f;
+                image->pixels[xPix + yPix * image->stride] = foo;
 
                 if (x == activeCurve->xIntersect) {
                     if (node->next == NULL) {
