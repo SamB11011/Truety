@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <time.h>
+#include <string.h>
 #include "ttf.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -18,29 +19,35 @@ int main() {
     image.w      = 100;
     image.h      = 100;
     image.stride = 100;
-    image.ppem   = 75;
+    image.ppem   = 60;
     image.pixels = calloc(image.w * image.h, 1);
     assert(image.pixels);
 
     // double average = 0;
 
-    #define COUNT 1
+    #define COUNT 10000
     //Average = 0.000046 seconds
 
     for (int i = 0; i < COUNT; i++) {
         // clock_t begin = clock();
 
-        for (int c = 'a'; c <= 'a'; c++) {
+        for (int c = 'A'; c <= 'Z'; c++) {
             ttf_render_glyph(&font, c, &image);
         }
 
         // average += (double)(clock() - begin) / CLOCKS_PER_SEC;
     }
 
+    // printf("DONE\n");
+
+    // memset(image.pixels, 0, image.w * image.h);
+    // ttf_render_glyph(&font, 'y', &image);
+
     // average /= COUNT;
     // printf("Average = %f seconds\n", average);
-    
-    stbi_write_png("./output_2.png", image.w, image.h, 1, image.pixels, image.stride);
+    // printf("Yoink\n");
+
+    // stbi_write_png("./output.png", image.w, image.h, 1, image.pixels, image.stride);
     return 0;
 }
 
