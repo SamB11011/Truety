@@ -427,10 +427,6 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
         #undef TTF_TO_BITMAP_SPACE
     }
     
-    for (int i = 0; i < curveArray.count; i++) {
-        printf("%d) ", i);
-        print_curve(curveArray.curves + i);
-    }
     
     TTF_Edge_Array edgeArray = { 0 };
     
@@ -579,42 +575,64 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
             }
             
             while (1) {
-                float alpha;
-                
                 if (windingNumber != 0) {
-                    alpha = 255.0f * (x - xPrev);
-                }
-                else if (x != xPrev + 1.0f) {
-                    alpha = 255.0f * (xPrev + 1.0f - x);
+                    float alpha;
+                
+                    if (x != xPrev + 1.0f) {
+                        alpha = 255.0f * (xPrev + 1.0f - x);
+                    }
+                    else {
+                        alpha = 255.0f * (x - xPrev);
+                    }
+                    
+                    {
+                        TTF_uint32 xPix = xPrev;
+                        TTF_uint32 yPix = floorf(y);
+                        TTF_uint32 idx  = xPix + yPix * image->stride;
+                        
+                        // There are 4 scanlines per pixel, thus each scanline 
+                        // accounts for 25% of the pixel's color.
+                        alpha *= 0.25f;
+                        alpha += image->pixels[idx];
+                        alpha =  ttf__minf(alpha, 255.0f);
+                        image->pixels[idx] = alpha;
+                    }
+                    
+                    if (x == activeEdge->xIntersection) {
+                        windingNumber += activeEdge->edge->dir;
+                        activeEdge    =  activeEdge->next;
+                        
+                        if (activeEdge == NULL) {
+                            break;
+                        }
+                    }
+                    
+                    xPrev = ceilf(x);
+                    x     = ttf__minf(activeEdge->xIntersection, xPrev + 1.0f);
                 }
                 else {
-                    alpha = 0.0f;
-                }
-                
-                {
-                    TTF_uint32 xPix = xPrev;
-                    TTF_uint32 yPix = floorf(y);
-                    TTF_uint32 idx  = xPix + yPix * image->stride;
-                    
-                    // There are 4 scanlines per pixel, thus each scanline 
-                    // accounts for 25% of the pixel's color.
-                    alpha *= 0.25f;
-                    alpha += image->pixels[idx];
-                    alpha =  ttf__minf(alpha, 255.0f);
-                    image->pixels[idx] = alpha;
-                }
-                
-                if (x == activeEdge->xIntersection) {
-                    windingNumber += activeEdge->edge->dir;
-                    activeEdge    =  activeEdge->next;
-                    
-                    if (activeEdge == NULL) {
-                        break;
+                    if (x == activeEdge->xIntersection) {
+                        while (x == activeEdge->xIntersection) {
+                            windingNumber += activeEdge->edge->dir;
+                            activeEdge    =  activeEdge->next;
+                            
+                            if (activeEdge == NULL) {
+                                break;
+                            }
+                            
+                            xPrev = ceilf(x);
+                            x     = ttf__minf(activeEdge->xIntersection, xPrev + 1.0f);
+                        }
+                        
+                        if (activeEdge == NULL) {
+                            break;
+                        }
+                    }
+                    else {
+                        xPrev = ceilf(x);
+                        x     = ttf__minf(activeEdge->xIntersection, xPrev + 1.0f);
                     }
                 }
-                
-                xPrev = ceilf(x);
-                x     = ttf__minf(activeEdge->xIntersection, xPrev + 1.0f);
             }
         }
         
