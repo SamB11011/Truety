@@ -25,20 +25,21 @@ int main() {
 
     // double average = 0;
 
-    #define COUNT 10000
+    #define COUNT 1
     //Average = 0.000046 seconds
-
+    
     for (int i = 0; i < COUNT; i++) {
         // clock_t begin = clock();
 
-        for (int c = 'A'; c <= 'Z'; c++) {
+        for (int c = 'g'; c <= 'g'; c++) {
+            
             ttf_render_glyph(&font, c, &image);
         }
 
         // average += (double)(clock() - begin) / CLOCKS_PER_SEC;
     }
 
-    // printf("DONE\n");
+    printf("DONE\n");
 
     // memset(image.pixels, 0, image.w * image.h);
     // ttf_render_glyph(&font, 'y', &image);
@@ -47,7 +48,7 @@ int main() {
     // printf("Average = %f seconds\n", average);
     // printf("Yoink\n");
 
-    // stbi_write_png("./output.png", image.w, image.h, 1, image.pixels, image.stride);
+    stbi_write_png("./output.png", image.w, image.h, 1, image.pixels, image.stride);
     return 0;
 }
 

@@ -72,6 +72,7 @@ typedef struct TTF_Edge {
     TTF_Point p0;
     TTF_Point p1;
     float     invSlope;
+    TTF_int8  dir;
 } TTF_Edge;
 
 typedef struct {
@@ -123,7 +124,7 @@ static TTF_uint8        ttf__get_next_simple_glyph_flags (TTF_uint8** flagData, 
 static void             ttf__get_next_simple_glyph_point (TTF_uint8 flags, TTF_uint8** xData, TTF_uint8** yData, TTF_Point* absPos, TTF_Point* point);
 static void             ttf__peek_next_simple_glyph_point(TTF_uint8 flags, TTF_uint8** xData, TTF_uint8** yData, TTF_Point* absPos, TTF_Point* point);
 static TTF_uint8        ttf__get_next_simple_glyph_offset(TTF_uint8* data, TTF_uint8 dualFlag, TTF_uint8 shortFlag, TTF_uint8 flags, float* offset);
-static void             ttf__subdivide_curve_into_edges  (TTF_Point* p0, TTF_Point* p1, TTF_Point* p2, TTF_Edge_Array* array);
+static void             ttf__subdivide_curve_into_edges  (TTF_Point* p0, TTF_Point* p1, TTF_Point* p2, TTF_uint8 dir, TTF_Edge_Array* array);
 static int              ttf__compare_edges               (const void* e0, const void* e1);
 static float            ttf__get_scanline_x_intersection (TTF_Edge* edge, float scanline);
 static int              ttf__active_edge_list_init       (TTF_Active_Edge_List* list);
@@ -176,7 +177,7 @@ static float      ttf__minf          (float a, float b);
 static float      ttf__linear_interp (float p0, float p1, float t);
 static float      ttf__get_edge_min_y(const TTF_Edge* edge);
 static float      ttf__get_edge_max_y(const TTF_Edge* edge);
-static float      ttf__get_slope     (TTF_Point* p0, TTF_Point* p1);
+static float      ttf__get_inv_slope (TTF_Point* p0, TTF_Point* p1);
 
 
 int ttf_init(TTF* font, const char* path) {
@@ -426,6 +427,10 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
         #undef TTF_TO_BITMAP_SPACE
     }
     
+    for (int i = 0; i < curveArray.count; i++) {
+        printf("%d) ", i);
+        print_curve(curveArray.curves + i);
+    }
     
     TTF_Edge_Array edgeArray = { 0 };
     
@@ -438,7 +443,7 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
             edgeArray.count++;
         }
         else {
-            ttf__subdivide_curve_into_edges(&curve->p0, &curve->p1, &curve->p2, &edgeArray);
+            ttf__subdivide_curve_into_edges(&curve->p0, &curve->p1, &curve->p2, 0, &edgeArray);
         }
     }
     
@@ -456,13 +461,16 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
             TTF_Edge* edge = edgeArray.edges + edgeArray.count;
             edge->p0       = curve->p0;
             edge->p1       = curve->p2;
-            edge->invSlope = 1.0f / ttf__get_slope(&edge->p0, &edge->p1);
+            edge->invSlope = ttf__get_inv_slope(&edge->p0, &edge->p1);
+            edge->dir      = curve->p2.y - curve->p0.y < 0.0f ? 1 : -1;
             edgeArray.count++;
         }
         else {
-            ttf__subdivide_curve_into_edges(&curve->p0, &curve->p1, &curve->p2, &edgeArray);
+            TTF_int8 dir = curve->p2.y - curve->p0.y < 0.0f ? 1 : -1;
+            ttf__subdivide_curve_into_edges(&curve->p0, &curve->p1, &curve->p2, dir, &edgeArray);
         }
     }
+    
     
     free(curveArray.curves);
     qsort(edgeArray.edges, edgeArray.count, sizeof(TTF_Edge), ttf__compare_edges);
@@ -513,18 +521,17 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
             }
         }
         
+        
         // Find any edges that intersect the current scanline and insert them
         // into the active edges list.
         for (TTF_uint32 i = edgeOffset; i < edgeArray.count; i++) {
             TTF_Edge* edge = edgeArray.edges + i;
             
             if (ttf__get_edge_min_y(edge) > y) {
-                continue;
+                break;
             }
             
-            if (ttf__get_edge_max_y(edge) <= y) {
-                // Active edges are sorted from least to greatest x-intersection
-                
+            if (ttf__get_edge_max_y(edge) > y) {
                 float xIntersection = ttf__get_scanline_x_intersection(edge, y);
                 
                 TTF_Active_Edge* activeEdge     = activeEdgeList.headEdge;
@@ -556,10 +563,64 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
             edgeOffset++;
         }
         
-        //printf("%d\n", activeEdgeList.headChunk->numEdges);
+        
+        // Iterate through the pixels that are along the scanline.
+        if (activeEdgeList.headEdge != NULL) {
+            TTF_Active_Edge* activeEdge    = activeEdgeList.headEdge;
+            TTF_int32        windingNumber = 0;
+            
+            float x     = activeEdge->xIntersection;
+            float xPrev = floorf(fabs(x));
+            
+            if (xPrev == x) {
+                if (activeEdge->next != NULL) {
+                    x = ttf__minf(activeEdge->next->xIntersection, x + 1.0f);
+                }
+            }
+            
+            while (1) {
+                float alpha;
+                
+                if (windingNumber != 0) {
+                    alpha = 255.0f * (x - xPrev);
+                }
+                else if (x != xPrev + 1.0f) {
+                    alpha = 255.0f * (xPrev + 1.0f - x);
+                }
+                else {
+                    alpha = 0.0f;
+                }
+                
+                {
+                    TTF_uint32 xPix = xPrev;
+                    TTF_uint32 yPix = floorf(y);
+                    TTF_uint32 idx  = xPix + yPix * image->stride;
+                    
+                    // There are 4 scanlines per pixel, thus each scanline 
+                    // accounts for 25% of the pixel's color.
+                    alpha *= 0.25f;
+                    alpha += image->pixels[idx];
+                    alpha =  ttf__minf(alpha, 255.0f);
+                    image->pixels[idx] = alpha;
+                }
+                
+                if (x == activeEdge->xIntersection) {
+                    windingNumber += activeEdge->edge->dir;
+                    activeEdge    =  activeEdge->next;
+                    
+                    if (activeEdge == NULL) {
+                        break;
+                    }
+                }
+                
+                xPrev = ceilf(x);
+                x     = ttf__minf(activeEdge->xIntersection, xPrev + 1.0f);
+            }
+        }
         
         y += 0.25f;
     }
+    
     
     free(edgeArray.edges);
     ttf__active_edge_list_free(&activeEdgeList);
@@ -753,7 +814,7 @@ static TTF_uint8 ttf__get_next_simple_glyph_offset(TTF_uint8* data, TTF_uint8 du
     return 2;
 }
 
-static void ttf__subdivide_curve_into_edges(TTF_Point* p0, TTF_Point* p1, TTF_Point* p2, TTF_Edge_Array* array) {
+static void ttf__subdivide_curve_into_edges(TTF_Point* p0, TTF_Point* p1, TTF_Point* p2, TTF_uint8 dir, TTF_Edge_Array* array) {
     #define TTF_DIVIDE(a, b)        \
         { ((a)->x + (b)->x) / 2.0f, \
           ((a)->y + (b)->y) / 2.0f }
@@ -767,21 +828,21 @@ static void ttf__subdivide_curve_into_edges(TTF_Point* p0, TTF_Point* p1, TTF_Po
         d.x -= mid2.x;
         d.y -= mid2.y;
         
-        // Error = 0.1
         if (d.x * d.x + d.y * d.y < 0.01f) {
             if (array->edges != NULL) {
                 TTF_Edge* edge = array->edges + array->count;
-                edge->p0    = *p0;
-                edge->p1    = *p2;
-                edge->invSlope = 1.0f / ttf__get_slope(p0, p2);
+                edge->p0       = *p0;
+                edge->p1       = *p2;
+                edge->invSlope = ttf__get_inv_slope(p0, p2);
+                edge->dir      = dir;
             }
             array->count++;
             return;
         }
     }
     
-    ttf__subdivide_curve_into_edges(p0, &mid0, &mid2, array);
-    ttf__subdivide_curve_into_edges(&mid2, &mid1, p2, array);
+    ttf__subdivide_curve_into_edges(p0, &mid0, &mid2, dir, array);
+    ttf__subdivide_curve_into_edges(&mid2, &mid1, p2, dir, array);
     
     #undef TTF_DIVIDE
 }
@@ -1179,13 +1240,14 @@ static TTF_uint32 ttf__get_char_glyph_index(const TTF* font, TTF_uint32 cp) {
 }
 
 static TTF_uint16 ttf__get_char_glyph_index_format_4(const TTF_uint8* subtable, TTF_uint32 cp) {
+    #define CMAP_GET_END_CODE(index) ttf__get_uint16(subtable + 14 + 2 * (index))
+    
     // TODO: Not sure how these values are supposed to be used in the binary search so it will be
     //       done without them.
     //
     // TTF_uint16 searchRange   = ttf__get_uint16(data + 8);
     // TTF_uint16 entrySelector = ttf__get_uint16(data + 10);
     // TTF_uint16 rangeShift    = ttf__get_uint16(data + 12);
-    #define CMAP_GET_END_CODE(index) ttf__get_uint16(subtable + 14 + 2 * (index))
     
     TTF_uint16 segCount = ttf__get_uint16(subtable + 6) >> 1;
     TTF_uint16 left     = 0;
@@ -1261,6 +1323,12 @@ static float ttf__get_edge_min_y(const TTF_Edge* edge) {
     return ttf__minf(edge->p0.y, edge->p1.y);
 }
 
-static float ttf__get_slope(TTF_Point* p0, TTF_Point* p1) {
-    return (p1->y - p0->y) / (p1->x - p0->x);
+static float ttf__get_inv_slope(TTF_Point* p0, TTF_Point* p1) {
+    if (p0->x == p1->x) {
+        return 0.0f;
+    }
+    if (p0->y == p1->y) {
+        return 0.0f;
+    }
+    return 1.0f / ((p1->y - p0->y) / (p1->x - p0->x));
 }
