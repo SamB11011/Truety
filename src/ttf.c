@@ -555,12 +555,12 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
         }
         
         
-        // Iterate through the pixels that are along the scanline.
+        // Set the opacity of pixels along the scanline
         if (activeEdgeList.headEdge != NULL) {
             TTF_Active_Edge* activeEdge    = activeEdgeList.headEdge;
             TTF_int32        windingNumber = 0;
             
-            TTF_uint32 x     = ceilf(fabs(activeEdge->xIntersection));
+            TTF_uint32 x     = ceilf(fabs(activeEdge->xIntersection)); // TODO: cast abs + 1
             TTF_uint32 xPrev = x == 0 ? x : x - 1;
             
             do {
@@ -568,7 +568,7 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
                 
                 if (x >= activeEdge->xIntersection) {
                     if (windingNumber == 0) {
-                        alpha = 63.75f * (x - activeEdge->xIntersection);
+                        alpha = 63.75 * (x - activeEdge->xIntersection);
                     }
                     else {
                         alpha = 63.75f * (activeEdge->xIntersection - xPrev);
@@ -582,10 +582,14 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
                 }
                 
                 TTF_uint32 idx = xPrev + (TTF_uint32)y * image->stride;
-                image->pixels[idx] = fminf(image->pixels[idx] + alpha, 255.0f);
+                assert(image->pixels[idx] + alpha <= 255.0f);
                 
-                xPrev = x;
-                x++;
+                image->pixels[idx] += alpha;
+                
+                if (activeEdge != NULL && x < activeEdge->xIntersection) {
+                    xPrev = x;
+                    x++;
+                }
             }
             while (activeEdge != NULL);
         }
@@ -800,7 +804,7 @@ static void ttf__subdivide_curve_into_edges(TTF_Point* p0, TTF_Point* p1, TTF_Po
         d.x -= mid2.x;
         d.y -= mid2.y;
         
-        if (d.x * d.x + d.y * d.y < 0.1225f) {
+        if (d.x * d.x + d.y * d.y < 0.01f) {
             if (array->edges != NULL) {
                 TTF_Edge* edge = array->edges + array->count;
                 edge->p0       = *p0;

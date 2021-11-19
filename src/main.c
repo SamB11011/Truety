@@ -1,6 +1,5 @@
 #include <stdlib.h>
 #include <assert.h>
-#include <time.h>
 #include <string.h>
 #include "ttf.h"
 
@@ -8,10 +7,6 @@
 #include "stb_image_write.h"
 
 int main() {
-    const size_t SIZE = 13;
-    TTF_uint8* pixels = malloc(SIZE * SIZE);
-    assert(pixels);
-
     TTF font;
     ttf_init(&font, "./resources/fonts/Roboto-Regular.ttf");
 
@@ -22,35 +17,16 @@ int main() {
     image.ppem   = 60;
     image.pixels = calloc(image.w * image.h, 1);
     assert(image.pixels);
-
-    // double average = 0;
-
-    #define COUNT 1
-    //Average = 0.000046 seconds
     
-    for (int i = 0; i < COUNT; i++) {
-        // clock_t begin = clock();
-
-        for (int c = 'g'; c <= 'g'; c++) {
-            
+    for (int i = 0; i < 1; i++) {
+        // 't' is giving issues
+        for (int c = 't'; c <= 't'; c++) {
             ttf_render_glyph(&font, c, &image);
         }
-
-        // average += (double)(clock() - begin) / CLOCKS_PER_SEC;
     }
 
     printf("DONE\n");
-
-    // memset(image.pixels, 0, image.w * image.h);
-    // ttf_render_glyph(&font, 'y', &image);
-
-    // average /= COUNT;
-    // printf("Average = %f seconds\n", average);
-    // printf("Yoink\n");
-
+    
     stbi_write_png("./output.png", image.w, image.h, 1, image.pixels, image.stride);
     return 0;
 }
-
-// 449
-// 582
