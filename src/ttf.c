@@ -172,8 +172,6 @@ static TTF_int32  ttf__stack_pop_int32    (TTF* font);
 static TTF_uint16 ttf__get_uint16    (const TTF_uint8* data);
 static TTF_uint32 ttf__get_uint32    (const TTF_uint8* data);
 static TTF_int16  ttf__get_int16     (const TTF_uint8* data);
-static float      ttf__maxf          (float a, float b);
-static float      ttf__minf          (float a, float b);
 static float      ttf__linear_interp (float p0, float p1, float t);
 static float      ttf__get_edge_min_y(const TTF_Edge* edge);
 static float      ttf__get_edge_max_y(const TTF_Edge* edge);
@@ -479,14 +477,11 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
     }
     
     
-    // TODO: start at 0.0f
     float y = ttf__get_edge_min_y(edgeArray.edges);
-    y = 0.25f + floorf(ttf__maxf(y, 0.0f));
+    y = floorf(fmaxf(y, 0.0f));
     
     float yEnd = ttf__get_edge_max_y(edgeArray.edges + (edgeArray.count - 1));
-    yEnd = ttf__minf(ceilf(ttf__maxf(yEnd, 0.0f)), image->h);
-    
-    //printf("y=%f, yEnd=%f\n", y, yEnd);
+    yEnd = fminf(ceilf(fmaxf(yEnd, 0.0f)), image->h);
     
     TTF_uint32 edgeOffset = 0;
     
@@ -519,11 +514,11 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
         
         
         // Find any edges that intersect the current scanline and insert them
-        // into the active edges list.
+        // into the active edge list.
         for (TTF_uint32 i = edgeOffset; i < edgeArray.count; i++) {
             TTF_Edge* edge = edgeArray.edges + i;
             
-            if (ttf__get_edge_min_y(edge) > y) {
+            if (ttf__get_edge_min_y(edge) >= y) {
                 break;
             }
             
@@ -565,75 +560,34 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
             TTF_Active_Edge* activeEdge    = activeEdgeList.headEdge;
             TTF_int32        windingNumber = 0;
             
-            float x     = activeEdge->xIntersection;
-            float xPrev = floorf(fabs(x));
+            TTF_uint32 x     = ceilf(fabs(activeEdge->xIntersection));
+            TTF_uint32 xPrev = x == 0 ? x : x - 1;
             
-            if (xPrev == x) {
-                if (activeEdge->next != NULL) {
-                    x = ttf__minf(activeEdge->next->xIntersection, x + 1.0f);
-                }
-            }
-            
-            while (1) {
-                if (windingNumber != 0) {
-                    float alpha;
+            do {
+                float alpha;
                 
-                    if (x != xPrev + 1.0f) {
-                        alpha = 255.0f * (xPrev + 1.0f - x);
+                if (x >= activeEdge->xIntersection) {
+                    if (windingNumber == 0) {
+                        alpha = 63.75f * (x - activeEdge->xIntersection);
                     }
                     else {
-                        alpha = 255.0f * (x - xPrev);
+                        alpha = 63.75f * (activeEdge->xIntersection - xPrev);
                     }
                     
-                    {
-                        TTF_uint32 xPix = xPrev;
-                        TTF_uint32 yPix = floorf(y);
-                        TTF_uint32 idx  = xPix + yPix * image->stride;
-                        
-                        // There are 4 scanlines per pixel, thus each scanline 
-                        // accounts for 25% of the pixel's color.
-                        alpha *= 0.25f;
-                        alpha += image->pixels[idx];
-                        alpha =  ttf__minf(alpha, 255.0f);
-                        image->pixels[idx] = alpha;
-                    }
-                    
-                    if (x == activeEdge->xIntersection) {
-                        windingNumber += activeEdge->edge->dir;
-                        activeEdge    =  activeEdge->next;
-                        
-                        if (activeEdge == NULL) {
-                            break;
-                        }
-                    }
-                    
-                    xPrev = ceilf(x);
-                    x     = ttf__minf(activeEdge->xIntersection, xPrev + 1.0f);
+                    windingNumber += activeEdge->edge->dir;
+                    activeEdge     = activeEdge->next;
                 }
                 else {
-                    if (x == activeEdge->xIntersection) {
-                        while (x == activeEdge->xIntersection) {
-                            windingNumber += activeEdge->edge->dir;
-                            activeEdge    =  activeEdge->next;
-                            
-                            if (activeEdge == NULL) {
-                                break;
-                            }
-                            
-                            xPrev = ceilf(x);
-                            x     = ttf__minf(activeEdge->xIntersection, xPrev + 1.0f);
-                        }
-                        
-                        if (activeEdge == NULL) {
-                            break;
-                        }
-                    }
-                    else {
-                        xPrev = ceilf(x);
-                        x     = ttf__minf(activeEdge->xIntersection, xPrev + 1.0f);
-                    }
+                    alpha = 63.75f * windingNumber;
                 }
+                
+                TTF_uint32 idx = xPrev + (TTF_uint32)y * image->stride;
+                image->pixels[idx] = fminf(image->pixels[idx] + alpha, 255.0f);
+                
+                xPrev = x;
+                x++;
             }
+            while (activeEdge != NULL);
         }
         
         y += 0.25f;
@@ -846,7 +800,7 @@ static void ttf__subdivide_curve_into_edges(TTF_Point* p0, TTF_Point* p1, TTF_Po
         d.x -= mid2.x;
         d.y -= mid2.y;
         
-        if (d.x * d.x + d.y * d.y < 0.01f) {
+        if (d.x * d.x + d.y * d.y < 0.1225f) {
             if (array->edges != NULL) {
                 TTF_Edge* edge = array->edges + array->count;
                 edge->p0       = *p0;
@@ -1321,24 +1275,16 @@ static TTF_int16 ttf__get_int16(const TTF_uint8* data) {
     return data[0] << 8 | data[1];
 }
 
-static float ttf__maxf(float a, float b) {
-    return a > b ? a : b;
-}
-
-static float ttf__minf(float a, float b) {
-    return a < b ? a : b;
-}
-
 static float ttf__linear_interp(float p0, float p1, float t) {
     return p0 + t * (p1 - p0);
 }
 
 static float ttf__get_edge_max_y(const TTF_Edge* edge) {
-    return ttf__maxf(edge->p0.y, edge->p1.y);
+    return fmaxf(edge->p0.y, edge->p1.y);
 }
 
 static float ttf__get_edge_min_y(const TTF_Edge* edge) {
-    return ttf__minf(edge->p0.y, edge->p1.y);
+    return fminf(edge->p0.y, edge->p1.y);
 }
 
 static float ttf__get_inv_slope(TTF_Point* p0, TTF_Point* p1) {
