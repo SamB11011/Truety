@@ -18,15 +18,14 @@ int main() {
     image.pixels = calloc(image.w * image.h, 1);
     assert(image.pixels);
     
-    for (int i = 0; i < 1; i++) {
-        // 't' is giving issues
-        for (int c = 't'; c <= 't'; c++) {
+    for (int i = 0; i < 10000; i++) {
+        for (int c = 'A'; c <= 'Z'; c++) {
             ttf_render_glyph(&font, c, &image);
         }
     }
 
     printf("DONE\n");
     
-    stbi_write_png("./output.png", image.w, image.h, 1, image.pixels, image.stride);
+    // stbi_write_png("./output.png", image.w, image.h, 1, image.pixels, image.stride);
     return 0;
 }

@@ -73,6 +73,8 @@ typedef struct TTF_Edge {
     TTF_Point p0;
     TTF_Point p1;
     float     invSlope;
+    float     yMin;
+    float     yMax;
     TTF_int8  dir;
 } TTF_Edge;
 
@@ -170,13 +172,12 @@ static TTF_int32  ttf__stack_pop_int32    (TTF* font);
 #define ttf__get_Offset32(data)       ttf__get_uint32(data)
 #define ttf__get_Version16Dot16(data) ttf__get_uint32(data)
 
-static TTF_uint16 ttf__get_uint16    (const TTF_uint8* data);
-static TTF_uint32 ttf__get_uint32    (const TTF_uint8* data);
-static TTF_int16  ttf__get_int16     (const TTF_uint8* data);
-static float      ttf__linear_interp (float p0, float p1, float t);
-static float      ttf__get_edge_min_y(const TTF_Edge* edge);
-static float      ttf__get_edge_max_y(const TTF_Edge* edge);
-static float      ttf__get_inv_slope (TTF_Point* p0, TTF_Point* p1);
+static TTF_uint16 ttf__get_uint16   (const TTF_uint8* data);
+static TTF_uint32 ttf__get_uint32   (const TTF_uint8* data);
+static TTF_int16  ttf__get_int16    (const TTF_uint8* data);
+static float      ttf__linear_interp(float p0, float p1, float t);
+static void       ttf__get_min_max  (float v0, float v1, float* min, float* max);
+static float      ttf__get_inv_slope(TTF_Point* p0, TTF_Point* p1);
 
 
 int ttf_init(TTF* font, const char* path) {
@@ -458,6 +459,7 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
             edge->p1       = curve->p2;
             edge->invSlope = ttf__get_inv_slope(&edge->p0, &edge->p1);
             edge->dir      = curve->p2.y - curve->p0.y < 0.0f ? 1 : -1;
+            ttf__get_min_max(edge->p0.y, edge->p1.y, &edge->yMin, &edge->yMax);
             edgeArray.count++;
         }
         else {
@@ -478,11 +480,8 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
     }
     
     
-    float y = ttf__get_edge_min_y(edgeArray.edges);
-    y = floorf(fmaxf(y, 0.0f));
-    
-    float yEnd = ttf__get_edge_max_y(edgeArray.edges + (edgeArray.count - 1));
-    yEnd = fminf(ceilf(fmaxf(yEnd, 0.0f)), image->h);
+    float y    = floorf(fmaxf(edgeArray.edges->yMin, 0.0f));
+    float yEnd = fminf(ceilf(edgeArray.edges[edgeArray.count - 1].yMax), image->h);
     
     TTF_uint32 edgeOffset = 0;
     
@@ -499,7 +498,7 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
             while (activeEdge != NULL) {
                 TTF_Active_Edge* next = activeEdge->next;
                 
-                if (ttf__get_edge_max_y(activeEdge->edge) <= y) {
+                if (activeEdge->edge->yMax <= y) {
                     ttf__remove_active_edge(&activeEdgeList, prevActiveEdge, activeEdge);
                 }
                 else {
@@ -519,11 +518,11 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
         for (TTF_uint32 i = edgeOffset; i < edgeArray.count; i++) {
             TTF_Edge* edge = edgeArray.edges + i;
             
-            if (ttf__get_edge_min_y(edge) > y) {
+            if (edge->yMin > y) {
                 break;
             }
             
-            if (ttf__get_edge_max_y(edge) > y) {
+            if (edge->yMax > y) {
                 float xIntersection = ttf__get_scanline_x_intersection(edge, y);
                 
                 TTF_Active_Edge* activeEdge     = activeEdgeList.headEdge;
@@ -815,6 +814,7 @@ static void ttf__subdivide_curve_into_edges(TTF_Point* p0, TTF_Point* p1, TTF_Po
                 edge->p1       = *p2;
                 edge->invSlope = ttf__get_inv_slope(p0, p2);
                 edge->dir      = dir;
+                ttf__get_min_max(p0->y, p2->y, &edge->yMin, &edge->yMax);
             }
             array->count++;
             return;
@@ -828,9 +828,15 @@ static void ttf__subdivide_curve_into_edges(TTF_Point* p0, TTF_Point* p1, TTF_Po
 }
 
 static int ttf__compare_edges(const void* e0, const void* e1) {
-    float min0 = ttf__get_edge_min_y(e0);
-    float min1 = ttf__get_edge_min_y(e1);
-    return min0 < min1 ? -1 : min0 == min1 ? 0 : 1;
+    if (((TTF_Edge*)e0)->yMin < ((TTF_Edge*)e1)->yMin) {
+        return -1;
+    }
+    
+    if (((TTF_Edge*)e0)->yMin > ((TTF_Edge*)e1)->yMin) {
+        return 1;
+    }
+    
+    return 0;
 }
 
 static float ttf__get_scanline_x_intersection(TTF_Edge* edge, float scanline) {
@@ -1287,12 +1293,15 @@ static float ttf__linear_interp(float p0, float p1, float t) {
     return p0 + t * (p1 - p0);
 }
 
-static float ttf__get_edge_max_y(const TTF_Edge* edge) {
-    return fmaxf(edge->p0.y, edge->p1.y);
-}
-
-static float ttf__get_edge_min_y(const TTF_Edge* edge) {
-    return fminf(edge->p0.y, edge->p1.y);
+static void ttf__get_min_max(float v0, float v1, float* min, float* max) {
+    if (v0 < v1) {
+        *min = v0;
+        *max = v1;
+    }
+    else {
+        *min = v1;
+        *max = v0;
+    }
 }
 
 static float ttf__get_inv_slope(TTF_Point* p0, TTF_Point* p1) {
