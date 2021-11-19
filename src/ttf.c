@@ -16,9 +16,10 @@
 #endif
 
 
-#define TTF_EDGES_PER_CHUNK     10
-#define TTF_F26DOT6_SF_INV      64 /* Inverse of 26.6 fixed point scaling factor */
-#define TTF_PIXELS_PER_SCANLINE 0.25f
+#define TTF_EDGES_PER_CHUNK      10
+#define TTF_F26DOT6_SF_INV       64 /* Inverse of 26.6 fixed point scaling factor */
+#define TTF_PIXELS_PER_SCANLINE  0.25f
+#define TTF_SUBDIVIDE_SQRD_ERROR 0.01f
 
 enum {
     TTF_GLYF_ON_CURVE_POINT = 0x01,
@@ -518,7 +519,7 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
         for (TTF_uint32 i = edgeOffset; i < edgeArray.count; i++) {
             TTF_Edge* edge = edgeArray.edges + i;
             
-            if (ttf__get_edge_min_y(edge) >= y) {
+            if (ttf__get_edge_min_y(edge) > y) {
                 break;
             }
             
@@ -807,7 +808,7 @@ static void ttf__subdivide_curve_into_edges(TTF_Point* p0, TTF_Point* p1, TTF_Po
         d.x -= mid2.x;
         d.y -= mid2.y;
         
-        if (d.x * d.x + d.y * d.y < 0.01f) {
+        if (d.x * d.x + d.y * d.y <= TTF_SUBDIVIDE_SQRD_ERROR) {
             if (array->edges != NULL) {
                 TTF_Edge* edge = array->edges + array->count;
                 edge->p0       = *p0;
