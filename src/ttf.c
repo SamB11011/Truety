@@ -17,7 +17,7 @@
 
 
 #define TTF_EDGES_PER_CHUNK      10
-#define TTF_F26DOT6_SF_INV       64 /* Inverse of 26.6 fixed point scaling factor */
+#define TTF_F26DOT6_SF_INV       64    /* Inverse of 26.6 fixed point scaling factor */
 #define TTF_PIXELS_PER_SCANLINE  0.25f
 #define TTF_SUBDIVIDE_SQRD_ERROR 0.01f
 
@@ -26,8 +26,8 @@ enum {
     TTF_GLYF_X_SHORT_VECTOR = 0x02,
     TTF_GLYF_Y_SHORT_VECTOR = 0x04,
     TTF_GLYF_REPEAT_FLAG    = 0x08,
-    TTF_GLYF_X_DUAL         = 0x10, // X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR
-    TTF_GLYF_Y_DUAL         = 0x20, // Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR
+    TTF_GLYF_X_DUAL         = 0x10, /* X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR */
+    TTF_GLYF_Y_DUAL         = 0x20, /* Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR */
     TTF_GLYF_OVERLAP_SIMPLE = 0x40,
     TTF_GLYF_RESERVED       = 0x80,
 };
@@ -128,6 +128,7 @@ static void             ttf__get_next_simple_glyph_point (TTF_uint8 flags, TTF_u
 static void             ttf__peek_next_simple_glyph_point(TTF_uint8 flags, TTF_uint8** xData, TTF_uint8** yData, TTF_Point* absPos, TTF_Point* point);
 static TTF_uint8        ttf__get_next_simple_glyph_offset(TTF_uint8* data, TTF_uint8 dualFlag, TTF_uint8 shortFlag, TTF_uint8 flags, float* offset);
 static void             ttf__subdivide_curve_into_edges  (TTF_Point* p0, TTF_Point* p1, TTF_Point* p2, TTF_uint8 dir, TTF_Edge_Array* array);
+static void             ttf__add_edge_to_array           (TTF_Edge_Array* array, TTF_Point* p0, TTF_Point* p1, TTF_uint8 dir);
 static int              ttf__compare_edges               (const void* e0, const void* e1);
 static float            ttf__get_scanline_x_intersection (TTF_Edge* edge, float scanline);
 static int              ttf__active_edge_list_init       (TTF_Active_Edge_List* list);
@@ -452,18 +453,12 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
     edgeArray.count = 0;
     for (TTF_uint32 i = 0; i < curveArray.count; i++) {
         TTF_Curve* curve = curveArray.curves + i;
+        TTF_uint8  dir   = curve->p2.y < curve->p0.y ? 1 : -1;
         
         if (curve->p1.x == curve->p2.x && curve->p1.y == curve->p2.y) {
-            TTF_Edge* edge = edgeArray.edges + edgeArray.count;
-            edge->p0       = curve->p0;
-            edge->p1       = curve->p2;
-            edge->invSlope = ttf__get_inv_slope(&edge->p0, &edge->p1);
-            edge->dir      = curve->p2.y - curve->p0.y < 0.0f ? 1 : -1;
-            ttf__get_min_max(edge->p0.y, edge->p1.y, &edge->yMin, &edge->yMax);
-            edgeArray.count++;
+            ttf__add_edge_to_array(&edgeArray, &curve->p0, &curve->p2, dir);
         }
         else {
-            TTF_int8 dir = curve->p2.y - curve->p0.y < 0.0f ? 1 : -1;
             ttf__subdivide_curve_into_edges(&curve->p0, &curve->p1, &curve->p2, dir, &edgeArray);
         }
     }
@@ -808,15 +803,13 @@ static void ttf__subdivide_curve_into_edges(TTF_Point* p0, TTF_Point* p1, TTF_Po
         d.y -= mid2.y;
         
         if (d.x * d.x + d.y * d.y <= TTF_SUBDIVIDE_SQRD_ERROR) {
-            if (array->edges != NULL) {
-                TTF_Edge* edge = array->edges + array->count;
-                edge->p0       = *p0;
-                edge->p1       = *p2;
-                edge->invSlope = ttf__get_inv_slope(p0, p2);
-                edge->dir      = dir;
-                ttf__get_min_max(p0->y, p2->y, &edge->yMin, &edge->yMax);
+            if (array->edges == NULL) {
+                // The edges are just being counted, not created
+                array->count++;
             }
-            array->count++;
+            else {
+                ttf__add_edge_to_array(array, p0, p2, dir);
+            }
             return;
         }
     }
@@ -825,6 +818,15 @@ static void ttf__subdivide_curve_into_edges(TTF_Point* p0, TTF_Point* p1, TTF_Po
     ttf__subdivide_curve_into_edges(&mid2, &mid1, p2, dir, array);
     
     #undef TTF_DIVIDE
+}
+
+static void ttf__add_edge_to_array(TTF_Edge_Array* array, TTF_Point* p0, TTF_Point* p1, TTF_uint8 dir) {
+    TTF_Edge* edge = array->edges + array->count++;
+    edge->p0       = *p0;
+    edge->p1       = *p1;
+    edge->invSlope = ttf__get_inv_slope(p0, p1);
+    edge->dir      = dir;
+    ttf__get_min_max(p0->y, p1->y, &edge->yMin, &edge->yMax);
 }
 
 static int ttf__compare_edges(const void* e0, const void* e1) {
