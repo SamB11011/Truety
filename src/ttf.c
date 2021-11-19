@@ -16,9 +16,9 @@
 #endif
 
 
-#define TTF_EDGES_PER_CHUNK 10
-#define TTF_F26DOT6_SF_INV  64 /* Inverse of 26.6 fixed point scaling factor */
-
+#define TTF_EDGES_PER_CHUNK     10
+#define TTF_F26DOT6_SF_INV      64 /* Inverse of 26.6 fixed point scaling factor */
+#define TTF_PIXELS_PER_SCANLINE 0.25f
 
 enum {
     TTF_GLYF_ON_CURVE_POINT = 0x01,
@@ -560,41 +560,44 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
             TTF_Active_Edge* activeEdge    = activeEdgeList.headEdge;
             TTF_int32        windingNumber = 0;
             
-            TTF_uint32 x     = ceilf(fabs(activeEdge->xIntersection)); // TODO: cast abs + 1
-            TTF_uint32 xPrev = x == 0 ? x : x - 1;
+            TTF_uint32 x      = ceilf(fabs(activeEdge->xIntersection));
+            TTF_uint32 xPrev  = x == 0 ? x : x - 1;
+            TTF_uint32 rowOff = (TTF_uint32)y * image->stride;
             
-            do {
-                float alpha;
-                
-                if (x >= activeEdge->xIntersection) {
-                    if (windingNumber == 0) {
-                        alpha = 63.75 * (x - activeEdge->xIntersection);
-                    }
-                    else {
-                        alpha = 63.75f * (activeEdge->xIntersection - xPrev);
-                    }
-                    
-                    windingNumber += activeEdge->edge->dir;
-                    activeEdge     = activeEdge->next;
+            float weightedAlpha  = 255.0f * TTF_PIXELS_PER_SCANLINE;
+            float fullPixelAlpha = 0.0f;
+            
+            while(1) {
+                if (windingNumber == 0) {
+                    image->pixels[xPrev + rowOff] += 
+                        weightedAlpha * (x - activeEdge->xIntersection);
                 }
                 else {
-                    alpha = 63.75f * windingNumber;
+                    image->pixels[xPrev + rowOff] += 
+                        weightedAlpha * (activeEdge->xIntersection - xPrev);
                 }
                 
-                TTF_uint32 idx = xPrev + (TTF_uint32)y * image->stride;
-                assert(image->pixels[idx] + alpha <= 255.0f);
+                windingNumber  += activeEdge->edge->dir;
+                activeEdge     =  activeEdge->next;
+                fullPixelAlpha =  weightedAlpha * windingNumber;
                 
-                image->pixels[idx] += alpha;
+                if (activeEdge == NULL) {
+                    break;
+                }
                 
-                if (activeEdge != NULL && x < activeEdge->xIntersection) {
+                if (x < activeEdge->xIntersection) {
                     xPrev = x;
                     x++;
+                    while (x < activeEdge->xIntersection) {
+                        image->pixels[xPrev + rowOff] += fullPixelAlpha;
+                        xPrev = x;
+                        x++;
+                    }
                 }
             }
-            while (activeEdge != NULL);
         }
         
-        y += 0.25f;
+        y += TTF_PIXELS_PER_SCANLINE;
     }
     
     
