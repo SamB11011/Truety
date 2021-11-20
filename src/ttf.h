@@ -43,7 +43,7 @@ typedef struct {
 } TTF_Stack;
 
 typedef struct {
-    const TTF_uint8* firstIns;
+    TTF_uint8* firstIns;
 } TTF_Func;
 
 typedef struct {
@@ -54,6 +54,7 @@ typedef struct {
 typedef struct {
     TTF_uint8*          data;
     TTF_uint32          size;
+    TTF_uint32          scaleFactor;
     TTF_uint8*          insMem;
     TTF_Table           cmap;
     TTF_Table           fpgm;
@@ -73,12 +74,12 @@ typedef struct {
     TTF_uint16 w;
     TTF_uint16 h;
     TTF_uint16 stride;
-    TTF_uint16 ppem;
 } TTF_Glyph_Image;
 
 
-int  ttf_init        (TTF* font, const char* path);
+int  ttf_init        (TTF* font, const char* path, TTF_uint32 ppem);
 void ttf_free        (TTF* font);
 int  ttf_render_glyph(TTF* font, TTF_uint32 cp, TTF_Glyph_Image* image);
+int  ttf_set_ppem    (TTF* font, TTF_uint32 ppem);
 
 #endif
