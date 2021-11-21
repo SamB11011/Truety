@@ -8,24 +8,35 @@
 
 int main() {
     TTF font;
-    ttf_init(&font, "./resources/fonts/Roboto-Regular.ttf");
-
-    TTF_Glyph_Image image;
-    image.w      = 100;
-    image.h      = 100;
-    image.stride = 100;
-    image.ppem   = 60;
-    image.pixels = calloc(image.w * image.h, 1);
-    assert(image.pixels);
-    
-    for (int i = 0; i < 10000; i++) {
-        for (int c = 'A'; c <= 'Z'; c++) {
-            ttf_render_glyph(&font, c, &image);
-        }
+    if (!ttf_init(&font, "./resources/fonts/Roboto-Regular.ttf")) {
+        fprintf(stderr, "Failed to create TTF.\n");
+        return 1;
     }
 
-    printf("DONE\n");
-    
-    // stbi_write_png("./output.png", image.w, image.h, 1, image.pixels, image.stride);
+    TTF_Instance instance;
+    if (!ttf_instance_init(&font, &instance, 60)) {
+        fprintf(stderr, "Failed to create TTF_Instance.\n");
+        return 1;
+    }
+
+    ttf_set_current_instance(&font, &instance);
+
+    TTF_Image image;
+    if (!ttf_image_init(&image, NULL, 100, 100, 100)) {
+        fprintf(stderr, "Failed to create TTF_Image.\n");
+        return 1;
+    }
+
+    if (!ttf_render_glyph_to_existing_image(&font, &image, 'g', 0, 0)) {
+        fprintf(stderr, "Failed to render glyph.\n");
+        return 1;
+    }
+
+    stbi_write_png("./output.png", image.w, image.h, 1, image.pixels, image.stride);
+
+    ttf_free_image(&image);
+    ttf_free_instance(&font, &instance);
+    ttf_free(&font);
+
     return 0;
 }

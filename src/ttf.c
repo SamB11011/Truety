@@ -6,17 +6,14 @@
 #include "ttf.h"
 
 
-/* Rendering macros */
 #define TTF_EDGES_PER_CHUNK      10
 #define TTF_PIXELS_PER_SCANLINE  0.25f
 #define TTF_SUBDIVIDE_SQRD_ERROR 0.01f
 
-
-/* Instruction macro */
 #define TTF_SCALAR_VERSION 35
-#define TTF_F26DOT6_SF_INV 64 /* Inverse of 26.6 fixed point scaling factor */
 
-#define TTF_GET_NUM_VALS_TO_PUSH(ins) (1 + (ins & 0x7)) /* For PUSHB and PUSHW */
+#define TTF_F26DOT6_SHIFT  6
+#define TTF_F16DOT16_SHIFT 16
 
 
 enum {
@@ -154,8 +151,8 @@ static TTF_uint16 ttf__get_char_glyph_index_format_4(TTF_uint8* subtable, TTF_ui
 /* Rendering */
 /* --------- */
 static TTF_uint8*       ttf__get_glyf_data_block         (TTF* font, TTF_uint32 idx);
-static int              ttf__render_simple_glyph         (TTF* font, TTF_uint8* glyphData, TTF_Glyph_Image* image, TTF_int16 numContours);
-static int              ttf__render_composite_glyph      (TTF* font, TTF_uint8* glyphData, TTF_Glyph_Image* image);
+static int              ttf__render_simple_glyph         (TTF* font, TTF_Image* image, TTF_uint8* glyphData, TTF_int16 numContours);
+static int              ttf__render_composite_glyph      (TTF* font, TTF_Image* image, TTF_uint8* glyphData);
 static int              ttf__get_simple_glyph_curves     (TTF_uint8* glyphData, TTF_Curve_Array* array, TTF_int16 numContours);
 static TTF_uint8        ttf__get_next_simple_glyph_flags (TTF_uint8** flagData, TTF_uint8* flagsReps);
 static void             ttf__get_next_simple_glyph_point (TTF_uint8 flags, TTF_uint8** xData, TTF_uint8** yData, TTF_Point* absPos, TTF_Point* point);
@@ -180,6 +177,8 @@ static void             ttf__active_edge_list_free       (TTF_Active_Edge_List* 
 #define ttf__stack_push_F26Dot6(font, val) ttf__stack_push_int32(font, val)
 #define ttf__stack_pop_F2Dot14(font)       ttf__stack_pop_int32(font)
 #define ttf__stack_pop_F26Dot6(font)       ttf__stack_pop_int32(font)
+
+#define TTF_GET_NUM_VALS_TO_PUSH(ins) (1 + (ins & 0x7)) /* For PUSHB and PUSHW */
 
 static TTF_uint16 ttf__get_stack_capacity  (TTF* font);
 static TTF_uint16 ttf__get_func_capacity   (TTF* font);
@@ -221,16 +220,21 @@ static TTF_uint8  ttf__jump_to_else_or_eif (TTF_Ins_Stream* stream);
 static TTF_uint16 ttf__get_uint16   (TTF_uint8* data);
 static TTF_uint32 ttf__get_uint32   (TTF_uint8* data);
 static TTF_int16  ttf__get_int16    (TTF_uint8* data);
+static TTF_uint16 ttf__get_upem     (TTF* font);
 static float      ttf__linear_interp(float p0, float p1, float t);
 static void       ttf__get_min_max  (float v0, float v1, float* min, float* max);
 static float      ttf__get_inv_slope(TTF_Point* p0, TTF_Point* p1);
 
 
-int ttf_init(TTF* font, const char* path, TTF_uint32 ppem) {
-    if (ppem == 0) {
-        return 0;
-    }
+/* ---------------------- */
+/* Fixed-point operations */
+/* ---------------------- */
+#define TTF_FIXED_MULT(f0, f1, shift) ((f0 * f1) >> shift)
+#define TTF_FIXED_DIV(f0, f1, shift)  (f0 / (f1 >> shift))
+#define TTF_INT32_TO_FIXED(i, shift)  (i << shift)
 
+
+int ttf_init(TTF* font, const char* path) {
     memset(font, 0, sizeof(TTF));
 
     if (!ttf__read_file_into_buffer(font, path)) {
@@ -255,13 +259,49 @@ int ttf_init(TTF* font, const char* path, TTF_uint32 ppem) {
     }
 
     ttf__execute_font_program(font);
-    ttf_set_ppem(font, ppem);
 
     return 1;
 
 init_failure:
     ttf_free(font);
     return 0;
+}
+
+int ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint16 ppem) {
+    {
+        TTF_int32 upem = TTF_INT32_TO_FIXED(ttf__get_upem(font), TTF_F16DOT16_SHIFT);
+
+        instance->ppem  = ppem;
+        ppem            = TTF_INT32_TO_FIXED(ppem, TTF_F16DOT16_SHIFT);
+        instance->scale = TTF_FIXED_DIV(instance->ppem, upem, TTF_F16DOT16_SHIFT);
+    }
+
+    if (font->cvt.exists) {
+        instance->cvt = calloc(font->cvt.size / sizeof(TTF_FWORD), sizeof(TTF_F26Dot6));
+        if (instance->cvt == NULL) {
+            return 0;
+        }
+    }
+    else {
+        instance->cvt = NULL;
+    }
+
+    return 1;
+}
+
+int ttf_image_init(TTF_Image* image, TTF_uint8* pixels, TTF_uint32 w, TTF_uint32 h, TTF_uint32 stride) {
+    if (pixels == NULL) {
+        pixels = calloc(stride * h, 1);
+        if (pixels == NULL) {
+            return 0;
+        }
+    }
+
+    image->pixels = pixels;
+    image->w      = w;
+    image->h      = h;
+    image->stride = stride;
+    return 1;
 }
 
 void ttf_free(TTF* font) {
@@ -271,33 +311,47 @@ void ttf_free(TTF* font) {
     }
 }
 
-int ttf_set_ppem(TTF* font, TTF_uint32 ppem) {
-    if (ppem == 0) {
-        return 0;
+void ttf_free_instance(TTF* font, TTF_Instance* instance) {
+    if (instance) {
+        if (font->instance == instance) {
+            font->instance = NULL;
+        }
+        free(instance->cvt);
     }
-
-    {
-        // This should be fixed point
-        float upem = ttf__get_uint16(font->data + font->head.off + 18);
-        font->scaleFactor = ppem / upem;
-    }
-
-    if (font->prep.exists) {
-        ttf__execute_cv_program(font);
-    }
-    return 1;
 }
 
-int ttf_render_glyph(TTF* font, TTF_uint32 cp, TTF_Glyph_Image* image) {
+void ttf_free_image(TTF_Image* image) {
+    if (image) {
+        free(image->pixels);
+    }
+}
+
+void ttf_set_current_instance(TTF* font, TTF_Instance* instance) {
+    font->instance = instance;
+
+    if (font->cvt.exists) {
+        ttf__execute_cv_program(font);
+    }
+}
+
+int ttf_render_glyph(TTF* font, TTF_Image* image, TTF_uint32 cp) {
+    // TODO
+    assert(0);
+    return 0;
+}
+
+int ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uint32 cp, TTF_uint32 x, TTF_uint32 y) {
+    assert(font->instance != NULL);
+
     TTF_uint32 idx         = ttf__get_char_glyph_index(font, cp);
     TTF_uint8* glyphData   = ttf__get_glyf_data_block(font, idx);
     TTF_int16  numContours = ttf__get_int16(glyphData);
 
     if (numContours < 0) {
-        ttf__render_composite_glyph(font, glyphData, image);
+        ttf__render_composite_glyph(font, image, glyphData);
     }
     else {
-        ttf__render_simple_glyph(font, glyphData, image, numContours);
+        ttf__render_simple_glyph(font, image, glyphData, numContours);
     }
 
     return 1;
@@ -342,6 +396,9 @@ static int ttf__extract_info_from_table_directory(TTF* font) {
         if (!font->cmap.exists && !memcmp(tag, "cmap", 4)) {
             table = &font->cmap;
         }
+        else if (!font->cvt.exists && !memcmp(tag, "cvt ", 4)) {
+            table = &font->cvt;
+        }
         else if (!font->fpgm.exists && !memcmp(tag, "fpgm", 4)) {
             table = &font->fpgm;
         }
@@ -368,11 +425,12 @@ static int ttf__extract_info_from_table_directory(TTF* font) {
         }
     }
 
-    return font->cmap.exists && 
-           font->glyf.exists && 
-           font->head.exists && 
-           font->maxp.exists && 
-           font->loca.exists;
+    return 
+        font->cmap.exists && 
+        font->glyf.exists && 
+        font->head.exists && 
+        font->maxp.exists && 
+        font->loca.exists;
 }
 
 static int ttf__extract_char_encoding(TTF* font) {
@@ -532,7 +590,7 @@ static TTF_uint8* ttf__get_glyf_data_block(TTF* font, TTF_uint32 idx) {
     return font->data + font->glyf.off + blockOff;
 }
 
-static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_Image* image, TTF_int16 numContours) {
+static int ttf__render_simple_glyph(TTF* font, TTF_Image* image,TTF_uint8* glyphData, TTF_int16 numContours) {
     TTF_Curve_Array curveArray;
     if (!ttf__get_simple_glyph_curves(glyphData, &curveArray, numContours)) {
         return 0;
@@ -544,16 +602,12 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
             p.x = sf * (p.x + xOff),           \
             p.y = sf * (-(p.y + yOff) + height)
         
-        float xMin = ttf__get_int16(glyphData + 2);
-        float yMin = ttf__get_int16(glyphData + 4);
-        float yMax = ttf__get_int16(glyphData + 8);
-        
-        float xOff = xMin < 0.0f ? fabs(xMin) : 0.0f;
-        float yOff = yMin < 0.0f ? fabs(yMin) : 0.0f;
-        
-        float upem = ttf__get_uint16(font->data + font->head.off + 18);
-        float sf   = font->ppem / upem;
-        
+        float xMin   = ttf__get_int16(glyphData + 2);
+        float yMin   = ttf__get_int16(glyphData + 4);
+        float yMax   = ttf__get_int16(glyphData + 8);
+        float xOff   = xMin < 0.0f ? fabs(xMin) : 0.0f;
+        float yOff   = yMin < 0.0f ? fabs(yMin) : 0.0f;
+        float sf     = (float)font->instance->ppem / ttf__get_upem(font);
         float height = fabs(yMin) + fabs(yMax);
         
         for (TTF_uint32 i = 0; i < curveArray.count; i++) {
@@ -740,7 +794,7 @@ static int ttf__render_simple_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_I
     return 1;
 }
 
-static int ttf__render_composite_glyph(TTF* font, TTF_uint8* glyphData, TTF_Glyph_Image* image) {
+static int ttf__render_composite_glyph(TTF* font, TTF_Image* image, TTF_uint8* glyphData) {
     // TODO
     assert(0);
     return 1;
@@ -1088,6 +1142,7 @@ static void ttf__execute_cv_program(TTF* font) {
 
         // TODO: temporary
         if (ins == TTF_CALL) {
+            printf("Exiting\n");
             return;
         }
     }
@@ -1279,7 +1334,7 @@ static void ttf__MUL(TTF* font) {
     TTF_PRINT("MUL\n");
     TTF_F26Dot6 n1 = ttf__stack_pop_F26Dot6(font);
     TTF_F26Dot6 n2 = ttf__stack_pop_F26Dot6(font);
-    ttf__stack_push_F26Dot6(font, (n1 * n2) / TTF_F26DOT6_SF_INV);
+    ttf__stack_push_F26Dot6(font, TTF_FIXED_MULT(n1, n2, TTF_F26DOT6_SHIFT));
 }
 
 static void ttf__NPUSHB(TTF* font, TTF_Ins_Stream* stream) {
@@ -1324,8 +1379,17 @@ static void ttf__ROLL(TTF* font) {
 }
 
 static void ttf__WCVTF(TTF* font) {
-    TTF_PRINT("WCVTF\n");
-    
+    TTF_uint32 funits = ttf__stack_pop_uint32(font);
+    TTF_uint32 cvtIdx = ttf__stack_pop_uint32(font);
+
+    assert(cvtIdx < font->cvt.size / sizeof(TTF_FWORD));
+
+    funits = TTF_INT32_TO_FIXED(funits, TTF_F26DOT6_SHIFT);
+
+    font->instance->cvt[cvtIdx] = 
+        TTF_FIXED_MULT(funits, font->instance->scale, TTF_F16DOT16_SHIFT);
+
+    TTF_PRINTF("WCVTF cvt[%d] = %d\n", cvtIdx, font->instance->cvt[cvtIdx]);
 }
 
 static void ttf__ins_stream_init(TTF_Ins_Stream* stream, TTF_uint8* bytes) {
@@ -1412,6 +1476,10 @@ static TTF_int16 ttf__get_int16(TTF_uint8* data) {
 
 static float ttf__linear_interp(float p0, float p1, float t) {
     return p0 + t * (p1 - p0);
+}
+
+static TTF_uint16 ttf__get_upem(TTF* font) {
+    return ttf__get_uint16(font->data + font->head.off + 18);
 }
 
 static void ttf__get_min_max(float v0, float v1, float* min, float* max) {

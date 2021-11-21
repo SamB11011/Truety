@@ -18,6 +18,7 @@ typedef TTF_uint32 TTF_Offset32;
 typedef TTF_uint32 TTF_Version16Dot16;
 typedef TTF_int32  TTF_F2Dot14;
 typedef TTF_int32  TTF_F26Dot6;
+typedef TTF_int32  TTF_F16Dot16;
 
 typedef struct {
     int          exists;
@@ -52,11 +53,25 @@ typedef struct {
 } TTF_Graphics_State;
 
 typedef struct {
+    TTF_F26Dot6* cvt;
+    TTF_uint32   ppem;
+    TTF_F16Dot16 scale;
+    // TODO: Should the Graphics State go here?
+} TTF_Instance;
+
+typedef struct {
+    TTF_uint8* pixels;
+    TTF_uint16 w;
+    TTF_uint16 h;
+    TTF_uint16 stride;
+} TTF_Image;
+
+typedef struct {
     TTF_uint8*          data;
     TTF_uint32          size;
-    TTF_uint32          scaleFactor;
     TTF_uint8*          insMem;
     TTF_Table           cmap;
+    TTF_Table           cvt;
     TTF_Table           fpgm;
     TTF_Table           glyf;
     TTF_Table           head;
@@ -67,19 +82,21 @@ typedef struct {
     TTF_Stack           stack;
     TTF_Func*           funcs;
     TTF_Graphics_State* graphicsState;
+    TTF_Instance*       instance;
 } TTF;
 
-typedef struct {
-    TTF_uint8* pixels;
-    TTF_uint16 w;
-    TTF_uint16 h;
-    TTF_uint16 stride;
-} TTF_Glyph_Image;
 
+int ttf_init         (TTF* font, const char* path);
+int ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint16 ppem);
+int ttf_image_init   (TTF_Image* image, TTF_uint8* pixels, TTF_uint32 w, TTF_uint32 h, TTF_uint32 stride);
 
-int  ttf_init        (TTF* font, const char* path, TTF_uint32 ppem);
-void ttf_free        (TTF* font);
-int  ttf_render_glyph(TTF* font, TTF_uint32 cp, TTF_Glyph_Image* image);
-int  ttf_set_ppem    (TTF* font, TTF_uint32 ppem);
+void ttf_free         (TTF* font);
+void ttf_free_instance(TTF* font, TTF_Instance* instance);
+void ttf_free_image   (TTF_Image* image);
+
+void ttf_set_current_instance(TTF* font, TTF_Instance* instance);
+
+int ttf_render_glyph                  (TTF* font, TTF_Image* image, TTF_uint32 cp);
+int ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uint32 cp, TTF_uint32 x, TTF_uint32 y);
 
 #endif
