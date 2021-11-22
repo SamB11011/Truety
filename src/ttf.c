@@ -126,7 +126,7 @@ typedef struct {
 
     static void ttf__print_cvt(TTF_Instance* instance, TTF_uint32 numEntries) {
         printf("\n-- CVT --\n");
-        for (int i = 0; i < numEntries; i++) {
+        for (TTF_uint32 i = 0; i < numEntries; i++) {
             printf("%d) %d\n", i, instance->cvt[i]);
         }
     }
@@ -142,10 +142,10 @@ typedef struct {
 /* -------------- */
 /* Initialization */
 /* -------------- */
-static int ttf__read_file_into_buffer            (TTF* font, const char* path);
-static int ttf__extract_info_from_table_directory(TTF* font);
-static int ttf__extract_char_encoding            (TTF* font);
-static int ttf__alloc_mem_for_ins_processing     (TTF* font);
+static TTF_bool ttf__read_file_into_buffer            (TTF* font, const char* path);
+static TTF_bool ttf__extract_info_from_table_directory(TTF* font);
+static TTF_bool ttf__extract_char_encoding            (TTF* font);
+static TTF_bool ttf__alloc_mem_for_ins_processing     (TTF* font);
 
 
 /* ------------------------ */
@@ -159,9 +159,9 @@ static TTF_uint16 ttf__get_char_glyph_index_format_4(TTF_uint8* subtable, TTF_ui
 /* Rendering */
 /* --------- */
 static TTF_uint8*       ttf__get_glyf_data_block         (TTF* font, TTF_uint32 idx);
-static int              ttf__render_simple_glyph         (TTF* font, TTF_Image* image, TTF_uint8* glyphData, TTF_int16 numContours);
-static int              ttf__render_composite_glyph      (TTF* font, TTF_Image* image, TTF_uint8* glyphData);
-static int              ttf__get_simple_glyph_curves     (TTF_uint8* glyphData, TTF_Curve_Array* array, TTF_int16 numContours);
+static TTF_bool         ttf__render_simple_glyph         (TTF* font, TTF_Image* image, TTF_uint8* glyphData, TTF_int16 numContours);
+static TTF_bool         ttf__render_composite_glyph      (TTF* font, TTF_Image* image, TTF_uint8* glyphData);
+static TTF_bool         ttf__get_simple_glyph_curves     (TTF_uint8* glyphData, TTF_Curve_Array* array, TTF_int16 numContours);
 static TTF_uint8        ttf__get_next_simple_glyph_flags (TTF_uint8** flagData, TTF_uint8* flagsReps);
 static void             ttf__get_next_simple_glyph_point (TTF_uint8 flags, TTF_uint8** xData, TTF_uint8** yData, TTF_Point* absPos, TTF_Point* point);
 static void             ttf__peek_next_simple_glyph_point(TTF_uint8 flags, TTF_uint8** xData, TTF_uint8** yData, TTF_Point* absPos, TTF_Point* point);
@@ -170,7 +170,7 @@ static void             ttf__subdivide_curve_into_edges  (TTF_Point* p0, TTF_Poi
 static void             ttf__add_edge_to_array           (TTF_Edge_Array* array, TTF_Point* p0, TTF_Point* p1, TTF_uint8 dir);
 static int              ttf__compare_edges               (const void* e0, const void* e1);
 static float            ttf__get_scanline_x_intersection (TTF_Edge* edge, float scanline);
-static int              ttf__active_edge_list_init       (TTF_Active_Edge_List* list);
+static TTF_bool         ttf__active_edge_list_init       (TTF_Active_Edge_List* list);
 static TTF_Active_Edge* ttf__get_available_active_edge   (TTF_Active_Edge_List* list);
 static TTF_Active_Edge* ttf__insert_active_edge_first    (TTF_Active_Edge_List* list);
 static TTF_Active_Edge* ttf__insert_active_edge_after    (TTF_Active_Edge_List* list, TTF_Active_Edge* edge);
@@ -188,8 +188,6 @@ static void             ttf__active_edge_list_free       (TTF_Active_Edge_List* 
 
 #define TTF_GET_NUM_VALS_TO_PUSH(ins) (1 + (ins & 0x7)) /* For PUSHB and PUSHW */
 
-static TTF_uint16 ttf__get_stack_capacity  (TTF* font);
-static TTF_uint16 ttf__get_func_capacity   (TTF* font);
 static void       ttf__execute_font_program(TTF* font);
 static void       ttf__execute_cv_program  (TTF* font);
 static void       ttf__execute_ins         (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
@@ -258,7 +256,7 @@ TTF_int32 ttf__fix_add       (TTF_int32 a, TTF_int32 b);
 TTF_int32 ttf__fix_sub       (TTF_int32 a, TTF_int32 b);
 
 
-int ttf_init(TTF* font, const char* path) {
+TTF_bool ttf_init(TTF* font, const char* path) {
     memset(font, 0, sizeof(TTF));
 
     if (!ttf__read_file_into_buffer(font, path)) {
@@ -284,22 +282,30 @@ int ttf_init(TTF* font, const char* path) {
 
     ttf__execute_font_program(font);
 
-    return 1;
+    return TTF_TRUE;
 
 init_failure:
     ttf_free(font);
-    return 0;
+    return TTF_FALSE;
 }
 
-int ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
-    instance->scale = ttf__rounded_div_64(ppem << 22, ttf__get_upem(font));
-    instance->ppem  = ppem;
+TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
+    instance->scale         = ttf__rounded_div_64(ppem << 22, ttf__get_upem(font));
+    instance->ppem          = ppem;
+    instance->cvtIsOutdated = TTF_TRUE;
 
     if (font->cvt.exists) {
-        instance->cvt = calloc(font->cvt.size / sizeof(TTF_FWORD), sizeof(TTF_F26Dot6));
-        if (instance->cvt == NULL) {
-            return 0;
+        // Allocate memory for the Control Value Table and graphics state
+        size_t cvtSize = font->cvt.size / sizeof(TTF_FWORD) * sizeof(TTF_F26Dot6);
+        size_t gsSize  = sizeof(TTF_Graphics_State);
+
+        instance->mem = calloc(cvtSize + gsSize, 1);
+        if (instance->mem == NULL) {
+            return TTF_FALSE;
         }
+
+        instance->cvt           = (TTF_F26Dot6*)       (instance->mem);
+        instance->graphicsState = (TTF_Graphics_State*)(instance->mem + cvtSize);
         
         // Convert default CVT values, given in FUnits, to 26.6 fixed point 
         // pixel units
@@ -317,14 +323,14 @@ int ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
         instance->cvt = NULL;
     }
 
-    return 1;
+    return TTF_TRUE;
 }
 
-int ttf_image_init(TTF_Image* image, TTF_uint8* pixels, TTF_uint32 w, TTF_uint32 h, TTF_uint32 stride) {
+TTF_bool ttf_image_init(TTF_Image* image, TTF_uint8* pixels, TTF_uint32 w, TTF_uint32 h, TTF_uint32 stride) {
     if (pixels == NULL) {
         pixels = calloc(stride * h, 1);
         if (pixels == NULL) {
-            return 0;
+            return TTF_FALSE;
         }
     }
 
@@ -332,7 +338,7 @@ int ttf_image_init(TTF_Image* image, TTF_uint8* pixels, TTF_uint32 w, TTF_uint32
     image->w      = w;
     image->h      = h;
     image->stride = stride;
-    return 1;
+    return TTF_TRUE;
 }
 
 void ttf_free(TTF* font) {
@@ -360,18 +366,19 @@ void ttf_free_image(TTF_Image* image) {
 void ttf_set_current_instance(TTF* font, TTF_Instance* instance) {
     font->instance = instance;
 
-    if (font->cvt.exists) {
+    if (font->cvt.exists && instance->cvtIsOutdated) {
         ttf__execute_cv_program(font);
+        font->instance->cvtIsOutdated = TTF_FALSE;
     }
 }
 
-int ttf_render_glyph(TTF* font, TTF_Image* image, TTF_uint32 cp) {
+TTF_bool ttf_render_glyph(TTF* font, TTF_Image* image, TTF_uint32 cp) {
     // TODO
     assert(0);
-    return 0;
+    return TTF_FALSE;
 }
 
-int ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uint32 cp, TTF_uint32 x, TTF_uint32 y) {
+TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uint32 cp, TTF_uint32 x, TTF_uint32 y) {
     assert(font->instance != NULL);
 
     TTF_uint32 idx         = ttf__get_char_glyph_index(font, cp);
@@ -379,23 +386,20 @@ int ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uint32 c
     TTF_int16  numContours = ttf__get_int16(glyphData);
 
     if (numContours < 0) {
-        ttf__render_composite_glyph(font, image, glyphData);
-    }
-    else {
-        ttf__render_simple_glyph(font, image, glyphData, numContours);
+        return ttf__render_composite_glyph(font, image, glyphData);
     }
 
-    return 1;
+    return ttf__render_simple_glyph(font, image, glyphData, numContours);
 }
 
 
 /* -------------- */
 /* Initialization */
 /* -------------- */
-static int ttf__read_file_into_buffer(TTF* font, const char* path) {
+static TTF_bool ttf__read_file_into_buffer(TTF* font, const char* path) {
     FILE* f = fopen(path, "rb");
     if (f == NULL) {
-        return 0;
+        return TTF_FALSE;
     }
     
     fseek(f, 0, SEEK_END);
@@ -405,16 +409,16 @@ static int ttf__read_file_into_buffer(TTF* font, const char* path) {
     font->data = calloc(font->size, 1);
     if (font->data == NULL) {
         fclose(f);
-        return 0;
+        return TTF_FALSE;
     }
 
     fread(font->data, 1, font->size, f);
     fclose(f);
 
-    return 1;
+    return TTF_TRUE;
 }
 
-static int ttf__extract_info_from_table_directory(TTF* font) {
+static TTF_bool ttf__extract_info_from_table_directory(TTF* font) {
     TTF_uint16 numTables = ttf__get_uint16(font->data + 4);
 
     for (TTF_uint16 i = 0; i < numTables; i++) {
@@ -450,7 +454,7 @@ static int ttf__extract_info_from_table_directory(TTF* font) {
         }
 
         if (table) {
-            table->exists = 1;
+            table->exists = TTF_TRUE;
             table->off    = ttf__get_Offset32(record + 8);
             table->size   = ttf__get_uint32(record + 12);
         }
@@ -464,7 +468,7 @@ static int ttf__extract_info_from_table_directory(TTF* font) {
         font->loca.exists;
 }
 
-static int ttf__extract_char_encoding(TTF* font) {
+static TTF_bool ttf__extract_char_encoding(TTF* font) {
     TTF_uint16 numTables = ttf__get_uint16(font->data + font->cmap.off + 2);
     
     for (TTF_uint16 i = 0; i < numTables; i++) {
@@ -472,7 +476,7 @@ static int ttf__extract_char_encoding(TTF* font) {
 
         TTF_uint16 platformID = ttf__get_uint16(data);
         TTF_uint16 encodingID = ttf__get_uint16(data + 2);
-        int        foundValid = 0;
+        TTF_bool   foundValid = TTF_FALSE;
 
         switch (platformID) {
             case 0:
@@ -499,29 +503,29 @@ static int ttf__extract_char_encoding(TTF* font) {
                 case 12:
                 case 13:
                 case 14:
-                    return 1; 
+                    return TTF_TRUE;
             }
         }
     }
 
-    return 0;
+    return TTF_FALSE;
 }
 
-static int ttf__alloc_mem_for_ins_processing(TTF* font) {
-    size_t stackSize         = sizeof(TTF_Stack_Frame) * ttf__get_stack_capacity(font);
-    size_t funcsSize         = sizeof(TTF_Func)        * ttf__get_func_capacity(font);
-    size_t graphicsStateSize = sizeof(TTF_Graphics_State);
+static TTF_bool ttf__alloc_mem_for_ins_processing(TTF* font) {
+    font->stack.cap     = ttf__get_uint16(font->data + font->maxp.off + 24);
+    font->funcArray.cap = ttf__get_uint16(font->data + font->maxp.off + 20);
 
-    font->insMem = calloc(1, stackSize + funcsSize + graphicsStateSize);
+    size_t stackSize = sizeof(TTF_Stack_Frame) * font->stack.cap;
+    size_t funcsSize = sizeof(TTF_Func)        * font->funcArray.cap;
+
+    font->insMem = calloc(stackSize + funcsSize, 1);
     if (font->insMem == NULL) {
-        return 0;
+        return TTF_FALSE;
     }
 
-    font->stack.frames  = (TTF_Stack_Frame*)   (font->insMem);
-    font->funcs         = (TTF_Func*)          (font->insMem + stackSize);
-    font->graphicsState = (TTF_Graphics_State*)(font->insMem + stackSize + funcsSize);
-
-    return 1;
+    font->stack.frames    = (TTF_Stack_Frame*)(font->insMem);
+    font->funcArray.funcs = (TTF_Func*)       (font->insMem + stackSize);
+    return TTF_TRUE;
 }
 
 
@@ -559,7 +563,7 @@ static TTF_uint32 ttf__get_char_glyph_index(TTF* font, TTF_uint32 cp) {
 }
 
 static TTF_uint16 ttf__get_char_glyph_index_format_4(TTF_uint8* subtable, TTF_uint32 cp) {
-    #define CMAP_GET_END_CODE(index) ttf__get_uint16(subtable + 14 + 2 * (index))
+    #define TTF_GET_END_CODE(index) ttf__get_uint16(subtable + 14 + 2 * (index))
     
     // TODO: Not sure how these values are supposed to be used in the binary search so it will be
     //       done without them.
@@ -574,10 +578,10 @@ static TTF_uint16 ttf__get_char_glyph_index_format_4(TTF_uint8* subtable, TTF_ui
 
     while (left <= right) {
         TTF_uint16 mid     = (left + right) / 2;
-        TTF_uint16 endCode = CMAP_GET_END_CODE(mid);
+        TTF_uint16 endCode = TTF_GET_END_CODE(mid);
 
         if (endCode >= cp) {
-            if (mid == 0 || CMAP_GET_END_CODE(mid - 1) < cp) {
+            if (mid == 0 || TTF_GET_END_CODE(mid - 1) < cp) {
                 TTF_uint32 off            = 16 + 2 * mid;
                 TTF_uint8* idRangeOffsets = subtable + 6 * segCount + off;
                 TTF_uint16 idRangeOffset  = ttf__get_uint16(idRangeOffsets);
@@ -603,7 +607,7 @@ static TTF_uint16 ttf__get_char_glyph_index_format_4(TTF_uint8* subtable, TTF_ui
 
     return 0;
 
-    #undef CMAP_GET_END_CODE
+    #undef TTF_GET_END_CODE
 }
 
 
@@ -621,10 +625,10 @@ static TTF_uint8* ttf__get_glyf_data_block(TTF* font, TTF_uint32 idx) {
     return font->data + font->glyf.off + blockOff;
 }
 
-static int ttf__render_simple_glyph(TTF* font, TTF_Image* image,TTF_uint8* glyphData, TTF_int16 numContours) {
+static TTF_bool ttf__render_simple_glyph(TTF* font, TTF_Image* image,TTF_uint8* glyphData, TTF_int16 numContours) {
     TTF_Curve_Array curveArray;
     if (!ttf__get_simple_glyph_curves(glyphData, &curveArray, numContours)) {
-        return 0;
+        return TTF_FALSE;
     }
     
     
@@ -671,7 +675,7 @@ static int ttf__render_simple_glyph(TTF* font, TTF_Image* image,TTF_uint8* glyph
     edgeArray.edges = malloc(sizeof(TTF_Edge) * edgeArray.count);
     if (edgeArray.edges == NULL) {
         free(curveArray.curves);
-        return 0;
+        return TTF_FALSE;
     }
     
     edgeArray.count = 0;
@@ -695,7 +699,7 @@ static int ttf__render_simple_glyph(TTF* font, TTF_Image* image,TTF_uint8* glyph
     TTF_Active_Edge_List activeEdgeList;
     if (!ttf__active_edge_list_init(&activeEdgeList)) {
         free(edgeArray.edges);
-        return 0;
+        return TTF_FALSE;
     }
     
     
@@ -763,7 +767,7 @@ static int ttf__render_simple_glyph(TTF* font, TTF_Image* image,TTF_uint8* glyph
                 if (newActiveEdge == NULL) {
                     free(edgeArray.edges);
                     ttf__active_edge_list_free(&activeEdgeList);
-                    return 0;
+                    return TTF_FALSE;
                 }
                 
                 newActiveEdge->edge          = edge;
@@ -786,7 +790,7 @@ static int ttf__render_simple_glyph(TTF* font, TTF_Image* image,TTF_uint8* glyph
             float weightedAlpha  = 255.0f * TTF_PIXELS_PER_SCANLINE;
             float fullPixelAlpha = 0.0f;
             
-            while(1) {
+            while(TTF_TRUE) {
                 if (windingNumber == 0) {
                     image->pixels[xPrev + rowOff] += 
                         weightedAlpha * (x - activeEdge->xIntersection);
@@ -822,16 +826,16 @@ static int ttf__render_simple_glyph(TTF* font, TTF_Image* image,TTF_uint8* glyph
     
     free(edgeArray.edges);
     ttf__active_edge_list_free(&activeEdgeList);
-    return 1;
+    return TTF_TRUE;
 }
 
-static int ttf__render_composite_glyph(TTF* font, TTF_Image* image, TTF_uint8* glyphData) {
+static TTF_bool ttf__render_composite_glyph(TTF* font, TTF_Image* image, TTF_uint8* glyphData) {
     // TODO
     assert(0);
-    return 1;
+    return TTF_TRUE;
 }
 
-static int ttf__get_simple_glyph_curves(TTF_uint8* glyphData, TTF_Curve_Array* array, TTF_int16 numContours) {
+static TTF_bool ttf__get_simple_glyph_curves(TTF_uint8* glyphData, TTF_Curve_Array* array, TTF_int16 numContours) {
     assert(numContours >= 0 && "The glyph is a composite glyph.");
 
 
@@ -840,7 +844,7 @@ static int ttf__get_simple_glyph_curves(TTF_uint8* glyphData, TTF_Curve_Array* a
     array->cap    = 1 + ttf__get_uint16(glyphData + 8 + 2 * numContours);
     array->curves = malloc(array->cap * sizeof(TTF_Curve));
     if (array->curves == NULL) {
-        return 0;
+        return TTF_FALSE;
     }
     
     
@@ -894,7 +898,7 @@ static int ttf__get_simple_glyph_curves(TTF_uint8* glyphData, TTF_Curve_Array* a
     
     for (TTF_uint32 i = 0; i < numContours; i++) {
         TTF_uint16 endPointIdx   = ttf__get_uint16(glyphData + 10 + 2 * i);
-        int        addFinalCurve = 1;
+        TTF_bool   addFinalCurve = TTF_TRUE;
 
         TTF_Point startPoint;
         {
@@ -915,7 +919,7 @@ static int ttf__get_simple_glyph_curves(TTF_uint8* glyphData, TTF_Curve_Array* a
             }
             else if (j == endPointIdx) {
                 curve->p2     = startPoint;
-                addFinalCurve = 0;
+                addFinalCurve = TTF_FALSE;
             }
             else {
                 flags = *flagData;
@@ -947,7 +951,7 @@ static int ttf__get_simple_glyph_curves(TTF_uint8* glyphData, TTF_Curve_Array* a
         startPointIdx = endPointIdx + 1;
     }
     
-    return 1;
+    return TTF_TRUE;
 }
 
 static TTF_uint8 ttf__get_next_simple_glyph_flags(TTF_uint8** flagData, TTF_uint8* flagsReps) {
@@ -1069,14 +1073,14 @@ static float ttf__get_scanline_x_intersection(TTF_Edge* edge, float scanline) {
     return (scanline - edge->p0.y) * edge->invSlope + edge->p0.x;
 }
 
-static int ttf__active_edge_list_init(TTF_Active_Edge_List* list) {
+static TTF_bool ttf__active_edge_list_init(TTF_Active_Edge_List* list) {
     list->headChunk = calloc(1, sizeof(TTF_Active_Chunk));
     if (list->headChunk != NULL) {
         list->headEdge      = NULL;
         list->reusableEdges = NULL;
-        return 1;
+        return TTF_TRUE;
     }
-    return 0;
+    return TTF_FALSE;
 }
 
 static TTF_Active_Edge* ttf__get_available_active_edge(TTF_Active_Edge_List* list) {
@@ -1140,14 +1144,6 @@ static void ttf__active_edge_list_free(TTF_Active_Edge_List* list) {
 /* ---------------------- */
 /* Instruction Processing */
 /* ---------------------- */
-static TTF_uint16 ttf__get_stack_capacity(TTF* font) {
-    return ttf__get_uint16(font->data + font->maxp.off + 24);
-}
-
-static TTF_uint16 ttf__get_func_capacity(TTF* font) {
-    return ttf__get_uint16(font->data + font->maxp.off + 20);
-}
-
 static void ttf__execute_font_program(TTF* font) {
     TTF_PRINT("\n-- Font Program --\n");
 
@@ -1244,11 +1240,13 @@ static void ttf__CALL(TTF* font) {
     TTF_Ins_Stream stream;
     {
         TTF_uint32 funcId = ttf__stack_pop_uint32(font);
-        ttf__ins_stream_init(&stream, font->funcs[funcId].firstIns);
+        assert(funcId < font->funcArray.count);
+
+        ttf__ins_stream_init(&stream, font->funcArray.funcs[funcId].firstIns);
         TTF_PRINTF("CALL %#X\n", funcId);
     }
 
-    while (1) {
+    while (TTF_TRUE) {
         TTF_uint8 ins = ttf__ins_stream_next(&stream);
         
         if (ins == TTF_ENDF) {
@@ -1276,15 +1274,20 @@ static void ttf__EQ(TTF* font) {
 }
 
 static void ttf__FDEF(TTF* font, TTF_Ins_Stream* stream) {
+    assert(font->funcArray.count < font->funcArray.cap);
+
     TTF_uint32 funcId = ttf__stack_pop_uint32(font);
+
+    font->funcArray.funcs[funcId].firstIns = stream->bytes + stream->off;
+    font->funcArray.count++;
+
     TTF_PRINTF("FDEF %#X\n", funcId);
 
-    font->funcs[funcId].firstIns = stream->bytes + stream->off;
     while (ttf__ins_stream_next(stream) != TTF_ENDF);
 }
 
 static void ttf__GETINFO(TTF* font) {
-    /* These are the only supported selector bits for scalar version 35 */
+    // These are the only supported selector bits for scalar version 35
     enum {
         TTF_VERSION                  = 0x01,
         TTF_GLYPH_ROTATED            = 0x02,
@@ -1314,8 +1317,8 @@ static void ttf__GETINFO(TTF* font) {
 }
 
 static void ttf__GPV(TTF* font) {
-    ttf__stack_push_F2Dot14(font, font->graphicsState->xProjectionVector);
-    ttf__stack_push_F2Dot14(font, font->graphicsState->yProjectionVector);
+    // ttf__stack_push_F2Dot14(font, font->instance->graphicsState->xProjectionVector);
+    // ttf__stack_push_F2Dot14(font, font->instance->graphicsState->yProjectionVector);
 }
 
 static void ttf__GTEQ(TTF* font) {
@@ -1345,7 +1348,7 @@ static void ttf__IF(TTF* font, TTF_Ins_Stream* stream) {
         TTF_PRINT("(TRUE)\n");
     }
 
-    while (1) {
+    while (TTF_TRUE) {
         TTF_uint8 ins = ttf__ins_stream_next(stream);
 
         if (ins == TTF_ELSE) {
@@ -1449,27 +1452,29 @@ static void ttf__ins_stream_skip(TTF_Ins_Stream* stream, TTF_uint32 count) {
 }
 
 static void ttf__stack_push_uint32(TTF* font, TTF_uint32 val) {
-    font->stack.frames[font->stack.numFrames++].uValue = val;
+    assert(font->stack.count < font->stack.cap);
+    font->stack.frames[font->stack.count++].uValue = val;
 }
 
 static void ttf__stack_push_int32(TTF* font, TTF_int32 val) {
-    font->stack.frames[font->stack.numFrames++].sValue = val;
+    assert(font->stack.count < font->stack.cap);
+    font->stack.frames[font->stack.count++].sValue = val;
 }
 
 static TTF_uint32 ttf__stack_pop_uint32(TTF* font) {
-    assert(font->stack.numFrames > 0);
-    return font->stack.frames[--font->stack.numFrames].uValue;
+    assert(font->stack.count > 0);
+    return font->stack.frames[--font->stack.count].uValue;
 }
 
 static TTF_int32 ttf__stack_pop_int32(TTF* font) {
-    assert(font->stack.numFrames > 0);
-    return font->stack.frames[--font->stack.numFrames].sValue;
+    assert(font->stack.count > 0);
+    return font->stack.frames[--font->stack.count].sValue;
 }
 
 static TTF_uint8 ttf__jump_to_else_or_eif(TTF_Ins_Stream* stream) {
     TTF_uint32 numNested = 0;
 
-    while (1) {
+    while (TTF_TRUE) {
         TTF_uint8 ins = ttf__ins_stream_next(stream);
         
         if (ins == TTF_PUSHB) {
