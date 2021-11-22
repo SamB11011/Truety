@@ -63,6 +63,7 @@ typedef struct {
 
 typedef struct {
     TTF_F26Dot6 controlValueCutIn;
+    TTF_uint32  deltaBase;
     TTF_uint32  deltaShift;
     TTF_bool    scanControl;
 } TTF_Graphics_State;
