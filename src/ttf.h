@@ -62,15 +62,21 @@ typedef struct {
 } TTF_Func_Array;
 
 typedef struct {
+    TTF_F2Dot14 x, y;
+} TTF_Vec2;
+
+typedef struct {
     TTF_F26Dot6 controlValueCutIn;
     TTF_uint32  deltaBase;
     TTF_uint32  deltaShift;
+    TTF_Vec2    freedomVec;
+    TTF_Vec2    projVec;
     TTF_bool    scanControl;
 } TTF_Graphics_State;
 
 typedef struct {
     TTF_F26Dot6*        cvt;
-    TTF_Graphics_State* graphicsState;
+    TTF_Graphics_State* gs;
     TTF_uint8*          mem;
     TTF_uint32          ppem;
     TTF_F10Dot22        scale;

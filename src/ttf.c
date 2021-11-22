@@ -50,6 +50,8 @@ enum {
     TTF_SCVTCI    = 0x1D,
     TTF_SDB       = 0x5E,
     TTF_SDS       = 0x5F,
+    TTF_SVTCA     = 0x00,
+    TTF_SVTCA_MAX = 0x01,
     TTF_WCVTF     = 0x70,
 };
 
@@ -215,6 +217,7 @@ static void       ttf__SCANCTRL            (TTF* font);
 static void       ttf__SCVTCI              (TTF* font);
 static void       ttf__SDB                 (TTF* font);
 static void       ttf__SDS                 (TTF* font);
+static void       ttf__SVTCA               (TTF* font, TTF_uint8 ins);
 static void       ttf__WCVTF               (TTF* font);
 static void       ttf__ins_stream_init     (TTF_Ins_Stream* stream, TTF_uint8* bytes);
 static TTF_uint8  ttf__ins_stream_next     (TTF_Ins_Stream* stream);
@@ -311,13 +314,17 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
             return TTF_FALSE;
         }
 
-        instance->cvt           = (TTF_F26Dot6*)       (instance->mem);
-        instance->graphicsState = (TTF_Graphics_State*)(instance->mem + cvtSize);
+        instance->cvt = (TTF_F26Dot6*)       (instance->mem);
+        instance->gs  = (TTF_Graphics_State*)(instance->mem + cvtSize);
 
         // Set default graphics state values
-        instance->graphicsState->scanControl       = TTF_FALSE;
-        instance->graphicsState->controlValueCutIn = 68;        // 17/16 (26.6)
-        instance->graphicsState->deltaShift        = 3;
+        instance->gs->controlValueCutIn = 68;
+        instance->gs->deltaShift        = 3;
+        instance->gs->projVec.x         = 1 << 14;
+        instance->gs->projVec.y         = 0;
+        instance->gs->freedomVec.x      = 1 << 14;
+        instance->gs->freedomVec.y      = 0;
+        instance->gs->scanControl       = TTF_FALSE;
         
         // Convert default CVT values, given in FUnits, to 26.6 fixed point 
         // pixel units
@@ -1253,6 +1260,10 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         ttf__PUSHW(font, stream, ins);
         return;
     }
+    else if (ins >= TTF_SVTCA && ins <= TTF_SVTCA_MAX) {
+        ttf__SVTCA(font, ins);
+        return;
+    }
 
     TTF_PRINTF("Unknown instruction: %#x\n", ins);
     assert(0);
@@ -1462,45 +1473,45 @@ static void ttf__SCANCTRL(TTF* font) {
     TTF_uint8  thresh = flags & 0xFF;
     
     if (thresh == 0xFF) {
-        font->instance->graphicsState->scanControl = TTF_TRUE;
+        font->instance->gs->scanControl = TTF_TRUE;
     }
     else if (thresh == 0x0) {
-        font->instance->graphicsState->scanControl = TTF_FALSE;
+        font->instance->gs->scanControl = TTF_FALSE;
     }
     else {
         if (flags & 0x100) {
             if (font->instance->ppem <= thresh) {
-                font->instance->graphicsState->scanControl = TTF_TRUE;
+                font->instance->gs->scanControl = TTF_TRUE;
             }
         }
 
         if (flags & 0x200) {
             if (font->instance->rotated) {
-                font->instance->graphicsState->scanControl = TTF_TRUE;
+                font->instance->gs->scanControl = TTF_TRUE;
             }
         }
 
         if (flags & 0x400) {
             if (font->instance->stretched) {
-                font->instance->graphicsState->scanControl = TTF_TRUE;
+                font->instance->gs->scanControl = TTF_TRUE;
             }
         }
 
         if (flags & 0x800) {
             if (thresh > font->instance->ppem) {
-                font->instance->graphicsState->scanControl = TTF_FALSE;
+                font->instance->gs->scanControl = TTF_FALSE;
             }
         }
 
         if (flags & 0x1000) {
             if (!font->instance->rotated) {
-                font->instance->graphicsState->scanControl = TTF_FALSE;
+                font->instance->gs->scanControl = TTF_FALSE;
             }
         }
 
         if (flags & 0x2000) {
             if (!font->instance->stretched) {
-                font->instance->graphicsState->scanControl = TTF_FALSE;
+                font->instance->gs->scanControl = TTF_FALSE;
             }
         }
     }
@@ -1508,17 +1519,32 @@ static void ttf__SCANCTRL(TTF* font) {
 
 static void ttf__SCVTCI(TTF* font) {
     TTF_PRINT("SCVTCI\n");
-    font->instance->graphicsState->controlValueCutIn = ttf__stack_pop_F26Dot6(font);
+    font->instance->gs->controlValueCutIn = ttf__stack_pop_F26Dot6(font);
 }
 
 static void ttf__SDB(TTF* font) {
     TTF_PRINT("SDB\n");
-    font->instance->graphicsState->deltaBase = ttf__stack_pop_uint32(font);
+    font->instance->gs->deltaBase = ttf__stack_pop_uint32(font);
 }
 
 static void ttf__SDS(TTF* font) {
     TTF_PRINT("SDS\n");
-    font->instance->graphicsState->deltaShift = ttf__stack_pop_uint32(font);
+    font->instance->gs->deltaShift = ttf__stack_pop_uint32(font);
+}
+
+static void ttf__SVTCA(TTF* font, TTF_uint8 ins) {
+    TTF_PRINT("SVTCA\n");
+
+    if (ins == 0x1) {
+        font->instance->gs->freedomVec.x = 1 << 14;
+        font->instance->gs->freedomVec.y = 0;
+        font->instance->gs->projVec      = font->instance->gs->freedomVec;
+    }
+    else {
+        font->instance->gs->freedomVec.x = 0;
+        font->instance->gs->freedomVec.y = 1 << 14;
+        font->instance->gs->projVec      = font->instance->gs->freedomVec;
+    }
 }
 
 static void ttf__WCVTF(TTF* font) {
