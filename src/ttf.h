@@ -62,7 +62,8 @@ typedef struct {
 } TTF_Func_Array;
 
 typedef struct {
-    TTF_bool scanControl;
+    TTF_bool    scanControl;
+    TTF_F26Dot6 controlValueCutIn;
 } TTF_Graphics_State;
 
 typedef struct {

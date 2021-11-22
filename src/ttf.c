@@ -47,6 +47,7 @@ enum {
     TTF_PUSHW_MAX = 0xBF,
     TTF_ROLL      = 0x8A,
     TTF_SCANCTRL  = 0x85,
+    TTF_SCVTCI    = 0x1D,
     TTF_WCVTF     = 0x70,
 };
 
@@ -209,6 +210,7 @@ static void       ttf__PUSHB               (TTF* font, TTF_Ins_Stream* stream, T
 static void       ttf__PUSHW               (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
 static void       ttf__ROLL                (TTF* font);
 static void       ttf__SCANCTRL            (TTF* font);
+static void       ttf__SCVTCI              (TTF* font);
 static void       ttf__WCVTF               (TTF* font);
 static void       ttf__ins_stream_init     (TTF_Ins_Stream* stream, TTF_uint8* bytes);
 static TTF_uint8  ttf__ins_stream_next     (TTF_Ins_Stream* stream);
@@ -309,7 +311,8 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
         instance->graphicsState = (TTF_Graphics_State*)(instance->mem + cvtSize);
 
         // Set default graphics state values
-        instance->graphicsState->scanControl = TTF_FALSE;
+        instance->graphicsState->scanControl       = TTF_FALSE;
+        instance->graphicsState->controlValueCutIn = 68; // 17/16 (26.6)
         
         // Convert default CVT values, given in FUnits, to 26.6 fixed point 
         // pixel units
@@ -1223,6 +1226,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_SCANCTRL:
             ttf__SCANCTRL(font);
             return;
+        case TTF_SCVTCI:
+            ttf__SCVTCI(font);
+            return;
         case TTF_WCVTF:
             ttf__WCVTF(font);
             return;
@@ -1487,6 +1493,11 @@ static void ttf__SCANCTRL(TTF* font) {
             }
         }
     }
+}
+
+static void ttf__SCVTCI(TTF* font) {
+    TTF_PRINT("SCVTCI\n");
+    font->instance->graphicsState->controlValueCutIn = ttf__stack_pop_F26Dot6(font);
 }
 
 static void ttf__WCVTF(TTF* font) {
