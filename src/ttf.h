@@ -6,10 +6,12 @@
 typedef uint8_t  TTF_uint8;
 typedef uint16_t TTF_uint16;
 typedef uint32_t TTF_uint32;
+typedef uint64_t TTF_uint64;
 
 typedef int8_t  TTF_int8;
 typedef int16_t TTF_int16;
 typedef int32_t TTF_int32;
+typedef int64_t TTF_int64;
 
 typedef TTF_int16  TTF_FWORD;
 typedef TTF_uint16 TTF_UFWORD;
@@ -17,8 +19,9 @@ typedef TTF_uint16 TTF_Offset16;
 typedef TTF_uint32 TTF_Offset32;
 typedef TTF_uint32 TTF_Version16Dot16;
 typedef TTF_int32  TTF_F2Dot14;
-typedef TTF_int32  TTF_F26Dot6;
+typedef TTF_int32  TTF_F10Dot22;
 typedef TTF_int32  TTF_F16Dot16;
+typedef TTF_int32  TTF_F26Dot6;
 
 typedef struct {
     int          exists;
@@ -53,10 +56,10 @@ typedef struct {
 } TTF_Graphics_State;
 
 typedef struct {
-    TTF_F26Dot6* cvt;
-    TTF_uint32   ppem;
-    TTF_F16Dot16 scale;
-    // TODO: Should the Graphics State go here?
+    TTF_F26Dot6*        cvt;
+    TTF_Graphics_State* graphicsState;
+    TTF_uint32          ppem;
+    TTF_F10Dot22        scale;
 } TTF_Instance;
 
 typedef struct {
@@ -87,7 +90,7 @@ typedef struct {
 
 
 int ttf_init         (TTF* font, const char* path);
-int ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint16 ppem);
+int ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem);
 int ttf_image_init   (TTF_Image* image, TTF_uint8* pixels, TTF_uint32 w, TTF_uint32 h, TTF_uint32 stride);
 
 void ttf_free         (TTF* font);

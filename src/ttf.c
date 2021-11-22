@@ -9,11 +9,7 @@
 #define TTF_EDGES_PER_CHUNK      10
 #define TTF_PIXELS_PER_SCANLINE  0.25f
 #define TTF_SUBDIVIDE_SQRD_ERROR 0.01f
-
-#define TTF_SCALAR_VERSION 35
-
-#define TTF_F26DOT6_SHIFT  6
-#define TTF_F16DOT16_SHIFT 16
+#define TTF_SCALAR_VERSION       35
 
 
 enum {
@@ -40,6 +36,8 @@ enum {
     TTF_GTEQ      = 0x53,
     TTF_IDEF      = 0x89,
     TTF_IF        = 0x58,
+    TTF_LT        = 0x50,
+    TTF_MPPEM     = 0x4B,
     TTF_MUL       = 0x63,
     TTF_NPUSHB    = 0x40,
     TTF_NPUSHW    = 0x41,
@@ -48,6 +46,7 @@ enum {
     TTF_PUSHW     = 0xB8,
     TTF_PUSHW_MAX = 0xBF,
     TTF_ROLL      = 0x8A,
+    TTF_SCANCTRL  = 0x85,
     TTF_WCVTF     = 0x70,
 };
 
@@ -108,10 +107,11 @@ typedef struct {
 #define TTF_DEBUG
 
 #ifdef TTF_DEBUG
-    #define TTF_PRINT(S)           printf(S)
-    #define TTF_PRINTF(S, ...)     printf(S, __VA_ARGS__)
-    #define TTF_PRINT_EDGE(edge)   ttf__print_edge(edge)
-    #define TTF_PRINT_CURVE(curve) ttf__print_curve(curve)
+    #define TTF_PRINT(S)                        printf(S)
+    #define TTF_PRINTF(S, ...)                  printf(S, __VA_ARGS__)
+    #define TTF_PRINT_EDGE(edge)                ttf__print_edge(edge)
+    #define TTF_PRINT_CURVE(curve)              ttf__print_curve(curve)
+    #define TTF_PRINT_CVT(instance, numEntries) ttf__print_cvt(instance, numEntries)
     
     static void ttf__print_edge(TTF_Edge* edge) {
         printf("p0=(%f, %f), ", edge->p0.x, edge->p0.y);
@@ -123,11 +123,19 @@ typedef struct {
         printf("p1 = (%.4f, %.4f), ", curve->p1.x, curve->p1.y);
         printf("p2 = (%.4f, %.4f)\n", curve->p2.x, curve->p2.y);
     }
+
+    static void ttf__print_cvt(TTF_Instance* instance, TTF_uint32 numEntries) {
+        printf("\n-- CVT --\n");
+        for (int i = 0; i < numEntries; i++) {
+            printf("%d) %d\n", i, instance->cvt[i]);
+        }
+    }
 #else
     #define TTF_PRINT(S) 
     #define TTF_PRINTF(S)
     #define TTF_PRINT_EDGE(edge)
     #define TTF_PRINT_CURVE(curve)
+    #define TTF_PRINT_CVT(font)
 #endif
 
 
@@ -194,6 +202,8 @@ static void       ttf__GPV                 (TTF* font);
 static void       ttf__GTEQ                (TTF* font);
 static void       ttf__IDEF                (TTF* font, TTF_Ins_Stream* stream);
 static void       ttf__IF                  (TTF* font, TTF_Ins_Stream* stream);
+static void       ttf__LT                  (TTF* font);
+static void       ttf__MPPEM               (TTF* font);
 static void       ttf__MUL                 (TTF* font);
 static void       ttf__NPUSHB              (TTF* font, TTF_Ins_Stream* stream);
 static void       ttf__NPUSHW              (TTF* font, TTF_Ins_Stream* stream);
@@ -225,13 +235,27 @@ static float      ttf__linear_interp(float p0, float p1, float t);
 static void       ttf__get_min_max  (float v0, float v1, float* min, float* max);
 static float      ttf__get_inv_slope(TTF_Point* p0, TTF_Point* p1);
 
-
 /* ---------------------- */
 /* Fixed-point operations */
 /* ---------------------- */
-#define TTF_FIXED_MULT(f0, f1, shift) ((f0 * f1) >> shift)
-#define TTF_FIXED_DIV(f0, f1, shift)  (f0 / (f1 >> shift))
-#define TTF_INT32_TO_FIXED(i, shift)  (i << shift)
+
+/* https://stackoverflow.com/a/18067292 */
+#define TTF_ROUNDED_DIV(a, b) ((a < 0) ^ (b < 0) ? (a - b / 2) / b : (a + b / 2) / b)
+
+/*
+ * The proof: 
+ * round(x/y) = floor(x/y + 0.5) = floor((x + y/2)/y) = shift-of-n(x + 2^(n-1)) 
+ *
+ * https://en.wikipedia.org/wiki/Fixed-point_arithmetic
+ */
+#define TTF_ROUNDED_DIV_POW2(a, shift) ((a + (1 << (shift-1))) >> shift)
+
+TTF_int32 ttf__rounded_div_32(TTF_int32 a, TTF_int32 b);
+TTF_int64 ttf__rounded_div_64(TTF_int64 a, TTF_int64 b);
+TTF_int32 ttf__fix_mult      (TTF_int32 a, TTF_int32 b, TTF_uint8 bShift);
+TTF_int32 ttf__fix_div       (TTF_int32 a, TTF_int32 b, TTF_int32 bShift);
+TTF_int32 ttf__fix_add       (TTF_int32 a, TTF_int32 b);
+TTF_int32 ttf__fix_sub       (TTF_int32 a, TTF_int32 b);
 
 
 int ttf_init(TTF* font, const char* path) {
@@ -267,20 +291,27 @@ init_failure:
     return 0;
 }
 
-int ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint16 ppem) {
-    {
-        TTF_int32 upem = TTF_INT32_TO_FIXED(ttf__get_upem(font), TTF_F16DOT16_SHIFT);
-
-        instance->ppem  = ppem;
-        ppem            = TTF_INT32_TO_FIXED(ppem, TTF_F16DOT16_SHIFT);
-        instance->scale = TTF_FIXED_DIV(instance->ppem, upem, TTF_F16DOT16_SHIFT);
-    }
+int ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
+    instance->scale = ttf__rounded_div_64(ppem << 22, ttf__get_upem(font));
+    instance->ppem  = ppem;
 
     if (font->cvt.exists) {
         instance->cvt = calloc(font->cvt.size / sizeof(TTF_FWORD), sizeof(TTF_F26Dot6));
         if (instance->cvt == NULL) {
             return 0;
         }
+        
+        // Convert default CVT values, given in FUnits, to 26.6 fixed point 
+        // pixel units
+        TTF_uint32 idx = 0;
+        TTF_uint8* cvt = font->data + font->cvt.off;
+
+        for (TTF_uint32 off = 0; off < font->cvt.size; off += 2) {
+            TTF_F26Dot6 funits = ttf__get_int16(cvt + off) << 6;
+            instance->cvt[idx++] = ttf__fix_mult(funits, instance->scale, 22);
+        }
+
+        TTF_PRINT_CVT(instance, font->cvt.size / 2);
     }
     else {
         instance->cvt = NULL;
@@ -1118,7 +1149,7 @@ static TTF_uint16 ttf__get_func_capacity(TTF* font) {
 }
 
 static void ttf__execute_font_program(TTF* font) {
-    TTF_PRINT("-- Font Program --\n");
+    TTF_PRINT("\n-- Font Program --\n");
 
     TTF_Ins_Stream stream;
     ttf__ins_stream_init(&stream, font->data + font->fpgm.off);
@@ -1139,12 +1170,6 @@ static void ttf__execute_cv_program(TTF* font) {
     while (stream.off < font->prep.size) {
         TTF_uint8 ins = ttf__ins_stream_next(&stream);
         ttf__execute_ins(font, &stream, ins);
-
-        // TODO: temporary
-        if (ins == TTF_CALL) {
-            printf("Exiting\n");
-            return;
-        }
     }
 }
 
@@ -1176,6 +1201,12 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
             return;
         case TTF_IF:
             ttf__IF(font, stream);
+            return;
+        case TTF_LT:
+            ttf__LT(font);
+            return;
+        case TTF_MPPEM:
+            ttf__MPPEM(font);
             return;
         case TTF_MUL:
             ttf__MUL(font);
@@ -1330,11 +1361,26 @@ static void ttf__IF(TTF* font, TTF_Ins_Stream* stream) {
     }
 }
 
+static void ttf__LT(TTF* font) {
+    TTF_PRINT("LT\n");
+    TTF_uint32 e2 = ttf__stack_pop_uint32(font);
+    TTF_uint32 e1 = ttf__stack_pop_uint32(font);
+    ttf__stack_push_uint32(font, e1 < e2 ? 1 : 0);
+}
+
+static void ttf__MPPEM(TTF* font) {
+    // TODO: If the font is stretched, (i.e. horizontal ppem != vertical ppem),
+    //       then ppem must be measured in the direction of the projection 
+    //       vector.
+    TTF_PRINT("MPPEM\n");
+    ttf__stack_push_uint32(font, font->instance->ppem);
+}
+
 static void ttf__MUL(TTF* font) {
     TTF_PRINT("MUL\n");
     TTF_F26Dot6 n1 = ttf__stack_pop_F26Dot6(font);
     TTF_F26Dot6 n2 = ttf__stack_pop_F26Dot6(font);
-    ttf__stack_push_F26Dot6(font, TTF_FIXED_MULT(n1, n2, TTF_F26DOT6_SHIFT));
+    ttf__stack_push_F26Dot6(font, ttf__fix_mult(n1, n2, 6));
 }
 
 static void ttf__NPUSHB(TTF* font, TTF_Ins_Stream* stream) {
@@ -1384,10 +1430,7 @@ static void ttf__WCVTF(TTF* font) {
 
     assert(cvtIdx < font->cvt.size / sizeof(TTF_FWORD));
 
-    funits = TTF_INT32_TO_FIXED(funits, TTF_F26DOT6_SHIFT);
-
-    font->instance->cvt[cvtIdx] = 
-        TTF_FIXED_MULT(funits, font->instance->scale, TTF_F16DOT16_SHIFT);
+    font->instance->cvt[cvtIdx] = ttf__fix_mult(funits << 6, font->instance->scale, 22);
 
     TTF_PRINTF("WCVTF cvt[%d] = %d\n", cvtIdx, font->instance->cvt[cvtIdx]);
 }
@@ -1501,4 +1544,32 @@ static float ttf__get_inv_slope(TTF_Point* p0, TTF_Point* p1) {
         return 0.0f;
     }
     return 1.0f / ((p1->y - p0->y) / (p1->x - p0->x));
+}
+
+
+/* ---------------------- */
+/* Fixed-point operations */
+/* ---------------------- */
+TTF_int32 ttf__rounded_div_32(TTF_int32 a, TTF_int32 b) {
+    return TTF_ROUNDED_DIV(a, b);
+}
+
+TTF_int64 ttf__rounded_div_64(TTF_int64 a, TTF_int64 b) {
+    return TTF_ROUNDED_DIV(a, b);
+}
+
+TTF_int32 ttf__fix_mult(TTF_int32 a, TTF_int32 b, TTF_uint8 bShift) {
+    return TTF_ROUNDED_DIV_POW2((TTF_uint64)a * (TTF_uint64)b, bShift);
+}
+
+TTF_int32 ttf__fix_div(TTF_int32 a, TTF_int32 b, TTF_int32 bShift) {
+    return ttf__rounded_div_32(a, TTF_ROUNDED_DIV_POW2(a, bShift));
+}
+
+TTF_int32 ttf__fix_add(TTF_int32 a, TTF_int32 b) {
+    return a + b;
+}
+
+TTF_int32 ttf__fix_sub(TTF_int32 a, TTF_int32 b) {
+    return a - b;
 }
