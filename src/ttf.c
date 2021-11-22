@@ -36,6 +36,7 @@ enum {
     TTF_GTEQ      = 0x53,
     TTF_IDEF      = 0x89,
     TTF_IF        = 0x58,
+    TTF_LOOPCALL  = 0x2A,
     TTF_LT        = 0x50,
     TTF_MPPEM     = 0x4B,
     TTF_MUL       = 0x63,
@@ -205,6 +206,7 @@ static void       ttf__GPV                 (TTF* font);
 static void       ttf__GTEQ                (TTF* font);
 static void       ttf__IDEF                (TTF* font, TTF_Ins_Stream* stream);
 static void       ttf__IF                  (TTF* font, TTF_Ins_Stream* stream);
+static void       ttf__LOOPCALL            (TTF* font);
 static void       ttf__LT                  (TTF* font);
 static void       ttf__MPPEM               (TTF* font);
 static void       ttf__MUL                 (TTF* font);
@@ -225,6 +227,7 @@ static void       ttf__stack_push_uint32   (TTF* font, TTF_uint32 val);
 static void       ttf__stack_push_int32    (TTF* font, TTF_int32  val);
 static TTF_uint32 ttf__stack_pop_uint32    (TTF* font);
 static TTF_int32  ttf__stack_pop_int32     (TTF* font);
+static void       ttf__call_func           (TTF* font, TTF_uint32 funcId, TTF_uint32 times);
 static TTF_uint8  ttf__jump_to_else_or_eif (TTF_Ins_Stream* stream);
 
 
@@ -1217,6 +1220,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_IF:
             ttf__IF(font, stream);
             return;
+        case TTF_LOOPCALL:
+            ttf__LOOPCALL(font);
+            return;
         case TTF_LT:
             ttf__LT(font);
             return;
@@ -1270,28 +1276,8 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
 }
 
 static void ttf__CALL(TTF* font) {
-    // Starting with the first instruction, a call to a function executes 
-    // instructions until instruction 0x2D (ENDF) is reached.
-    TTF_Ins_Stream stream;
-    {
-        TTF_uint32 funcId = ttf__stack_pop_uint32(font);
-        assert(funcId < font->funcArray.count);
-
-        ttf__ins_stream_init(&stream, font->funcArray.funcs[funcId].firstIns);
-        TTF_PRINTF("CALL %#X\n", funcId);
-    }
-
-    while (TTF_TRUE) {
-        TTF_uint8 ins = ttf__ins_stream_next(&stream);
-        
-        if (ins == TTF_ENDF) {
-            break;
-        }
-
-        ttf__execute_ins(font, &stream, ins);
-    };
-    
-    TTF_PRINT("\n");
+    TTF_PRINT("CALL\n");
+    ttf__call_func(font, ttf__stack_pop_uint32(font), 1);
 }
 
 static void ttf__DUP(TTF* font) {
@@ -1403,6 +1389,13 @@ static void ttf__IF(TTF* font, TTF_Ins_Stream* stream) {
     }
 }
 
+static void ttf__LOOPCALL(TTF* font) {
+    TTF_PRINT("LOOPCALL\n");
+    TTF_uint32 funcId = ttf__stack_pop_uint32(font);
+    TTF_uint32 times  = ttf__stack_pop_uint32(font);
+    ttf__call_func(font, funcId, times);
+}
+
 static void ttf__LT(TTF* font) {
     TTF_PRINT("LT\n");
     TTF_uint32 e2 = ttf__stack_pop_uint32(font);
@@ -1435,12 +1428,15 @@ static void ttf__NPUSHW(TTF* font, TTF_Ins_Stream* stream) {
 
 static void ttf__PUSHB(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
     TTF_uint8 n = TTF_GET_NUM_VALS_TO_PUSH(ins);
-    TTF_PRINTF("PUSHB %d\n", n);
+    TTF_PRINTF("PUSHB %d\n\t", n);
 
     do {
         TTF_uint8 byte = ttf__ins_stream_next(stream);
         ttf__stack_push_uint32(font, byte);
+        TTF_PRINTF("%d ", byte);
     } while (--n);
+
+    TTF_PRINT("\n");
 }
 
 static void ttf__PUSHW(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
@@ -1589,6 +1585,31 @@ static TTF_uint32 ttf__stack_pop_uint32(TTF* font) {
 static TTF_int32 ttf__stack_pop_int32(TTF* font) {
     assert(font->stack.count > 0);
     return font->stack.frames[--font->stack.count].sValue;
+}
+
+static void ttf__call_func(TTF* font, TTF_uint32 funcId, TTF_uint32 times) {
+    assert(funcId < font->funcArray.count);
+
+    while (times > 0) {
+        TTF_PRINTF("\tCalling func %d\n", funcId);
+
+        TTF_Ins_Stream stream;
+        ttf__ins_stream_init(&stream, font->funcArray.funcs[funcId].firstIns);
+
+        while (TTF_TRUE) {
+            TTF_uint8 ins = ttf__ins_stream_next(&stream);
+            
+            if (ins == TTF_ENDF) {
+                break;
+            }
+
+            ttf__execute_ins(font, &stream, ins);
+        };
+
+        times--;
+
+        TTF_PRINT("\n");
+    }
 }
 
 static TTF_uint8 ttf__jump_to_else_or_eif(TTF_Ins_Stream* stream) {
