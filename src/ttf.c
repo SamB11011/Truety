@@ -208,6 +208,7 @@ static void       ttf__NPUSHW              (TTF* font, TTF_Ins_Stream* stream);
 static void       ttf__PUSHB               (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
 static void       ttf__PUSHW               (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
 static void       ttf__ROLL                (TTF* font);
+static void       ttf__SCANCTRL            (TTF* font);
 static void       ttf__WCVTF               (TTF* font);
 static void       ttf__ins_stream_init     (TTF_Ins_Stream* stream, TTF_uint8* bytes);
 static TTF_uint8  ttf__ins_stream_next     (TTF_Ins_Stream* stream);
@@ -306,6 +307,9 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
 
         instance->cvt           = (TTF_F26Dot6*)       (instance->mem);
         instance->graphicsState = (TTF_Graphics_State*)(instance->mem + cvtSize);
+
+        // Set default graphics state values
+        instance->graphicsState->scanControl = TTF_FALSE;
         
         // Convert default CVT values, given in FUnits, to 26.6 fixed point 
         // pixel units
@@ -1216,6 +1220,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_ROLL:
             ttf__ROLL(font);
             return;
+        case TTF_SCANCTRL:
+            ttf__SCANCTRL(font);
+            return;
         case TTF_WCVTF:
             ttf__WCVTF(font);
             return;
@@ -1304,10 +1311,14 @@ static void ttf__GETINFO(TTF* font) {
         result = TTF_SCALAR_VERSION;
     }
     if (selector & TTF_GLYPH_ROTATED) {
-        // TODO: support glyph rotation
+        if (font->instance->rotated) {
+            result |= 0x100;
+        }
     }
     if (selector & TTF_GLYPH_STRETCHED) {
-        // TODO: support glyph stretching
+        if (font->instance->stretched) {
+            result |= 0x200;
+        }
     }
     if (selector & TTF_FONT_SMOOTHING_GRAYSCALE) {
         result |= 0x1000;
@@ -1317,8 +1328,8 @@ static void ttf__GETINFO(TTF* font) {
 }
 
 static void ttf__GPV(TTF* font) {
-    // ttf__stack_push_F2Dot14(font, font->instance->graphicsState->xProjectionVector);
-    // ttf__stack_push_F2Dot14(font, font->instance->graphicsState->yProjectionVector);
+    // TODO
+    assert(0);
 }
 
 static void ttf__GTEQ(TTF* font) {
@@ -1425,6 +1436,57 @@ static void ttf__ROLL(TTF* font) {
     ttf__stack_push_uint32(font, b);
     ttf__stack_push_uint32(font, a);
     ttf__stack_push_uint32(font, c);
+}
+
+static void ttf__SCANCTRL(TTF* font) {
+    TTF_PRINT("SCANCTRL\n");
+    
+    TTF_uint16 flags  = ttf__stack_pop_uint32(font);
+    TTF_uint8  thresh = flags & 0xFF;
+    
+    if (thresh == 0xFF) {
+        font->instance->graphicsState->scanControl = TTF_TRUE;
+    }
+    else if (thresh == 0x0) {
+        font->instance->graphicsState->scanControl = TTF_FALSE;
+    }
+    else {
+        if (flags & 0x100) {
+            if (font->instance->ppem <= thresh) {
+                font->instance->graphicsState->scanControl = TTF_TRUE;
+            }
+        }
+
+        if (flags & 0x200) {
+            if (font->instance->rotated) {
+                font->instance->graphicsState->scanControl = TTF_TRUE;
+            }
+        }
+
+        if (flags & 0x400) {
+            if (font->instance->stretched) {
+                font->instance->graphicsState->scanControl = TTF_TRUE;
+            }
+        }
+
+        if (flags & 0x800) {
+            if (thresh > font->instance->ppem) {
+                font->instance->graphicsState->scanControl = TTF_FALSE;
+            }
+        }
+
+        if (flags & 0x1000) {
+            if (!font->instance->rotated) {
+                font->instance->graphicsState->scanControl = TTF_FALSE;
+            }
+        }
+
+        if (flags & 0x2000) {
+            if (!font->instance->stretched) {
+                font->instance->graphicsState->scanControl = TTF_FALSE;
+            }
+        }
+    }
 }
 
 static void ttf__WCVTF(TTF* font) {

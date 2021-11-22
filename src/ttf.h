@@ -62,8 +62,7 @@ typedef struct {
 } TTF_Func_Array;
 
 typedef struct {
-    TTF_F2Dot14 xProjectionVector;
-    TTF_F2Dot14 yProjectionVector;
+    TTF_bool scanControl;
 } TTF_Graphics_State;
 
 typedef struct {
@@ -72,6 +71,8 @@ typedef struct {
     TTF_uint8*          mem;
     TTF_uint32          ppem;
     TTF_F10Dot22        scale;
+    TTF_bool            rotated;   /* Not supported yet */
+    TTF_bool            stretched; /* Not supported yet */
     TTF_bool            cvtIsOutdated;
 } TTF_Instance;
 
