@@ -71,6 +71,7 @@ typedef struct {
     TTF_uint32  deltaShift;
     TTF_Vec2    freedomVec;
     TTF_Vec2    projVec;
+    TTF_uint8   roundState;
     TTF_bool    scanControl;
 } TTF_Graphics_State;
 

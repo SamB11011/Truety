@@ -48,6 +48,8 @@ enum {
     TTF_PUSHW_MAX = 0xBF,
     TTF_RCVT      = 0x45,
     TTF_ROLL      = 0x8A,
+    TTF_ROUND     = 0x68,
+    TTF_ROUND_MAX = 0x6B,
     TTF_SCANCTRL  = 0x85,
     TTF_SCVTCI    = 0x1D,
     TTF_SDB       = 0x5E,
@@ -55,6 +57,15 @@ enum {
     TTF_SVTCA     = 0x00,
     TTF_SVTCA_MAX = 0x01,
     TTF_WCVTF     = 0x70,
+};
+
+enum {
+    TTF_ROUND_TO_HALF_GRID  ,
+    TTF_ROUND_TO_GRID       ,
+    TTF_ROUND_TO_DOUBLE_GRID,
+    TTF_ROUND_DOWN_TO_GRID  ,
+    TTF_ROUND_UP_TO_GRID    ,
+    TTF_ROUND_OFF           ,
 };
 
 typedef struct {
@@ -217,6 +228,7 @@ static void       ttf__PUSHB               (TTF* font, TTF_Ins_Stream* stream, T
 static void       ttf__PUSHW               (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
 static void       ttf__RCVT                (TTF* font);
 static void       ttf__ROLL                (TTF* font);
+static void       ttf__ROUND               (TTF* font, TTF_uint8 ins);
 static void       ttf__SCANCTRL            (TTF* font);
 static void       ttf__SCVTCI              (TTF* font);
 static void       ttf__SDB                 (TTF* font);
@@ -329,6 +341,7 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
         instance->gs->projVec.y         = 0;
         instance->gs->freedomVec.x      = 1 << 14;
         instance->gs->freedomVec.y      = 0;
+        instance->gs->roundState        = TTF_ROUND_TO_GRID;
         instance->gs->scanControl       = TTF_FALSE;
         
         // Convert default CVT values, given in FUnits, to 26.6 fixed point 
@@ -1275,6 +1288,10 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         ttf__SVTCA(font, ins);
         return;
     }
+    else if (ins >= TTF_ROUND && ins <= TTF_ROUND_MAX) {
+        ttf__ROUND(font, ins);
+        return;
+    }
 
     TTF_PRINTF("Unknown instruction: %#x\n", ins);
     assert(0);
@@ -1476,9 +1493,45 @@ static void ttf__ROLL(TTF* font) {
     ttf__stack_push_uint32(font, c);
 }
 
-static void ttf__SCANCTRL(TTF* font) {
-    TTF_PRINT("SCANCTRL\n");
+static void ttf__ROUND(TTF* font, TTF_uint8 ins) {
+    // TODO: No idea how to apply "engine compensation" described in the spec
     
+    TTF_F26Dot6 dist = ttf__stack_pop_F26Dot6(font);
+
+    TTF_PRINTF("ROUND (%d => ", dist);
+
+    switch (font->instance->gs->roundState) {
+        case TTF_ROUND_TO_HALF_GRID:
+            // TODO: wrong
+            dist = (dist & 0x20) + (dist & 0xFFFFFFC0);
+            assert(0);
+            break;
+        case TTF_ROUND_TO_GRID:
+            dist = ((dist & 0x20) << 1) + (dist & 0xFFFFFFC0);
+            break;
+        case TTF_ROUND_TO_DOUBLE_GRID:
+            assert(0);
+            break;
+        case TTF_ROUND_DOWN_TO_GRID:
+            assert(0);
+            break;
+        case TTF_ROUND_UP_TO_GRID:
+            assert(0);
+            break;
+        case TTF_ROUND_OFF:
+            assert(0);
+            break;
+        default:
+            assert(0);
+            break;
+    }
+
+    ttf__stack_push_F26Dot6(font, dist);
+
+    TTF_PRINTF("%d)\n", dist);
+}
+
+static void ttf__SCANCTRL(TTF* font) {
     TTF_uint16 flags  = ttf__stack_pop_uint32(font);
     TTF_uint8  thresh = flags & 0xFF;
     
@@ -1525,6 +1578,8 @@ static void ttf__SCANCTRL(TTF* font) {
             }
         }
     }
+
+    TTF_PRINTF("SCANCTRL (scan_control=%d)\n", font->instance->gs->scanControl);
 }
 
 static void ttf__SCVTCI(TTF* font) {
@@ -1533,13 +1588,13 @@ static void ttf__SCVTCI(TTF* font) {
 }
 
 static void ttf__SDB(TTF* font) {
-    TTF_PRINT("SDB\n");
     font->instance->gs->deltaBase = ttf__stack_pop_uint32(font);
+    TTF_PRINTF("SDB %d\n", font->instance->gs->deltaBase);
 }
 
 static void ttf__SDS(TTF* font) {
-    TTF_PRINT("SDS\n");
     font->instance->gs->deltaShift = ttf__stack_pop_uint32(font);
+    TTF_PRINTF("SDS %d\n", font->instance->gs->deltaShift);
 }
 
 static void ttf__SVTCA(TTF* font, TTF_uint8 ins) {
