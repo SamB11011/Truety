@@ -46,6 +46,7 @@ enum {
     TTF_PUSHB_MAX = 0xB7,
     TTF_PUSHW     = 0xB8,
     TTF_PUSHW_MAX = 0xBF,
+    TTF_RCVT      = 0x45,
     TTF_ROLL      = 0x8A,
     TTF_SCANCTRL  = 0x85,
     TTF_SCVTCI    = 0x1D,
@@ -214,6 +215,7 @@ static void       ttf__NPUSHB              (TTF* font, TTF_Ins_Stream* stream);
 static void       ttf__NPUSHW              (TTF* font, TTF_Ins_Stream* stream);
 static void       ttf__PUSHB               (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
 static void       ttf__PUSHW               (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
+static void       ttf__RCVT                (TTF* font);
 static void       ttf__ROLL                (TTF* font);
 static void       ttf__SCANCTRL            (TTF* font);
 static void       ttf__SCVTCI              (TTF* font);
@@ -1238,6 +1240,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_NPUSHW:
             ttf__NPUSHW(font, stream);
             return;
+        case TTF_RCVT:
+            ttf__RCVT(font);
+            return;
         case TTF_ROLL:
             ttf__ROLL(font);
             return;
@@ -1450,6 +1455,15 @@ static void ttf__PUSHW(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         TTF_PRINTF("\t%d\n", val);
         ttf__stack_push_int32(font, val);
     } while (--n);
+}
+
+static void ttf__RCVT(TTF* font) {
+    TTF_PRINT("RCVT\n");
+    
+    TTF_uint32 cvtIdx = ttf__stack_pop_uint32(font);
+    assert(cvtIdx < font->cvt.size / sizeof(TTF_FWORD));
+
+    ttf__stack_push_F26Dot6(font, font->instance->cvt[cvtIdx]);
 }
 
 static void ttf__ROLL(TTF* font) {
