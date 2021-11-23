@@ -24,7 +24,9 @@ enum {
 };
 
 enum {
+    TTF_ADD       = 0x60,
     TTF_CALL      = 0x2B,
+    TTF_CINDEX    = 0x25,
     TTF_DUP       = 0x20,
     TTF_EIF       = 0x59,
     TTF_ELSE      = 0x1B,
@@ -38,10 +40,12 @@ enum {
     TTF_IF        = 0x58,
     TTF_LOOPCALL  = 0x2A,
     TTF_LT        = 0x50,
+    TTF_MINDEX    = 0x26,
     TTF_MPPEM     = 0x4B,
     TTF_MUL       = 0x63,
     TTF_NPUSHB    = 0x40,
     TTF_NPUSHW    = 0x41,
+    TTF_POP       = 0x21,
     TTF_PUSHB     = 0xB0,
     TTF_PUSHB_MAX = 0xB7,
     TTF_PUSHW     = 0xB8,
@@ -56,7 +60,9 @@ enum {
     TTF_SDS       = 0x5F,
     TTF_SVTCA     = 0x00,
     TTF_SVTCA_MAX = 0x01,
+    TTF_SWAP      = 0x23,
     TTF_WCVTF     = 0x70,
+    TTF_WCVTP     = 0x44,
 };
 
 enum {
@@ -209,7 +215,9 @@ static void             ttf__active_edge_list_free       (TTF_Active_Edge_List* 
 static void       ttf__execute_font_program(TTF* font);
 static void       ttf__execute_cv_program  (TTF* font);
 static void       ttf__execute_ins         (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
+static void       ttf__ADD                 (TTF* font);
 static void       ttf__CALL                (TTF* font);
+static void       ttf__CINDEX              (TTF* font);
 static void       ttf__DUP                 (TTF* font);
 static void       ttf__EQ                  (TTF* font);
 static void       ttf__FDEF                (TTF* font, TTF_Ins_Stream* stream);
@@ -220,10 +228,12 @@ static void       ttf__IDEF                (TTF* font, TTF_Ins_Stream* stream);
 static void       ttf__IF                  (TTF* font, TTF_Ins_Stream* stream);
 static void       ttf__LOOPCALL            (TTF* font);
 static void       ttf__LT                  (TTF* font);
+static void       ttf__MINDEX              (TTF* font);
 static void       ttf__MPPEM               (TTF* font);
 static void       ttf__MUL                 (TTF* font);
 static void       ttf__NPUSHB              (TTF* font, TTF_Ins_Stream* stream);
 static void       ttf__NPUSHW              (TTF* font, TTF_Ins_Stream* stream);
+static void       ttf__POP                 (TTF* font);
 static void       ttf__PUSHB               (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
 static void       ttf__PUSHW               (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
 static void       ttf__RCVT                (TTF* font);
@@ -234,7 +244,9 @@ static void       ttf__SCVTCI              (TTF* font);
 static void       ttf__SDB                 (TTF* font);
 static void       ttf__SDS                 (TTF* font);
 static void       ttf__SVTCA               (TTF* font, TTF_uint8 ins);
+static void       ttf__SWAP                (TTF* font);
 static void       ttf__WCVTF               (TTF* font);
+static void       ttf__WCVTP               (TTF* font);
 static void       ttf__ins_stream_init     (TTF_Ins_Stream* stream, TTF_uint8* bytes);
 static TTF_uint8  ttf__ins_stream_next     (TTF_Ins_Stream* stream);
 static void       ttf__stack_push_uint32   (TTF* font, TTF_uint32 val);
@@ -1208,8 +1220,14 @@ static void ttf__execute_cv_program(TTF* font) {
 
 static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
     switch (ins) {
+        case TTF_ADD:
+            ttf__ADD(font);
+            return;
         case TTF_CALL:
             ttf__CALL(font);
+            return;
+        case TTF_CINDEX:
+            ttf__CINDEX(font);
             return;
         case TTF_DUP:
             ttf__DUP(font);
@@ -1241,6 +1259,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_LT:
             ttf__LT(font);
             return;
+        case TTF_MINDEX:
+            ttf__MINDEX(font);
+            return;
         case TTF_MPPEM:
             ttf__MPPEM(font);
             return;
@@ -1252,6 +1273,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
             return;
         case TTF_NPUSHW:
             ttf__NPUSHW(font, stream);
+            return;
+        case TTF_POP:
+            ttf__POP(font);
             return;
         case TTF_RCVT:
             ttf__RCVT(font);
@@ -1271,8 +1295,14 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_SDS:
             ttf__SDS(font);
             return;
+        case TTF_SWAP:
+            ttf__SWAP(font);
+            return;
         case TTF_WCVTF:
             ttf__WCVTF(font);
+            return;
+        case TTF_WCVTP:
+            ttf__WCVTP(font);
             return;
     }
 
@@ -1297,9 +1327,22 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
     assert(0);
 }
 
+static void ttf__ADD(TTF* font) {
+    TTF_PRINT("ADD\n");
+    TTF_F26Dot6 n1 = ttf__stack_pop_F26Dot6(font);
+    TTF_F26Dot6 n2 = ttf__stack_pop_F26Dot6(font);
+    ttf__stack_push_F26Dot6(font, n1 + n2);
+}
+
 static void ttf__CALL(TTF* font) {
     TTF_PRINT("CALL\n");
     ttf__call_func(font, ttf__stack_pop_uint32(font), 1);
+}
+
+static void ttf__CINDEX(TTF* font) {
+    TTF_PRINT("CINDEX\n");
+    TTF_uint32 idx = ttf__stack_pop_uint32(font);
+    ttf__stack_push_uint32(font, font->stack.frames[idx].uValue);
 }
 
 static void ttf__DUP(TTF* font) {
@@ -1425,6 +1468,20 @@ static void ttf__LT(TTF* font) {
     ttf__stack_push_uint32(font, e1 < e2 ? 1 : 0);
 }
 
+static void ttf__MINDEX(TTF* font) {
+    TTF_PRINT("MINDEX\n");
+    
+    TTF_uint32       idx   = ttf__stack_pop_uint32(font);
+    TTF_Stack_Frame* ptr   = font->stack.frames + idx;
+    TTF_Stack_Frame  frame = *ptr;
+    TTF_uint32       size  = sizeof(TTF_Stack_Frame) * (font->stack.count - idx - 1);
+    memmove(ptr, ptr, size);
+
+    font->stack.count--;
+
+    ttf__stack_push_uint32(font, frame.uValue);
+}
+
 static void ttf__MPPEM(TTF* font) {
     // TODO: If the font is stretched, (i.e. horizontal ppem != vertical ppem),
     //       then ppem must be measured in the direction of the projection 
@@ -1446,6 +1503,11 @@ static void ttf__NPUSHB(TTF* font, TTF_Ins_Stream* stream) {
 
 static void ttf__NPUSHW(TTF* font, TTF_Ins_Stream* stream) {
     assert(0);
+}
+
+static void ttf__POP(TTF* font) {
+    TTF_PRINT("POP\n");
+    ttf__stack_pop_uint32(font);
 }
 
 static void ttf__PUSHB(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
@@ -1502,23 +1564,26 @@ static void ttf__ROUND(TTF* font, TTF_uint8 ins) {
 
     switch (font->instance->gs->roundState) {
         case TTF_ROUND_TO_HALF_GRID:
-            // TODO: wrong
-            dist = (dist & 0x20) + (dist & 0xFFFFFFC0);
+            // TODO
             assert(0);
             break;
         case TTF_ROUND_TO_GRID:
             dist = ((dist & 0x20) << 1) + (dist & 0xFFFFFFC0);
             break;
         case TTF_ROUND_TO_DOUBLE_GRID:
+            // TODO
             assert(0);
             break;
         case TTF_ROUND_DOWN_TO_GRID:
+            // TODO
             assert(0);
             break;
         case TTF_ROUND_UP_TO_GRID:
+            // TODO
             assert(0);
             break;
         case TTF_ROUND_OFF:
+            // TODO
             assert(0);
             break;
         default:
@@ -1612,6 +1677,14 @@ static void ttf__SVTCA(TTF* font, TTF_uint8 ins) {
     }
 }
 
+static void ttf__SWAP(TTF* font) {
+    TTF_PRINT("SWAP\n");
+    TTF_uint32 e2 = ttf__stack_pop_uint32(font);
+    TTF_uint32 e1 = ttf__stack_pop_uint32(font);
+    ttf__stack_push_uint32(font, e1);
+    ttf__stack_push_uint32(font, e2);
+}
+
 static void ttf__WCVTF(TTF* font) {
     TTF_uint32 funits = ttf__stack_pop_uint32(font);
     TTF_uint32 cvtIdx = ttf__stack_pop_uint32(font);
@@ -1620,7 +1693,18 @@ static void ttf__WCVTF(TTF* font) {
 
     font->instance->cvt[cvtIdx] = ttf__fix_mult(funits << 6, font->instance->scale, 22);
 
-    TTF_PRINTF("WCVTF cvt[%d] = %d\n", cvtIdx, font->instance->cvt[cvtIdx]);
+    TTF_PRINTF("WCVTF (cvt[%d] = %d)\n", cvtIdx, font->instance->cvt[cvtIdx]);
+}
+
+static void ttf__WCVTP(TTF* font) {
+    TTF_uint32 pixels = ttf__stack_pop_uint32(font);
+    TTF_uint32 cvtIdx = ttf__stack_pop_uint32(font);
+
+    assert(cvtIdx < font->cvt.size / sizeof(TTF_FWORD));
+
+    font->instance->cvt[cvtIdx] = pixels;
+
+    TTF_PRINTF("WCVTP (cvt[%d] = %d)\n", cvtIdx, font->instance->cvt[cvtIdx]);
 }
 
 static void ttf__ins_stream_init(TTF_Ins_Stream* stream, TTF_uint8* bytes) {
