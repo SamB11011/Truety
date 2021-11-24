@@ -27,6 +27,9 @@ enum {
     TTF_ADD       = 0x60,
     TTF_CALL      = 0x2B,
     TTF_CINDEX    = 0x25,
+    TTF_DELTAC1   = 0x73,
+    TTF_DELTAC2   = 0x74,
+    TTF_DELTAC3   = 0x75,
     TTF_DUP       = 0x20,
     TTF_EIF       = 0x59,
     TTF_ELSE      = 0x1B,
@@ -219,6 +222,10 @@ static void       ttf__execute_cv_program  (TTF* font);
 static void       ttf__execute_ins         (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
 static void       ttf__ADD                 (TTF* font);
 static void       ttf__CALL                (TTF* font);
+static void       ttf__DELTAC1             (TTF* font);
+static void       ttf__DELTAC2             (TTF* font);
+static void       ttf__DELTAC3             (TTF* font);
+static void       ttf__DELTAC              (TTF* font, TTF_uint8 range);
 static void       ttf__CINDEX              (TTF* font);
 static void       ttf__DUP                 (TTF* font);
 static void       ttf__EQ                  (TTF* font);
@@ -275,6 +282,7 @@ static TTF_uint16 ttf__get_upem     (TTF* font);
 static float      ttf__linear_interp(float p0, float p1, float t);
 static void       ttf__get_min_max  (float v0, float v1, float* min, float* max);
 static float      ttf__get_inv_slope(TTF_Point* p0, TTF_Point* p1);
+
 
 /* ---------------------- */
 /* Fixed-point operations */
@@ -1233,6 +1241,15 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_CINDEX:
             ttf__CINDEX(font);
             return;
+        case TTF_DELTAC1:
+            ttf__DELTAC1(font);
+            return;
+        case TTF_DELTAC2:
+            ttf__DELTAC2(font);
+            return;
+        case TTF_DELTAC3:
+            ttf__DELTAC3(font);
+            return;
         case TTF_DUP:
             ttf__DUP(font);
             return;
@@ -1353,6 +1370,51 @@ static void ttf__CINDEX(TTF* font) {
     TTF_PRINT("CINDEX\n");
     TTF_uint32 idx = ttf__stack_pop_uint32(font);
     ttf__stack_push_uint32(font, font->stack.frames[idx].uValue);
+}
+
+static void ttf__DELTAC1(TTF* font) {
+    TTF_PRINT("DELTAC1\n");
+    ttf__DELTAC(font, 0);
+}
+
+static void ttf__DELTAC2(TTF* font) {
+    TTF_PRINT("DELTAC2\n");
+    ttf__DELTAC(font, 16);
+}
+
+static void ttf__DELTAC3(TTF* font) {
+    TTF_PRINT("DELTAC3\n");
+    ttf__DELTAC(font, 32);
+}
+
+static void ttf__DELTAC(TTF* font, TTF_uint8 range) {
+    TTF_uint32 num = ttf__stack_pop_uint32(font);
+
+    while (num > 0) {
+        TTF_uint32 cvtIdx    = ttf__stack_pop_uint32(font);
+        TTF_uint32 exception = ttf__stack_pop_uint32(font);
+        
+        TTF_uint32 ppem = ((exception & 0xF0) >> 4) + font->instance->gs->deltaBase + range;
+
+        if (font->instance->ppem == ppem) {
+            TTF_int8 numSteps = (exception & 0xF) - 8;
+            if (numSteps > 0) {
+                numSteps++;
+            }
+            
+            // numSteps * stepVal is 26.6 since numSteps already has a scale
+            // factor of 1
+
+            TTF_int32 stepVal = 1 << (6 - font->instance->gs->deltaShift);
+            font->instance->cvt[cvtIdx] += numSteps * stepVal;
+            TTF_PRINTF("\tcvt[%d] = %d\n", cvtIdx, font->instance->cvt[cvtIdx]);
+        }
+        else {
+            TTF_PRINT("\tppems not equal\n");
+        }
+
+        num--;
+    }
 }
 
 static void ttf__DUP(TTF* font) {
