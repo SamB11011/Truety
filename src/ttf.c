@@ -41,6 +41,7 @@ enum {
     TTF_GTEQ      = 0x53,
     TTF_IDEF      = 0x89,
     TTF_IF        = 0x58,
+    TTF_IP        = 0x39,
     TTF_LOOPCALL  = 0x2A,
     TTF_LT        = 0x50,
     TTF_MINDEX    = 0x26,
@@ -63,6 +64,9 @@ enum {
     TTF_SCVTCI    = 0x1D,
     TTF_SDB       = 0x5E,
     TTF_SDS       = 0x5F,
+    TTF_SRP0      = 0x10,
+    TTF_SRP1      = 0x11,
+    TTF_SRP2      = 0x12,
     TTF_SVTCA     = 0x00,
     TTF_SVTCA_MAX = 0x01,
     TTF_SWAP      = 0x23,
@@ -217,55 +221,60 @@ static void             ttf__active_edge_list_free       (TTF_Active_Edge_List* 
 
 #define TTF_GET_NUM_VALS_TO_PUSH(ins) (1 + (ins & 0x7)) /* For PUSHB and PUSHW */
 
-static void       ttf__execute_font_program(TTF* font);
-static void       ttf__execute_cv_program  (TTF* font);
-static void       ttf__execute_ins         (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
-static void       ttf__ADD                 (TTF* font);
-static void       ttf__CALL                (TTF* font);
-static void       ttf__DELTAC1             (TTF* font);
-static void       ttf__DELTAC2             (TTF* font);
-static void       ttf__DELTAC3             (TTF* font);
-static void       ttf__DELTAC              (TTF* font, TTF_uint8 range);
-static void       ttf__CINDEX              (TTF* font);
-static void       ttf__DUP                 (TTF* font);
-static void       ttf__EQ                  (TTF* font);
-static void       ttf__FDEF                (TTF* font, TTF_Ins_Stream* stream);
-static void       ttf__GETINFO             (TTF* font);
-static void       ttf__GPV                 (TTF* font);
-static void       ttf__GTEQ                (TTF* font);
-static void       ttf__IDEF                (TTF* font, TTF_Ins_Stream* stream);
-static void       ttf__IF                  (TTF* font, TTF_Ins_Stream* stream);
-static void       ttf__LOOPCALL            (TTF* font);
-static void       ttf__LT                  (TTF* font);
-static void       ttf__MINDEX              (TTF* font);
-static void       ttf__MPPEM               (TTF* font);
-static void       ttf__MUL                 (TTF* font);
-static void       ttf__NPUSHB              (TTF* font, TTF_Ins_Stream* stream);
-static void       ttf__NPUSHW              (TTF* font, TTF_Ins_Stream* stream);
-static void       ttf__POP                 (TTF* font);
-static void       ttf__PUSHB               (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
-static void       ttf__PUSHW               (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
-static void       ttf__RCVT                (TTF* font);
-static void       ttf__RDTG                (TTF* font);
-static void       ttf__ROLL                (TTF* font);
-static void       ttf__ROUND               (TTF* font, TTF_uint8 ins);
-static void       ttf__RTG                 (TTF* font);
-static void       ttf__SCANCTRL            (TTF* font);
-static void       ttf__SCVTCI              (TTF* font);
-static void       ttf__SDB                 (TTF* font);
-static void       ttf__SDS                 (TTF* font);
-static void       ttf__SVTCA               (TTF* font, TTF_uint8 ins);
-static void       ttf__SWAP                (TTF* font);
-static void       ttf__WCVTF               (TTF* font);
-static void       ttf__WCVTP               (TTF* font);
-static void       ttf__ins_stream_init     (TTF_Ins_Stream* stream, TTF_uint8* bytes);
-static TTF_uint8  ttf__ins_stream_next     (TTF_Ins_Stream* stream);
-static void       ttf__stack_push_uint32   (TTF* font, TTF_uint32 val);
-static void       ttf__stack_push_int32    (TTF* font, TTF_int32  val);
-static TTF_uint32 ttf__stack_pop_uint32    (TTF* font);
-static TTF_int32  ttf__stack_pop_int32     (TTF* font);
-static void       ttf__call_func           (TTF* font, TTF_uint32 funcId, TTF_uint32 times);
-static TTF_uint8  ttf__jump_to_else_or_eif (TTF_Ins_Stream* stream);
+static void       ttf__execute_font_program (TTF* font);
+static void       ttf__execute_cv_program   (TTF* font);
+static void       ttf__execute_glyph_program(TTF* font, TTF_uint32 idx);
+static void       ttf__execute_ins          (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
+static void       ttf__ADD                  (TTF* font);
+static void       ttf__CALL                 (TTF* font);
+static void       ttf__DELTAC1              (TTF* font);
+static void       ttf__DELTAC2              (TTF* font);
+static void       ttf__DELTAC3              (TTF* font);
+static void       ttf__DELTAC               (TTF* font, TTF_uint8 range);
+static void       ttf__CINDEX               (TTF* font);
+static void       ttf__DUP                  (TTF* font);
+static void       ttf__EQ                   (TTF* font);
+static void       ttf__FDEF                 (TTF* font, TTF_Ins_Stream* stream);
+static void       ttf__GETINFO              (TTF* font);
+static void       ttf__GPV                  (TTF* font);
+static void       ttf__GTEQ                 (TTF* font);
+static void       ttf__IDEF                 (TTF* font, TTF_Ins_Stream* stream);
+static void       ttf__IF                   (TTF* font, TTF_Ins_Stream* stream);
+static void       ttf__IP                   (TTF* font);
+static void       ttf__LOOPCALL             (TTF* font);
+static void       ttf__LT                   (TTF* font);
+static void       ttf__MINDEX               (TTF* font);
+static void       ttf__MPPEM                (TTF* font);
+static void       ttf__MUL                  (TTF* font);
+static void       ttf__NPUSHB               (TTF* font, TTF_Ins_Stream* stream);
+static void       ttf__NPUSHW               (TTF* font, TTF_Ins_Stream* stream);
+static void       ttf__POP                  (TTF* font);
+static void       ttf__PUSHB                (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
+static void       ttf__PUSHW                (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
+static void       ttf__RCVT                 (TTF* font);
+static void       ttf__RDTG                 (TTF* font);
+static void       ttf__ROLL                 (TTF* font);
+static void       ttf__ROUND                (TTF* font, TTF_uint8 ins);
+static void       ttf__RTG                  (TTF* font);
+static void       ttf__SCANCTRL             (TTF* font);
+static void       ttf__SCVTCI               (TTF* font);
+static void       ttf__SDB                  (TTF* font);
+static void       ttf__SDS                  (TTF* font);
+static void       ttf__SRP0                 (TTF* font);
+static void       ttf__SRP1                 (TTF* font);
+static void       ttf__SRP2                 (TTF* font);
+static void       ttf__SVTCA                (TTF* font, TTF_uint8 ins);
+static void       ttf__SWAP                 (TTF* font);
+static void       ttf__WCVTF                (TTF* font);
+static void       ttf__WCVTP                (TTF* font);
+static void       ttf__ins_stream_init      (TTF_Ins_Stream* stream, TTF_uint8* bytes);
+static TTF_uint8  ttf__ins_stream_next      (TTF_Ins_Stream* stream);
+static void       ttf__stack_push_uint32    (TTF* font, TTF_uint32 val);
+static void       ttf__stack_push_int32     (TTF* font, TTF_int32  val);
+static TTF_uint32 ttf__stack_pop_uint32     (TTF* font);
+static TTF_int32  ttf__stack_pop_int32      (TTF* font);
+static void       ttf__call_func            (TTF* font, TTF_uint32 funcId, TTF_uint32 times);
+static TTF_uint8  ttf__jump_to_else_or_eif  (TTF_Ins_Stream* stream);
 
 
 /* ------- */
@@ -363,10 +372,13 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
         instance->gs->controlValueCutIn = 68;
         instance->gs->deltaBase         = 9;
         instance->gs->deltaShift        = 3;
-        instance->gs->projVec.x         = 1 << 14;
-        instance->gs->projVec.y         = 0;
         instance->gs->freedomVec.x      = 1 << 14;
         instance->gs->freedomVec.y      = 0;
+        instance->gs->projVec.x         = 1 << 14;
+        instance->gs->projVec.y         = 0;
+        instance->gs->rp0               = 0;
+        instance->gs->rp1               = 0;
+        instance->gs->rp2               = 0;
         instance->gs->roundState        = TTF_ROUND_TO_GRID;
         instance->gs->scanControl       = TTF_FALSE;
         
@@ -444,15 +456,14 @@ TTF_bool ttf_render_glyph(TTF* font, TTF_Image* image, TTF_uint32 cp) {
 TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uint32 cp, TTF_uint32 x, TTF_uint32 y) {
     assert(font->instance != NULL);
 
-    TTF_uint32 idx         = ttf__get_char_glyph_index(font, cp);
-    TTF_uint8* glyphData   = ttf__get_glyf_data_block(font, idx);
-    TTF_int16  numContours = ttf__get_int16(glyphData);
-
-    if (numContours < 0) {
-        return ttf__render_composite_glyph(font, image, glyphData);
+    TTF_uint32 idx = ttf__get_char_glyph_index(font, cp);
+    
+    if (font->cvt.exists) {
+        // The font has hinting
+        ttf__execute_glyph_program(font, idx);
     }
 
-    return ttf__render_simple_glyph(font, image, glyphData, numContours);
+    return TTF_TRUE;
 }
 
 
@@ -1232,6 +1243,27 @@ static void ttf__execute_cv_program(TTF* font) {
     }
 }
 
+static void ttf__execute_glyph_program(TTF* font, TTF_uint32 idx) {
+    TTF_PRINT("\n-- Glyph Program --\n");
+
+    TTF_uint8* glyphData   = ttf__get_glyf_data_block(font, idx);
+    TTF_int16  numContours = ttf__get_int16(glyphData);
+
+    // TODO: handle composite glyphs
+    assert(numContours >= 0);
+
+    TTF_uint32 off    = 10 + numContours * 2;
+    TTF_uint16 insLen = ttf__get_int16(glyphData + off);
+
+    TTF_Ins_Stream stream;
+    ttf__ins_stream_init(&stream, glyphData + off + 2);
+
+    while (stream.off < insLen) {
+        TTF_uint8 ins = ttf__ins_stream_next(&stream);
+        ttf__execute_ins(font, &stream, ins);
+    }
+}
+
 static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
     switch (ins) {
         case TTF_ADD:
@@ -1275,6 +1307,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
             return;
         case TTF_IF:
             ttf__IF(font, stream);
+            return;
+        case TTF_IP:
+            ttf__IP(font);
             return;
         case TTF_LOOPCALL:
             ttf__LOOPCALL(font);
@@ -1323,6 +1358,15 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
             return;
         case TTF_SDS:
             ttf__SDS(font);
+            return;
+        case TTF_SRP0:
+            ttf__SRP0(font);
+            return;
+        case TTF_SRP1:
+            ttf__SRP1(font);
+            return;
+        case TTF_SRP2:
+            ttf__SRP2(font);
             return;
         case TTF_SWAP:
             ttf__SWAP(font);
@@ -1525,6 +1569,12 @@ static void ttf__IF(TTF* font, TTF_Ins_Stream* stream) {
 
         ttf__execute_ins(font, stream, ins);
     }
+}
+
+static void ttf__IP(TTF* font) {
+    TTF_PRINT("IP\n");
+    TTF_uint32 pointIdx = ttf__stack_pop_uint32(font);
+    assert(0);
 }
 
 static void ttf__LOOPCALL(TTF* font) {
@@ -1742,6 +1792,21 @@ static void ttf__SDB(TTF* font) {
 static void ttf__SDS(TTF* font) {
     font->instance->gs->deltaShift = ttf__stack_pop_uint32(font);
     TTF_PRINTF("SDS %d\n", font->instance->gs->deltaShift);
+}
+
+static void ttf__SRP0(TTF* font) {
+    TTF_PRINT("SRP0\n");
+    font->instance->gs->rp0 = ttf__stack_pop_uint32(font);
+}
+
+static void ttf__SRP1(TTF* font) {
+    TTF_PRINT("SRP1\n");
+    font->instance->gs->rp1 = ttf__stack_pop_uint32(font);
+}
+
+static void ttf__SRP2(TTF* font) {
+    TTF_PRINT("SRP2\n");
+    font->instance->gs->rp2 = ttf__stack_pop_uint32(font);
 }
 
 static void ttf__SVTCA(TTF* font, TTF_uint8 ins) {

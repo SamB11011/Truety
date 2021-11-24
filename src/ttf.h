@@ -71,19 +71,22 @@ typedef struct {
     TTF_uint32  deltaShift;
     TTF_Vec2    freedomVec;
     TTF_Vec2    projVec;
+    TTF_uint32  rp0;
+    TTF_uint32  rp1;
+    TTF_uint32  rp2;
     TTF_uint8   roundState;
     TTF_bool    scanControl;
 } TTF_Graphics_State;
 
 typedef struct {
     TTF_F26Dot6*        cvt;
+    TTF_bool            cvtIsOutdated;
     TTF_Graphics_State* gs;
     TTF_uint8*          mem;
     TTF_uint32          ppem;
     TTF_F10Dot22        scale;
     TTF_bool            rotated;   /* Not supported yet */
     TTF_bool            stretched; /* Not supported yet */
-    TTF_bool            cvtIsOutdated;
 } TTF_Instance;
 
 typedef struct {

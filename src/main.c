@@ -27,12 +27,12 @@ int main() {
         return 1;
     }
 
-    if (!ttf_render_glyph_to_existing_image(&font, &image, 'g', 0, 0)) {
+    if (!ttf_render_glyph_to_existing_image(&font, &image, 'A', 0, 0)) {
         fprintf(stderr, "Failed to render glyph.\n");
         return 1;
     }
 
-    stbi_write_png("./output.png", image.w, image.h, 1, image.pixels, image.stride);
+    // stbi_write_png("./output.png", image.w, image.h, 1, image.pixels, image.stride);
 
     ttf_free_image(&image);
     ttf_free_instance(&font, &instance);
