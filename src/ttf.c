@@ -51,9 +51,11 @@ enum {
     TTF_PUSHW     = 0xB8,
     TTF_PUSHW_MAX = 0xBF,
     TTF_RCVT      = 0x45,
+    TTF_RDTG      = 0x7D,
     TTF_ROLL      = 0x8A,
     TTF_ROUND     = 0x68,
     TTF_ROUND_MAX = 0x6B,
+    TTF_RTG       = 0x18,
     TTF_SCANCTRL  = 0x85,
     TTF_SCVTCI    = 0x1D,
     TTF_SDB       = 0x5E,
@@ -237,8 +239,10 @@ static void       ttf__POP                 (TTF* font);
 static void       ttf__PUSHB               (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
 static void       ttf__PUSHW               (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
 static void       ttf__RCVT                (TTF* font);
+static void       ttf__RDTG                (TTF* font);
 static void       ttf__ROLL                (TTF* font);
 static void       ttf__ROUND               (TTF* font, TTF_uint8 ins);
+static void       ttf__RTG                 (TTF* font);
 static void       ttf__SCANCTRL            (TTF* font);
 static void       ttf__SCVTCI              (TTF* font);
 static void       ttf__SDB                 (TTF* font);
@@ -1280,8 +1284,14 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_RCVT:
             ttf__RCVT(font);
             return;
+        case TTF_RDTG:
+            ttf__RDTG(font);
+            return;
         case TTF_ROLL:
             ttf__ROLL(font);
+            return;
+        case TTF_RTG:
+            ttf__RTG(font);
             return;
         case TTF_SCANCTRL:
             ttf__SCANCTRL(font);
@@ -1545,6 +1555,11 @@ static void ttf__RCVT(TTF* font) {
     ttf__stack_push_F26Dot6(font, font->instance->cvt[cvtIdx]);
 }
 
+static void ttf__RDTG(TTF* font) {
+    TTF_PRINT("RDTG\n");
+    font->instance->gs->roundState = TTF_ROUND_DOWN_TO_GRID;
+}
+
 static void ttf__ROLL(TTF* font) {
     TTF_PRINT("ROLL\n");
     TTF_uint32 a = ttf__stack_pop_uint32(font);
@@ -1575,8 +1590,7 @@ static void ttf__ROUND(TTF* font, TTF_uint8 ins) {
             assert(0);
             break;
         case TTF_ROUND_DOWN_TO_GRID:
-            // TODO
-            assert(0);
+            dist &= 0xFFFFFFC0;
             break;
         case TTF_ROUND_UP_TO_GRID:
             // TODO
@@ -1594,6 +1608,11 @@ static void ttf__ROUND(TTF* font, TTF_uint8 ins) {
     ttf__stack_push_F26Dot6(font, dist);
 
     TTF_PRINTF("%d)\n", dist);
+}
+
+static void ttf__RTG(TTF* font) {
+    TTF_PRINT("RTG\n");
+    font->instance->gs->roundState = TTF_ROUND_TO_GRID;
 }
 
 static void ttf__SCANCTRL(TTF* font) {
