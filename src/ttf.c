@@ -341,6 +341,7 @@ init_failure:
 }
 
 TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
+    // Scale is 10.22 since upem already has a scale factor of 1
     instance->scale         = ttf__rounded_div_64(ppem << 22, ttf__get_upem(font));
     instance->ppem          = ppem;
     instance->cvtIsOutdated = TTF_TRUE;
@@ -360,6 +361,7 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
 
         // Set default graphics state values
         instance->gs->controlValueCutIn = 68;
+        instance->gs->deltaBase         = 9;
         instance->gs->deltaShift        = 3;
         instance->gs->projVec.x         = 1 << 14;
         instance->gs->projVec.y         = 0;
@@ -1391,13 +1393,12 @@ static void ttf__DELTAC(TTF* font, TTF_uint8 range) {
     TTF_uint32 num = ttf__stack_pop_uint32(font);
 
     while (num > 0) {
-        TTF_uint32 cvtIdx    = ttf__stack_pop_uint32(font);
-        TTF_uint32 exception = ttf__stack_pop_uint32(font);
-        
-        TTF_uint32 ppem = ((exception & 0xF0) >> 4) + font->instance->gs->deltaBase + range;
+        TTF_uint32 cvtIdx = ttf__stack_pop_uint32(font);
+        TTF_uint32 exc    = ttf__stack_pop_uint32(font);
+        TTF_uint32 ppem   = ((exc & 0xF0) >> 4) + font->instance->gs->deltaBase + range;
 
         if (font->instance->ppem == ppem) {
-            TTF_int8 numSteps = (exception & 0xF) - 8;
+            TTF_int8 numSteps = (exc & 0xF) - 8;
             if (numSteps > 0) {
                 numSteps++;
             }
