@@ -62,8 +62,13 @@ typedef struct {
 } TTF_Func_Array;
 
 typedef struct {
-    TTF_F2Dot14 x, y;
+    TTF_int32 x, y;
 } TTF_Vec2;
+
+typedef struct {
+    TTF_Vec2*  points;
+    TTF_uint32 count;
+} TTF_Point_Array;
 
 typedef struct {
     TTF_F26Dot6 controlValueCutIn;
@@ -87,6 +92,7 @@ typedef struct {
     TTF_F10Dot22        scale;
     TTF_bool            rotated;   /* Not supported yet */
     TTF_bool            stretched; /* Not supported yet */
+    TTF_Point_Array     pointArray;
 } TTF_Instance;
 
 typedef struct {
@@ -105,9 +111,13 @@ typedef struct {
     TTF_Table      fpgm;
     TTF_Table      glyf;
     TTF_Table      head;
-    TTF_Table      maxp;
+    TTF_Table      hhea;
+    TTF_Table      hmtx;
     TTF_Table      loca;
+    TTF_Table      maxp;
+    TTF_Table      OS2;
     TTF_Table      prep;
+    TTF_Table      vmtx;
     TTF_Encoding   encoding;
     TTF_Stack      stack;
     TTF_Func_Array funcArray;
