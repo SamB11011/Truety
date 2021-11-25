@@ -636,7 +636,7 @@ static TTF_uint8* ttf__get_glyf_data_block(TTF* font, TTF_uint32 glyphIdx) {
 static TTF_bool ttf__extract_glyph_points(TTF* font, TTF_uint8* glyphData, TTF_uint32 glyphIdx, TTF_int16 numContours) {
     TTF_uint32 numRegularPoints = 1 + ttf__get_uint16(glyphData + 8 + 2 * numContours);
     
-    // The last four points are phantom points, and are not a part of the glyph
+    // The last four points are phantom points that are not a part of the glyph
     // outline
     font->instance->pointArray.count = 4 + numRegularPoints;
 
@@ -716,6 +716,7 @@ static TTF_bool ttf__extract_glyph_points(TTF* font, TTF_uint8* glyphData, TTF_u
 
 
     // Add the four phantom points
+    // TODO: Round the phantom points using the current round_state
 
     font->instance->pointArray.points[off    ].y = 0;
     font->instance->pointArray.points[off + 1].y = 0;
@@ -749,7 +750,7 @@ static TTF_bool ttf__extract_glyph_points(TTF* font, TTF_uint8* glyphData, TTF_u
             defaultDescender = ttf__get_int16(font->data + font->OS2.off + 70);
         }
         else {
-            // TODO: Use hhea table if OS/2 doesn't exist
+            // TODO: Get defaultAscender and defaultDescender from hhea
             assert(0);
         }
 
@@ -1149,22 +1150,13 @@ static void ttf__IF(TTF* font, TTF_Ins_Stream* stream) {
 }
 
 static void ttf__IP(TTF* font) {
+    assert(font->instance->gs->rp1 < font->instance->pointArray.count);
     TTF_PRINT("IP\n");
+    
     // TODO: use graphics state 'loop' variable
     
     TTF_uint32 pointIdx = ttf__stack_pop_uint32(font);
 
-    printf("rp1 = %d\n", font->instance->gs->rp1);
-    
-    TTF_PRINTF(
-        "\tpoint[%d] = (%d, %d)\n", 
-        pointIdx, 
-        ttf__fix_mult(font->instance->pointArray.points[pointIdx].x << 6, font->instance->scale, 22), 
-        ttf__fix_mult(font->instance->pointArray.points[pointIdx].y << 6, font->instance->scale, 22));
-
-    for (int i = 0; i < font->instance->pointArray.count; i++) {
-        printf("%d) (%d, %d)\n", i, font->instance->pointArray.points[i].x, font->instance->pointArray.points[i].y);
-    }
 
     assert(0);
 }
