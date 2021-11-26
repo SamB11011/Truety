@@ -63,36 +63,49 @@ typedef struct {
 
 typedef struct {
     TTF_int32 x, y;
-} TTF_Vec2;
+} TTF_Vec2,
+  TTF_F2Dot14_Vec2,
+  TTF_F26Dot6_Vec2;
 
 typedef struct {
-    TTF_Vec2*  points;
-    TTF_uint32 count;
-} TTF_Point_Array;
+    TTF_uint8*        mem;
+    TTF_Vec2*         ogPoints;
+    TTF_F26Dot6_Vec2* ogPointsScaled;
+    TTF_F26Dot6_Vec2* curPoints;
+    TTF_uint32        numPoints;
+} TTF_Zone;
 
 typedef struct {
-    TTF_F26Dot6 controlValueCutIn;
-    TTF_uint32  deltaBase;
-    TTF_uint32  deltaShift;
-    TTF_Vec2    freedomVec;
-    TTF_Vec2    projVec;
-    TTF_uint32  rp0;
-    TTF_uint32  rp1;
-    TTF_uint32  rp2;
-    TTF_uint8   roundState;
-    TTF_bool    scanControl;
+    TTF_F26Dot6      controlValueCutIn;
+    TTF_uint32       deltaBase;
+    TTF_uint32       deltaShift;
+    TTF_F2Dot14_Vec2 dualProjVec;
+    TTF_F2Dot14_Vec2 freedomVec;
+    TTF_uint32       loop;
+    TTF_F2Dot14_Vec2 projVec;
+    TTF_uint32       rp0;
+    TTF_uint32       rp1;
+    TTF_uint32       rp2;
+    TTF_uint8        roundState;
+    TTF_bool         scanControl;
+    TTF_Zone*        zp0;
+    TTF_Zone*        zp1;
+    TTF_Zone*        zp2;
 } TTF_Graphics_State;
 
 typedef struct {
+    TTF_uint8*          gsCVTMem;
+    TTF_Graphics_State* gs;
     TTF_F26Dot6*        cvt;
     TTF_bool            cvtIsOutdated;
-    TTF_Graphics_State* gs;
-    TTF_uint8*          mem;
-    TTF_uint32          ppem;
-    TTF_F10Dot22        scale;
-    TTF_bool            rotated;   /* Not supported yet */
-    TTF_bool            stretched; /* Not supported yet */
-    TTF_Point_Array     pointArray;
+
+    TTF_Zone zone0; /* Twilight zone */
+    TTF_Zone zone1;
+    
+    TTF_uint32   ppem;
+    TTF_F10Dot22 scale;
+    TTF_bool     rotated;   /* TODO: Not supported yet */
+    TTF_bool     stretched; /* TODO: Not supported yet */
 } TTF_Instance;
 
 typedef struct {
