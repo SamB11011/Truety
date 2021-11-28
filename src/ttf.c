@@ -1278,10 +1278,10 @@ static void ttf__IP(TTF* font) {
     TTF_F26Dot6_V2 diff;
 
     ttf__fix_v2_sub(rp2Cur, rp1Cur, &diff);
-    TTF_F26Dot6 totalDistCur = ttf__fix_v2_dot(&font->instance->gs->projVec, &diff, 6);
+    TTF_F26Dot6 totalDistCur = ttf__fix_v2_dot(&diff, &font->instance->gs->projVec, 14);
 
     ttf__fix_v2_sub(rp2Org, rp1Org, &diff);
-    TTF_F26Dot6 totalDistOrg = ttf__fix_v2_dot(&font->instance->gs->dualProjVec, &diff, 6);
+    TTF_F26Dot6 totalDistOrg = ttf__fix_v2_dot(&diff, &font->instance->gs->dualProjVec, 14);
 
     printf("\tprojection_vec = (%d, %d)\n", font->instance->gs->projVec.x, font->instance->gs->projVec.y);
     printf("\told_range = %d\n", totalDistOrg);
@@ -1293,10 +1293,10 @@ static void ttf__IP(TTF* font) {
         TTF_F26Dot6_V2* pointOrg = font->instance->gs->zp2->org + pointIdx;
 
         ttf__fix_v2_sub(pointCur, rp1Cur, &diff);
-        TTF_F26Dot6 distCur = ttf__fix_v2_dot(&font->instance->gs->projVec, &diff, 6);
+        TTF_F26Dot6 distCur = ttf__fix_v2_dot(&diff, &font->instance->gs->projVec, 14);
 
         ttf__fix_v2_sub(pointOrg, rp1Org, &diff);
-        TTF_F26Dot6 distOrg = ttf__fix_v2_dot(&font->instance->gs->dualProjVec, &diff, 6);
+        TTF_F26Dot6 distOrg = ttf__fix_v2_dot(&diff, &font->instance->gs->dualProjVec, 14);
 
         // Scale distOrg by however many times bigger totalDistCur is than
         // totalDistOrg, thus preservering the relative distance.
