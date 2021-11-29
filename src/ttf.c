@@ -1306,6 +1306,8 @@ static void ttf__IP(TTF* font) {
 
         ttf__move_point(font, pointCur, newDist - distCur);
 
+        printf("\tMove amount = %d\n", newDist - distCur);
+        printf("\tprojection_vector = (%d, %d)\n", font->instance->gs->projVec.x, font->instance->gs->projVec.y);
         printf("\tNew point = (%d, %d)\n", pointCur->x, pointCur->y);
     }
 }
@@ -1578,15 +1580,16 @@ static void ttf__SVTCA(TTF* font, TTF_uint8 ins) {
     if (ins & 0x1) {
         font->instance->gs->freedomVec.x = 1 << 14;
         font->instance->gs->freedomVec.y = 0;
-        font->instance->gs->projVec      = font->instance->gs->freedomVec;
         font->instance->gs->touchFlags   = TTF_TOUCH_X;
     }
     else {
         font->instance->gs->freedomVec.x = 0;
         font->instance->gs->freedomVec.y = 1 << 14;
-        font->instance->gs->projVec      = font->instance->gs->freedomVec;
         font->instance->gs->touchFlags   = TTF_TOUCH_Y;
     }
+
+    font->instance->gs->projVec     = font->instance->gs->freedomVec;
+    font->instance->gs->dualProjVec = font->instance->gs->freedomVec;
 }
 
 static void ttf__SWAP(TTF* font) {
