@@ -6,8 +6,77 @@
 #include "ttf.h"
 
 
-#define TTF_SCALAR_VERSION 35
+/* -------------- */
+/* Initialization */
+/* -------------- */
+static TTF_bool ttf__read_file_into_buffer            (TTF* font, const char* path);
+static TTF_bool ttf__extract_info_from_table_directory(TTF* font);
+static TTF_bool ttf__extract_char_encoding            (TTF* font);
+static TTF_bool ttf__format_is_supported              (TTF_uint16 format);
+static TTF_bool ttf__alloc_mem_for_ins_processing     (TTF* font);
 
+
+/* ------------------- */
+/* Glyph Index Mapping */
+/* ------------------- */
+static TTF_uint32 ttf__get_char_glyph_index         (TTF* font, TTF_uint32 cp);
+static TTF_uint16 ttf__get_char_glyph_index_format_4(TTF_uint8* subtable, TTF_uint32 cp);
+
+
+/* --------------- */
+/* glyf Operations */
+/* --------------- */
+enum {
+    TTF_GLYF_ON_CURVE_POINT = 0x01,
+    TTF_GLYF_X_SHORT_VECTOR = 0x02,
+    TTF_GLYF_Y_SHORT_VECTOR = 0x04,
+    TTF_GLYF_REPEAT_FLAG    = 0x08,
+    TTF_GLYF_X_DUAL         = 0x10, /* X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR */
+    TTF_GLYF_Y_DUAL         = 0x20, /* Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR */
+    TTF_GLYF_OVERLAP_SIMPLE = 0x40,
+    TTF_GLYF_RESERVED       = 0x80,
+};
+
+static TTF_uint8* ttf__get_glyf_data_block         (TTF* font, TTF_uint32 glyphIdx);
+static TTF_bool   ttf__alloc_zone                  (TTF_Zone* zone, TTF_uint32 cap);
+static TTF_bool   ttf__extract_zone1_points        (TTF* font, TTF_uint8* glyphData, TTF_uint32 glyphIdx, TTF_int16 numContours);
+static void       ttf__extract_zone1_phantom_points(TTF* font, TTF_uint8* glyphData, TTF_uint32 glyphIdx);
+static TTF_int32  ttf__get_next_coord_off          (TTF_uint8** data, TTF_uint8 dualFlag, TTF_uint8 shortFlag, TTF_uint8 flags);
+
+
+/* ---------------------------- */
+/* Interpreter Stack Operations */
+/* ---------------------------- */
+#define ttf__stack_push_F2Dot14(font, val) ttf__stack_push_int32(font, val)
+#define ttf__stack_push_F26Dot6(font, val) ttf__stack_push_int32(font, val)
+#define ttf__stack_pop_F2Dot14(font)       ttf__stack_pop_int32(font)
+#define ttf__stack_pop_F26Dot6(font)       ttf__stack_pop_int32(font)
+
+static void        ttf__stack_push_uint32   (TTF* font, TTF_uint32 val);
+static void        ttf__stack_push_int32    (TTF* font, TTF_int32  val);
+static TTF_uint32  ttf__stack_pop_uint32    (TTF* font);
+static TTF_int32   ttf__stack_pop_int32     (TTF* font);
+static void        ttf__stack_clear         (TTF* font);
+static TTF_uint32  ttf__get_num_vals_to_push(TTF_uint8 ins); /* For PUSHB and PUSHW */
+
+
+/* ----------------------------- */
+/* Instruction Stream Operations */
+/* ----------------------------- */
+typedef struct {
+    TTF_uint8* bytes;
+    TTF_uint32       off;
+} TTF_Ins_Stream;
+
+static void      ttf__ins_stream_init(TTF_Ins_Stream* stream, TTF_uint8* bytes);
+static TTF_uint8 ttf__ins_stream_next(TTF_Ins_Stream* stream);
+static void      ttf__ins_stream_skip(TTF_Ins_Stream* stream, TTF_uint32 count);
+
+
+/* --------------------- */
+/* Instruction Execution */
+/* --------------------- */
+#define TTF_SCALAR_VERSION 35
 
 enum {
     TTF_ADD       = 0x60,
@@ -69,77 +138,6 @@ enum {
     TTF_ROUND_OFF           ,
 };
 
-typedef struct {
-    TTF_uint8* bytes;
-    TTF_uint32       off;
-} TTF_Ins_Stream;
-
-
-/* -------------- */
-/* Initialization */
-/* -------------- */
-static TTF_bool ttf__read_file_into_buffer            (TTF* font, const char* path);
-static TTF_bool ttf__extract_info_from_table_directory(TTF* font);
-static TTF_bool ttf__extract_char_encoding            (TTF* font);
-static TTF_bool ttf__format_is_supported              (TTF_uint16 format);
-static TTF_bool ttf__alloc_mem_for_ins_processing     (TTF* font);
-
-
-/* ------------------- */
-/* Glyph Index Mapping */
-/* ------------------- */
-static TTF_uint32 ttf__get_char_glyph_index         (TTF* font, TTF_uint32 cp);
-static TTF_uint16 ttf__get_char_glyph_index_format_4(TTF_uint8* subtable, TTF_uint32 cp);
-
-
-/* --------------- */
-/* glyf Operations */
-/* --------------- */
-enum {
-    TTF_GLYF_ON_CURVE_POINT = 0x01,
-    TTF_GLYF_X_SHORT_VECTOR = 0x02,
-    TTF_GLYF_Y_SHORT_VECTOR = 0x04,
-    TTF_GLYF_REPEAT_FLAG    = 0x08,
-    TTF_GLYF_X_DUAL         = 0x10, /* X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR */
-    TTF_GLYF_Y_DUAL         = 0x20, /* Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR */
-    TTF_GLYF_OVERLAP_SIMPLE = 0x40,
-    TTF_GLYF_RESERVED       = 0x80,
-};
-
-static TTF_uint8* ttf__get_glyf_data_block         (TTF* font, TTF_uint32 glyphIdx);
-static TTF_bool   ttf__alloc_zone                  (TTF_Zone* zone, TTF_uint32 cap);
-static TTF_bool   ttf__extract_zone1_points        (TTF* font, TTF_uint8* glyphData, TTF_uint32 glyphIdx, TTF_int16 numContours);
-static void       ttf__extract_zone1_phantom_points(TTF* font, TTF_uint8* glyphData, TTF_uint32 glyphIdx);
-static TTF_int32  ttf__get_next_coord_off          (TTF_uint8** data, TTF_uint8 dualFlag, TTF_uint8 shortFlag, TTF_uint8 flags);
-
-
-/* ---------------------------- */
-/* Interpreter Stack Operations */
-/* ---------------------------- */
-#define ttf__stack_push_F2Dot14(font, val) ttf__stack_push_int32(font, val)
-#define ttf__stack_push_F26Dot6(font, val) ttf__stack_push_int32(font, val)
-#define ttf__stack_pop_F2Dot14(font)       ttf__stack_pop_int32(font)
-#define ttf__stack_pop_F26Dot6(font)       ttf__stack_pop_int32(font)
-
-static void        ttf__stack_push_uint32   (TTF* font, TTF_uint32 val);
-static void        ttf__stack_push_int32    (TTF* font, TTF_int32  val);
-static TTF_uint32  ttf__stack_pop_uint32    (TTF* font);
-static TTF_int32   ttf__stack_pop_int32     (TTF* font);
-static void        ttf__stack_clear         (TTF* font);
-static TTF_uint32  ttf__get_num_vals_to_push(TTF_uint8 ins); /* For PUSHB and PUSHW */
-
-
-/* ----------------------------- */
-/* Instruction Stream Operations */
-/* ----------------------------- */
-static void      ttf__ins_stream_init(TTF_Ins_Stream* stream, TTF_uint8* bytes);
-static TTF_uint8 ttf__ins_stream_next(TTF_Ins_Stream* stream);
-static void      ttf__ins_stream_skip(TTF_Ins_Stream* stream, TTF_uint32 count);
-
-
-/* --------------------- */
-/* Instruction Execution */
-/* --------------------- */
 static void        ttf__execute_font_program (TTF* font);
 static void        ttf__execute_cv_program   (TTF* font);
 static TTF_bool    ttf__execute_glyph_program(TTF* font, TTF_uint32 idx);
@@ -356,7 +354,7 @@ void ttf_free_instance(TTF* font, TTF_Instance* instance) {
         }
         free(instance->gsCVTMem);
         free(instance->zone1.mem);
-        // free(instance->zone0.mem); // TODO: not allocated yet
+        free(instance->zone0.mem);
     }
 }
 
@@ -930,8 +928,17 @@ static TTF_bool ttf__execute_glyph_program(TTF* font, TTF_uint32 glyphIdx) {
 
     // TODO: handle composite glyphs
     assert(numContours >= 0);
+
+    {
+        TTF_uint16 numTwilightPoints = ttf__get_uint16(font->data + font->maxp.off + 16);
+
+        if (!ttf__alloc_zone(&font->instance->zone0, numTwilightPoints)) {
+            return TTF_FALSE;
+        }
+    }
     
     if (!ttf__extract_zone1_points(font, glyphData, glyphIdx, numContours)) {
+        free(font->instance->zone1.mem);
         return TTF_FALSE;
     }
 
@@ -949,8 +956,8 @@ static TTF_bool ttf__execute_glyph_program(TTF* font, TTF_uint32 glyphIdx) {
         ttf__execute_ins(font, &stream, ins);
     }
 
-    // free(font->instance->zone0->mem); // TODO: not allocated yet
-    free(font->instance->zone1.mem);
+    free(font->instance->zone0.mem);
+    free(font->instance->zone1.mem); // TODO: Don't free so can be used for rasterizing
     return TTF_TRUE;
 }
 
@@ -1265,15 +1272,10 @@ static void ttf__IP(TTF* font) {
     assert(font->instance->gs->rp1 < font->instance->zone1.count);
     assert(font->instance->gs->rp2 < font->instance->zone1.count);
 
-    // TODO: support twilight zone
-    assert(font->instance->gs->zp0 != &font->instance->zone0);
-    assert(font->instance->gs->zp1 != &font->instance->zone0);
-    assert(font->instance->gs->zp2 != &font->instance->zone0);
-
     TTF_F26Dot6_V2* rp1Cur = font->instance->gs->zp0->cur + font->instance->gs->rp1;
     TTF_F26Dot6_V2* rp2Cur = font->instance->gs->zp1->cur + font->instance->gs->rp2;
-    TTF_F26Dot6_V2* rp1Org = font->instance->gs->zp0->org  + font->instance->gs->rp1;
-    TTF_F26Dot6_V2* rp2Org = font->instance->gs->zp1->org  + font->instance->gs->rp2;
+    TTF_F26Dot6_V2* rp1Org = font->instance->gs->zp0->org + font->instance->gs->rp1;
+    TTF_F26Dot6_V2* rp2Org = font->instance->gs->zp1->org + font->instance->gs->rp2;
 
     TTF_F26Dot6_V2 diff;
 
