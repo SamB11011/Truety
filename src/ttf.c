@@ -99,6 +99,8 @@ enum {
     TTF_IP        = 0x39,
     TTF_LOOPCALL  = 0x2A,
     TTF_LT        = 0x50,
+    TTF_MDRP      = 0xC0,
+    TTF_MDRP_MAX  = 0xDF,
     TTF_MINDEX    = 0x26,
     TTF_MPPEM     = 0x4B,
     TTF_MUL       = 0x63,
@@ -142,53 +144,58 @@ static void        ttf__execute_font_program (TTF* font);
 static void        ttf__execute_cv_program   (TTF* font);
 static TTF_bool    ttf__execute_glyph_program(TTF* font, TTF_uint32 idx);
 static void        ttf__execute_ins          (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
-static void        ttf__ADD                  (TTF* font);
-static void        ttf__CALL                 (TTF* font);
-static void        ttf__DELTAC1              (TTF* font);
-static void        ttf__DELTAC2              (TTF* font);
-static void        ttf__DELTAC3              (TTF* font);
-static void        ttf__DELTAC               (TTF* font, TTF_uint8 range);
-static void        ttf__CINDEX               (TTF* font);
-static void        ttf__DUP                  (TTF* font);
-static void        ttf__EQ                   (TTF* font);
-static void        ttf__FDEF                 (TTF* font, TTF_Ins_Stream* stream);
-static void        ttf__GETINFO              (TTF* font);
-static void        ttf__GPV                  (TTF* font);
-static void        ttf__GTEQ                 (TTF* font);
-static void        ttf__IDEF                 (TTF* font, TTF_Ins_Stream* stream);
-static void        ttf__IF                   (TTF* font, TTF_Ins_Stream* stream);
-static void        ttf__IP                   (TTF* font);
-static void        ttf__LOOPCALL             (TTF* font);
-static void        ttf__LT                   (TTF* font);
-static void        ttf__MINDEX               (TTF* font);
-static void        ttf__MPPEM                (TTF* font);
-static void        ttf__MUL                  (TTF* font);
-static void        ttf__NPUSHB               (TTF* font, TTF_Ins_Stream* stream);
-static void        ttf__NPUSHW               (TTF* font, TTF_Ins_Stream* stream);
-static void        ttf__POP                  (TTF* font);
-static void        ttf__PUSHB                (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
-static void        ttf__PUSHW                (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
-static void        ttf__RCVT                 (TTF* font);
-static void        ttf__RDTG                 (TTF* font);
-static void        ttf__ROLL                 (TTF* font);
-static void        ttf__ROUND                (TTF* font, TTF_uint8 ins);
-static void        ttf__RTG                  (TTF* font);
-static void        ttf__SCANCTRL             (TTF* font);
-static void        ttf__SCVTCI               (TTF* font);
-static void        ttf__SDB                  (TTF* font);
-static void        ttf__SDS                  (TTF* font);
-static void        ttf__SRP0                 (TTF* font);
-static void        ttf__SRP1                 (TTF* font);
-static void        ttf__SRP2                 (TTF* font);
-static void        ttf__SVTCA                (TTF* font, TTF_uint8 ins);
-static void        ttf__SWAP                 (TTF* font);
-static void        ttf__WCVTF                (TTF* font);
-static void        ttf__WCVTP                (TTF* font);
-static void        ttf__reset_graphics_state (TTF_Instance* instance);
-static void        ttf__call_func            (TTF* font, TTF_uint32 funcId, TTF_uint32 times);
-static TTF_uint8   ttf__jump_to_else_or_eif  (TTF_Ins_Stream* stream);
-static TTF_F26Dot6 ttf__round                (TTF* font, TTF_F26Dot6 v);
-static void        ttf__move_point           (TTF* font, TTF_F26Dot6_V2* point, TTF_F26Dot6 amount);
+
+static void ttf__ADD     (TTF* font);
+static void ttf__CALL    (TTF* font);
+static void ttf__DELTAC1 (TTF* font);
+static void ttf__DELTAC2 (TTF* font);
+static void ttf__DELTAC3 (TTF* font);
+static void ttf__DELTAC  (TTF* font, TTF_uint8 range);
+static void ttf__CINDEX  (TTF* font);
+static void ttf__DUP     (TTF* font);
+static void ttf__EQ      (TTF* font);
+static void ttf__FDEF    (TTF* font, TTF_Ins_Stream* stream);
+static void ttf__GETINFO (TTF* font);
+static void ttf__GPV     (TTF* font);
+static void ttf__GTEQ    (TTF* font);
+static void ttf__IDEF    (TTF* font, TTF_Ins_Stream* stream);
+static void ttf__IF      (TTF* font, TTF_Ins_Stream* stream);
+static void ttf__IP      (TTF* font);
+static void ttf__LOOPCALL(TTF* font);
+static void ttf__LT      (TTF* font);
+static void ttf__MDRP    (TTF* font, TTF_uint8 ins);
+static void ttf__MINDEX  (TTF* font);
+static void ttf__MPPEM   (TTF* font);
+static void ttf__MUL     (TTF* font);
+static void ttf__NPUSHB  (TTF* font, TTF_Ins_Stream* stream);
+static void ttf__NPUSHW  (TTF* font, TTF_Ins_Stream* stream);
+static void ttf__POP     (TTF* font);
+static void ttf__PUSHB   (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
+static void ttf__PUSHW   (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
+static void ttf__RCVT    (TTF* font);
+static void ttf__RDTG    (TTF* font);
+static void ttf__ROLL    (TTF* font);
+static void ttf__ROUND   (TTF* font, TTF_uint8 ins);
+static void ttf__RTG     (TTF* font);
+static void ttf__SCANCTRL(TTF* font);
+static void ttf__SCVTCI  (TTF* font);
+static void ttf__SDB     (TTF* font);
+static void ttf__SDS     (TTF* font);
+static void ttf__SRP0    (TTF* font);
+static void ttf__SRP1    (TTF* font);
+static void ttf__SRP2    (TTF* font);
+static void ttf__SVTCA   (TTF* font, TTF_uint8 ins);
+static void ttf__SWAP    (TTF* font);
+static void ttf__WCVTF   (TTF* font);
+static void ttf__WCVTP   (TTF* font);
+
+static void        ttf__reset_graphics_state    (TTF_Instance* instance);
+static void        ttf__call_func               (TTF* font, TTF_uint32 funcId, TTF_uint32 times);
+static TTF_uint8   ttf__jump_to_else_or_eif     (TTF_Ins_Stream* stream);
+static TTF_F26Dot6 ttf__round                   (TTF* font, TTF_F26Dot6 v);
+static void        ttf__move_point              (TTF* font, TTF_F26Dot6_V2* point, TTF_F26Dot6 amount);
+static TTF_F26Dot6 ttf__single_width_cut_in_test(TTF* font, TTF_F26Dot6 value);
+static TTF_F26Dot6 ttf__min_dist_test           (TTF* font, TTF_F26Dot6 value);
 
 
 /* ------- */
@@ -268,9 +275,9 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
     // Scale is 10.22 since upem already has a scale factor of 1
     instance->scale         = ttf__rounded_div((TTF_int64)ppem << 22, ttf__get_upem(font));
     instance->ppem          = ppem;
-    instance->cvtIsOutdated = TTF_TRUE;
     instance->rotated       = TTF_FALSE;
     instance->stretched     = TTF_FALSE;
+    instance->cvtIsOutdated = TTF_TRUE;
 
     if (font->cvt.exists) {
         // Allocate memory for the Control Value Table and graphics state
@@ -298,6 +305,9 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
     }
     else {
         instance->cvt = NULL;
+        instance->gs  = NULL;
+        memset(&instance->zone0, 0, sizeof(TTF_Zone));
+        memset(&instance->zone1, 0, sizeof(TTF_Zone));
     }
 
     return TTF_TRUE;
@@ -1057,7 +1067,11 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
             return;
     }
 
-    if (ins >= TTF_PUSHB && ins <= TTF_PUSHB_MAX) {
+    if (ins >= TTF_MDRP && ins <= TTF_MDRP_MAX) {
+        ttf__MDRP(font, ins);
+        return;
+    }
+    else if (ins >= TTF_PUSHB && ins <= TTF_PUSHB_MAX) {
         ttf__PUSHB(font, stream, ins);
         return;
     }
@@ -1065,12 +1079,12 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         ttf__PUSHW(font, stream, ins);
         return;
     }
-    else if (ins >= TTF_SVTCA && ins <= TTF_SVTCA_MAX) {
-        ttf__SVTCA(font, ins);
-        return;
-    }
     else if (ins >= TTF_ROUND && ins <= TTF_ROUND_MAX) {
         ttf__ROUND(font, ins);
+        return;
+    }
+    else if (ins >= TTF_SVTCA && ins <= TTF_SVTCA_MAX) {
+        ttf__SVTCA(font, ins);
         return;
     }
 
@@ -1252,8 +1266,8 @@ static void ttf__IP(TTF* font) {
 
     TTF_F26Dot6_V2* rp1Cur = font->instance->gs->zp0->cur + font->instance->gs->rp1;
     TTF_F26Dot6_V2* rp2Cur = font->instance->gs->zp1->cur + font->instance->gs->rp2;
-    TTF_F26Dot6_V2* rp1Org = font->instance->gs->zp0->org + font->instance->gs->rp1;
-    TTF_F26Dot6_V2* rp2Org = font->instance->gs->zp1->org + font->instance->gs->rp2;
+    TTF_F26Dot6_V2* rp1Org = font->instance->gs->zp0->orgScaled + font->instance->gs->rp1;
+    TTF_F26Dot6_V2* rp2Org = font->instance->gs->zp1->orgScaled + font->instance->gs->rp2;
 
     TTF_F26Dot6_V2 diff;
 
@@ -1268,7 +1282,7 @@ static void ttf__IP(TTF* font) {
         assert(pointIdx < font->instance->gs->zp2->count);
 
         TTF_F26Dot6_V2* pointCur = font->instance->gs->zp2->cur + pointIdx;
-        TTF_F26Dot6_V2* pointOrg = font->instance->gs->zp2->org + pointIdx;
+        TTF_F26Dot6_V2* pointOrg = font->instance->gs->zp2->orgScaled + pointIdx;
 
         ttf__fix_v2_sub(pointCur, rp1Cur, &diff);
         TTF_F26Dot6 distCur = ttf__fix_v2_dot(&diff, &font->instance->gs->projVec, 14);
@@ -1277,11 +1291,15 @@ static void ttf__IP(TTF* font) {
         TTF_F26Dot6 distOrg = ttf__fix_v2_dot(&diff, &font->instance->gs->dualProjVec, 14);
 
         // Scale distOrg by however many times bigger totalDistCur is than
-        // totalDistOrg, thus preservering the relative distance.
+        // totalDistOrg. 
+        //
+        // This ensures D(p,rp1)/D(p',rp1') = D(p,rp2)/D(p',rp2') holds true.
         TTF_F26Dot6 newDist = 
             ttf__fix_div(ttf__fix_mul(distOrg, totalDistCur, 6), totalDistOrg, 6, 6);
 
         ttf__move_point(font, pointCur, newDist - distCur);
+
+        printf("\tNew point = (%d, %d)\n", pointCur->x, pointCur->y);
     }
 }
 
@@ -1297,6 +1315,46 @@ static void ttf__LT(TTF* font) {
     TTF_uint32 e2 = ttf__stack_pop_uint32(font);
     TTF_uint32 e1 = ttf__stack_pop_uint32(font);
     ttf__stack_push_uint32(font, e1 < e2 ? 1 : 0);
+}
+
+static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
+    TTF_PRINT_INS();
+
+    assert(font->instance->gs->rp0 < font->instance->gs->zp0->count);
+
+    TTF_uint32 pointIdx = ttf__stack_pop_uint32(font);
+    assert(pointIdx < font->instance->gs->zp1->count);
+
+    TTF_F26Dot6_V2* rp0Cur   = font->instance->gs->zp0->cur + font->instance->gs->rp0;
+    TTF_F26Dot6_V2* pointCur = font->instance->gs->zp1->cur + pointIdx;
+    TTF_F26Dot6_V2* rp0Org   = font->instance->gs->zp0->orgScaled + font->instance->gs->rp0;
+    TTF_F26Dot6_V2* pointOrg = font->instance->gs->zp1->orgScaled + pointIdx;
+
+    TTF_F26Dot6_V2 diff;
+
+    ttf__fix_v2_sub(pointCur, rp0Cur, &diff);
+    TTF_F26Dot6 distCur = ttf__fix_v2_dot(&diff, &font->instance->gs->projVec, 14);
+
+    ttf__fix_v2_sub(pointOrg, rp0Org, &diff);
+    TTF_F26Dot6 distOrg = ttf__fix_v2_dot(&diff, &font->instance->gs->dualProjVec, 14);
+
+    distOrg = ttf__single_width_cut_in_test(font, distOrg);
+
+    if (ins & 0x4) {
+        distOrg = ttf__round(font, distOrg);
+    }
+
+    if (ins & 0x8) {
+        distOrg = ttf__min_dist_test(font, distOrg);
+    }
+
+    if (ins & 0x10) {
+        font->instance->gs->rp0 = pointIdx;
+    }
+
+    ttf__move_point(font, pointCur, distOrg - distCur);
+
+    printf("\tNew point = (%d, %d)\n", pointCur->x, pointCur->y);
 }
 
 static void ttf__MINDEX(TTF* font) {
@@ -1393,10 +1451,7 @@ static void ttf__ROLL(TTF* font) {
 
 static void ttf__ROUND(TTF* font, TTF_uint8 ins) {
     TTF_PRINT_INS();
-
-    // TODO: No idea how to apply "engine compensation" described in the spec
     TTF_F26Dot6 dist = ttf__stack_pop_F26Dot6(font);
-
     dist = ttf__round(font, dist);
     ttf__stack_push_F26Dot6(font, dist);
 }
@@ -1494,11 +1549,13 @@ static void ttf__SVTCA(TTF* font, TTF_uint8 ins) {
         font->instance->gs->freedomVec.x = 1 << 14;
         font->instance->gs->freedomVec.y = 0;
         font->instance->gs->projVec      = font->instance->gs->freedomVec;
+        font->instance->gs->touchFlags   = TTF_TOUCH_X;
     }
     else {
         font->instance->gs->freedomVec.x = 0;
         font->instance->gs->freedomVec.y = 1 << 14;
         font->instance->gs->projVec      = font->instance->gs->freedomVec;
+        font->instance->gs->touchFlags   = TTF_TOUCH_Y;
     }
 }
 
@@ -1532,7 +1589,6 @@ static void ttf__WCVTP(TTF* font) {
     font->instance->cvt[cvtIdx] = pixels;
 }
 
-
 static void ttf__reset_graphics_state(TTF_Instance* instance) {
     instance->gs->controlValueCutIn = 68;
     instance->gs->deltaBase         = 9;
@@ -1540,6 +1596,7 @@ static void ttf__reset_graphics_state(TTF_Instance* instance) {
     instance->gs->freedomVec.x      = 1 << 14;
     instance->gs->freedomVec.y      = 0;
     instance->gs->loop              = 1;
+    instance->gs->minDist           = 1 << 6;
     instance->gs->projVec.x         = 1 << 14;
     instance->gs->projVec.y         = 0;
     instance->gs->dualProjVec.x     = instance->gs->projVec.x;
@@ -1549,6 +1606,9 @@ static void ttf__reset_graphics_state(TTF_Instance* instance) {
     instance->gs->rp2               = 0;
     instance->gs->roundState        = TTF_ROUND_TO_GRID;
     instance->gs->scanControl       = TTF_FALSE;
+    instance->gs->singleWidthCutIn  = 0;
+    instance->gs->singleWidthValue  = 0;
+    instance->gs->touchFlags        = TTF_TOUCH_X;
     instance->gs->zp0               = &instance->zone1;
     instance->gs->zp1               = &instance->zone1;
     instance->gs->zp2               = &instance->zone1;
@@ -1611,6 +1671,8 @@ static TTF_uint8 ttf__jump_to_else_or_eif(TTF_Ins_Stream* stream) {
 }
 
 static TTF_F26Dot6 ttf__round(TTF* font, TTF_F26Dot6 v) {
+    // TODO: No idea how to apply "engine compensation" described in the spec
+
     switch (font->instance->gs->roundState) {
         case TTF_ROUND_TO_HALF_GRID:
             // TODO
@@ -1640,7 +1702,27 @@ static TTF_F26Dot6 ttf__round(TTF* font, TTF_F26Dot6 v) {
 static void ttf__move_point(TTF* font, TTF_F26Dot6_V2* point, TTF_F26Dot6 amount) {
     point->x += ttf__fix_mul(amount, font->instance->gs->freedomVec.x, 14);
     point->y += ttf__fix_mul(amount, font->instance->gs->freedomVec.y, 14);
-    point->touchFlags |= font->instance->touchFlags;
+    point->touchFlags |= font->instance->gs->touchFlags;
+}
+
+static TTF_F26Dot6 ttf__single_width_cut_in_test(TTF* font, TTF_F26Dot6 value) {
+    if (labs(value - font->instance->gs->singleWidthValue) < font->instance->gs->singleWidthCutIn) {
+        if (value < 0) {
+            return -font->instance->gs->singleWidthValue;
+        }
+        return font->instance->gs->singleWidthValue;
+    }
+    return value;
+}
+
+static TTF_F26Dot6 ttf__min_dist_test(TTF* font, TTF_F26Dot6 value) {
+    if (labs(value) < font->instance->gs->minDist) {
+        if (value < 0) {
+            return -font->instance->gs->minDist;
+        }
+        return font->instance->gs->minDist;
+    }
+    return value;
 }
 
 

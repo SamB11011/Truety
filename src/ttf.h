@@ -92,12 +92,16 @@ typedef struct {
     TTF_F2Dot14_V2 dualProjVec;
     TTF_F2Dot14_V2 freedomVec;
     TTF_uint32     loop;
+    TTF_F26Dot6    minDist;
     TTF_F2Dot14_V2 projVec;
     TTF_uint32     rp0;
     TTF_uint32     rp1;
     TTF_uint32     rp2;
     TTF_uint8      roundState;
     TTF_bool       scanControl;
+    TTF_F26Dot6    singleWidthCutIn;
+    TTF_F26Dot6    singleWidthValue;
+    TTF_Touch_Flag touchFlags;
     TTF_Zone*      zp0;
     TTF_Zone*      zp1;
     TTF_Zone*      zp2;
@@ -109,9 +113,8 @@ typedef struct {
     TTF_F26Dot6*        cvt;
     TTF_bool            cvtIsOutdated;
 
-    TTF_Zone       zone0;
-    TTF_Zone       zone1;
-    TTF_Touch_Flag touchFlags;
+    TTF_Zone zone0;
+    TTF_Zone zone1;
     
     TTF_uint32   ppem;
     TTF_F10Dot22 scale;
