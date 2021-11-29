@@ -188,6 +188,7 @@ static void        ttf__reset_graphics_state (TTF_Instance* instance);
 static void        ttf__call_func            (TTF* font, TTF_uint32 funcId, TTF_uint32 times);
 static TTF_uint8   ttf__jump_to_else_or_eif  (TTF_Ins_Stream* stream);
 static TTF_F26Dot6 ttf__round                (TTF* font, TTF_F26Dot6 v);
+static void        ttf__move_point           (TTF* font, TTF_F26Dot6_V2* point, TTF_F26Dot6 amount);
 
 
 /* ------- */
@@ -721,10 +722,13 @@ static TTF_bool ttf__extract_zone1_points(TTF* font, TTF_uint8* glyphData, TTF_u
             TTF_int32 yOff = ttf__get_next_coord_off(
                 &yData, TTF_GLYF_Y_DUAL, TTF_GLYF_Y_SHORT_VECTOR, flags);
 
-            font->instance->zone1.org[font->instance->zone1.count].x = absPos.x + xOff;
-            font->instance->zone1.org[font->instance->zone1.count].y = absPos.y + yOff;
+            TTF_V2* point = font->instance->zone1.org + font->instance->zone1.count;
 
-            absPos = font->instance->zone1.org[font->instance->zone1.count];
+            point->x          = absPos.x + xOff;
+            point->y          = absPos.y + yOff;
+            point->touchFlags = TTF_UNTOUCHED;
+            absPos            = *point;
+
             font->instance->zone1.count++;
             flagsReps--;
         }
@@ -736,11 +740,11 @@ static TTF_bool ttf__extract_zone1_points(TTF* font, TTF_uint8* glyphData, TTF_u
 
     // Scale the original points
     for (TTF_uint32 i = 0; i < font->instance->zone1.count; i++) {
-        font->instance->zone1.orgScaled[i].x = 
-            ttf__fix_mul(font->instance->zone1.org[i].x << 6, font->instance->scale, 22);
+        TTF_V2*         orgPoint    = font->instance->zone1.org + i;
+        TTF_F26Dot6_V2* scaledPoint = font->instance->zone1.orgScaled + i;
 
-        font->instance->zone1.orgScaled[i].y =
-            ttf__fix_mul(font->instance->zone1.org[i].y << 6, font->instance->scale, 22);
+        scaledPoint->x = ttf__fix_mul(orgPoint->x << 6, font->instance->scale, 22);
+        scaledPoint->y = ttf__fix_mul(orgPoint->y << 6, font->instance->scale, 22);
     }
 
 
@@ -1290,7 +1294,9 @@ static void ttf__IP(TTF* font) {
     printf("\tcur_range = %d\n", totalDistCur);
 
     for (TTF_uint32 i = 0; i < font->instance->gs->loop; i++) {
-        TTF_uint32      pointIdx = ttf__stack_pop_uint32(font);
+        TTF_uint32 pointIdx = ttf__stack_pop_uint32(font);
+        assert(pointIdx < font->instance->gs->zp2->count);
+
         TTF_F26Dot6_V2* pointCur = font->instance->gs->zp2->cur + pointIdx;
         TTF_F26Dot6_V2* pointOrg = font->instance->gs->zp2->org + pointIdx;
 
@@ -1305,13 +1311,13 @@ static void ttf__IP(TTF* font) {
         TTF_F26Dot6 newDist = 
             ttf__fix_div(ttf__fix_mul(distOrg, totalDistCur, 6), totalDistOrg, 6, 6);
 
-        printf("\torg_dist = %d\n", distOrg);
-        printf("\tcur_dist = %d\n", distCur);
-        printf("\tnew_dist = %d\n", newDist);
-    }
+        ttf__move_point(font, pointCur, newDist - distCur);
 
-    TTF_PRINT_POINTS(&font->instance->zone1);
-    assert(0);
+        printf("\torg_dist  = %d\n", distOrg);
+        printf("\tcur_dist  = %d\n", distCur);
+        printf("\tnew_dist  = %d\n", newDist);
+        printf("\tnew point = (%d, %d)\n", pointCur->x, pointCur->y);
+    }
 }
 
 static void ttf__LOOPCALL(TTF* font) {
@@ -1674,6 +1680,12 @@ static TTF_F26Dot6 ttf__round(TTF* font, TTF_F26Dot6 v) {
     }
     assert(0);
     return 0;
+}
+
+static void ttf__move_point(TTF* font, TTF_F26Dot6_V2* point, TTF_F26Dot6 amount) {
+    point->x += ttf__fix_mul(amount, font->instance->gs->freedomVec.x, 14);
+    point->y += ttf__fix_mul(amount, font->instance->gs->freedomVec.y, 14);
+    point->touchFlags |= font->instance->touchFlags;
 }
 
 

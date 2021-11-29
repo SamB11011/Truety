@@ -27,6 +27,12 @@ typedef TTF_int32  TTF_F10Dot22;
 typedef TTF_int32  TTF_F16Dot16;
 typedef TTF_int32  TTF_F26Dot6;
 
+typedef enum {
+    TTF_UNTOUCHED = 0x0,
+    TTF_TOUCH_X   = 0x1,
+    TTF_TOUCH_Y   = 0x2,
+} TTF_Touch_Flag;
+
 typedef struct {
     TTF_bool     exists;
     TTF_Offset32 off;
@@ -62,7 +68,9 @@ typedef struct {
 } TTF_Func_Array;
 
 typedef struct {
-    TTF_int32 x, y;
+    TTF_int32      x;
+    TTF_int32      y;
+    TTF_Touch_Flag touchFlags;
 } TTF_V2,
   TTF_Fix_V2,
   TTF_F2Dot14_V2,
@@ -101,8 +109,9 @@ typedef struct {
     TTF_F26Dot6*        cvt;
     TTF_bool            cvtIsOutdated;
 
-    TTF_Zone zone0;
-    TTF_Zone zone1;
+    TTF_Zone       zone0;
+    TTF_Zone       zone1;
+    TTF_Touch_Flag touchFlags;
     
     TTF_uint32   ppem;
     TTF_F10Dot22 scale;
