@@ -99,6 +99,8 @@ enum {
     TTF_IP        = 0x39,
     TTF_LOOPCALL  = 0x2A,
     TTF_LT        = 0x50,
+    TTF_MDAP      = 0x2E,
+    TTF_MDAP_MAX  = 0x2F,
     TTF_MDRP      = 0xC0,
     TTF_MDRP_MAX  = 0xDF,
     TTF_MINDEX    = 0x26,
@@ -163,6 +165,7 @@ static void ttf__IF      (TTF* font, TTF_Ins_Stream* stream);
 static void ttf__IP      (TTF* font);
 static void ttf__LOOPCALL(TTF* font);
 static void ttf__LT      (TTF* font);
+static void ttf__MDAP    (TTF* font, TTF_uint8 ins);
 static void ttf__MDRP    (TTF* font, TTF_uint8 ins);
 static void ttf__MINDEX  (TTF* font);
 static void ttf__MPPEM   (TTF* font);
@@ -1067,7 +1070,11 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
             return;
     }
 
-    if (ins >= TTF_MDRP && ins <= TTF_MDRP_MAX) {
+    if (ins >= TTF_MDAP && ins <= TTF_MDAP_MAX) {
+        ttf__MDAP(font, ins);
+        return;
+    }
+    else if (ins >= TTF_MDRP && ins <= TTF_MDRP_MAX) {
         ttf__MDRP(font, ins);
         return;
     }
@@ -1317,6 +1324,29 @@ static void ttf__LT(TTF* font) {
     ttf__stack_push_uint32(font, e1 < e2 ? 1 : 0);
 }
 
+static void ttf__MDAP(TTF* font, TTF_uint8 ins) {
+    TTF_PRINT_INS();
+
+    TTF_uint32      pointIdx = ttf__stack_pop_uint32(font);
+    TTF_F26Dot6_V2* point    = font->instance->gs->zp0->cur + pointIdx;
+
+    if (ins & 0x1) {
+        // Move the point to its rounded position
+        TTF_F26Dot6 curDist = ttf__fix_v2_dot(point, &font->instance->gs->projVec, 14);
+        TTF_F26Dot6 dist    = ttf__round(font, curDist) - curDist;
+        ttf__move_point(font, point, dist);
+    }
+    else {
+        // Don't move the point, just mark it as touched
+        point->touchFlags |= font->instance->gs->touchFlags;
+    }
+
+    font->instance->gs->rp0 = pointIdx;
+    font->instance->gs->rp1 = pointIdx;
+
+    printf("\tNew point = (%d, %d)\n", point->x, point->y);
+}
+
 static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
     TTF_PRINT_INS();
 
@@ -1545,7 +1575,7 @@ static void ttf__SRP2(TTF* font) {
 static void ttf__SVTCA(TTF* font, TTF_uint8 ins) {
     TTF_PRINT_INS();
 
-    if (ins == 0x1) {
+    if (ins & 0x1) {
         font->instance->gs->freedomVec.x = 1 << 14;
         font->instance->gs->freedomVec.y = 0;
         font->instance->gs->projVec      = font->instance->gs->freedomVec;
