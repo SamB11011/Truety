@@ -108,18 +108,20 @@ typedef struct {
 } TTF_Graphics_State;
 
 typedef struct {
-    TTF_uint8*          gsCVTMem;
-    TTF_Graphics_State* gs;
-    TTF_F26Dot6*        cvt;
-    TTF_bool            cvtIsOutdated;
-
-    TTF_Zone zone0;
-    TTF_Zone zone1;
-    
     TTF_uint32   ppem;
     TTF_F10Dot22 scale;
     TTF_bool     rotated;   /* TODO: Not supported yet */
     TTF_bool     stretched; /* TODO: Not supported yet */
+
+
+    /* The following variables are specific to the glyph program */
+    TTF_Zone            zone0;
+    TTF_Zone            zone1;
+    TTF_uint8*          gsCVTMem;
+    TTF_Graphics_State* gs;
+    TTF_F26Dot6*        cvt;
+    TTF_bool            cvtIsOutdated;
+    TTF_uint8*          glyfData;
 } TTF_Instance;
 
 typedef struct {

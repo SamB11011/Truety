@@ -39,8 +39,8 @@ enum {
 
 static TTF_uint8* ttf__get_glyf_data_block         (TTF* font, TTF_uint32 glyphIdx);
 static TTF_bool   ttf__alloc_zone                  (TTF_Zone* zone, TTF_uint32 cap);
-static TTF_bool   ttf__extract_zone1_points        (TTF* font, TTF_uint8* glyphData, TTF_uint32 glyphIdx, TTF_int16 numContours);
-static void       ttf__extract_zone1_phantom_points(TTF* font, TTF_uint8* glyphData, TTF_uint32 glyphIdx);
+static TTF_bool   ttf__extract_zone1_points        (TTF* font, TTF_uint32 glyphIdx, TTF_int16 numContours);
+static void       ttf__extract_zone1_phantom_points(TTF* font, TTF_uint32 glyphIdx);
 static TTF_int32  ttf__get_next_coord_off          (TTF_uint8** data, TTF_uint8 dualFlag, TTF_uint8 shortFlag, TTF_uint8 flags);
 
 
@@ -97,6 +97,8 @@ enum {
     TTF_IDEF      = 0x89,
     TTF_IF        = 0x58,
     TTF_IP        = 0x39,
+    TTF_IUP       = 0x30,
+    TTF_IUP_MAX   = 0x31,
     TTF_LOOPCALL  = 0x2A,
     TTF_LT        = 0x50,
     TTF_MDAP      = 0x2E,
@@ -142,10 +144,10 @@ enum {
     TTF_ROUND_OFF           ,
 };
 
-static void        ttf__execute_font_program (TTF* font);
-static void        ttf__execute_cv_program   (TTF* font);
-static TTF_bool    ttf__execute_glyph_program(TTF* font, TTF_uint32 idx);
-static void        ttf__execute_ins          (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
+static void     ttf__execute_font_program (TTF* font);
+static void     ttf__execute_cv_program   (TTF* font);
+static TTF_bool ttf__execute_glyph_program(TTF* font, TTF_uint32 idx);
+static void     ttf__execute_ins          (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
 
 static void ttf__ADD     (TTF* font);
 static void ttf__CALL    (TTF* font);
@@ -163,6 +165,7 @@ static void ttf__GTEQ    (TTF* font);
 static void ttf__IDEF    (TTF* font, TTF_Ins_Stream* stream);
 static void ttf__IF      (TTF* font, TTF_Ins_Stream* stream);
 static void ttf__IP      (TTF* font);
+static void ttf__IUP     (TTF* font, TTF_uint8 ins);
 static void ttf__LOOPCALL(TTF* font);
 static void ttf__LT      (TTF* font);
 static void ttf__MDAP    (TTF* font, TTF_uint8 ins);
@@ -647,9 +650,9 @@ static TTF_bool ttf__alloc_zone(TTF_Zone* zone, TTF_uint32 cap) {
     return TTF_TRUE;
 }
 
-static TTF_bool ttf__extract_zone1_points(TTF* font, TTF_uint8* glyphData, TTF_uint32 glyphIdx, TTF_int16 numContours) {
+static TTF_bool ttf__extract_zone1_points(TTF* font, TTF_uint32 glyphIdx, TTF_int16 numContours) {
     // There are 4 "phantom points" that are not a part of the outline
-    TTF_uint32 numOutlinePoints = 1 + ttf__get_uint16(glyphData + 8 + 2 * numContours);
+    TTF_uint32 numOutlinePoints = 1 + ttf__get_uint16(font->instance->glyfData + 8 + 2 * numContours);
     
     if (!ttf__alloc_zone(&font->instance->zone1, 4 + numOutlinePoints)) {
         return TTF_FALSE;
@@ -658,7 +661,7 @@ static TTF_bool ttf__extract_zone1_points(TTF* font, TTF_uint8* glyphData, TTF_u
 
     TTF_uint8* flagData, *xData, *yData;
     {
-        flagData  = glyphData + (10 + 2 * numContours);
+        flagData  = font->instance->glyfData + (10 + 2 * numContours);
         flagData += 2 + ttf__get_uint16(flagData);
         
         TTF_uint32 flagsSize = 0;
@@ -725,7 +728,7 @@ static TTF_bool ttf__extract_zone1_points(TTF* font, TTF_uint8* glyphData, TTF_u
     }
 
 
-    ttf__extract_zone1_phantom_points(font, glyphData, glyphIdx);
+    ttf__extract_zone1_phantom_points(font, glyphIdx);
 
 
     // Scale the original points
@@ -754,9 +757,9 @@ static TTF_bool ttf__extract_zone1_points(TTF* font, TTF_uint8* glyphData, TTF_u
     return TTF_TRUE;
 }
 
-static void ttf__extract_zone1_phantom_points(TTF* font, TTF_uint8* glyphData, TTF_uint32 glyphIdx) {
-    TTF_int16  xMin        = ttf__get_int16(glyphData + 2);
-    TTF_int16  yMax        = ttf__get_int16(glyphData + 8);
+static void ttf__extract_zone1_phantom_points(TTF* font, TTF_uint32 glyphIdx) {
+    TTF_int16  xMin        = ttf__get_int16(font->instance->glyfData + 2);
+    TTF_int16  yMax        = ttf__get_int16(font->instance->glyfData + 8);
     TTF_uint16 numHMetrics = ttf__get_uint16(font->data + font->hhea.off + 48);
 
     TTF_uint16 advanceWidth;
@@ -917,8 +920,9 @@ static void ttf__execute_cv_program(TTF* font) {
 static TTF_bool ttf__execute_glyph_program(TTF* font, TTF_uint32 glyphIdx) {
     TTF_PRINT_PROGRAM("Glyph Program");
 
-    TTF_uint8* glyphData   = ttf__get_glyf_data_block(font, glyphIdx);
-    TTF_int16  numContours = ttf__get_int16(glyphData);
+    font->instance->glyfData = ttf__get_glyf_data_block(font, glyphIdx);
+
+    TTF_int16 numContours = ttf__get_int16(font->instance->glyfData);
 
     // TODO: handle composite glyphs
     assert(numContours >= 0);
@@ -931,16 +935,16 @@ static TTF_bool ttf__execute_glyph_program(TTF* font, TTF_uint32 glyphIdx) {
         }
     }
     
-    if (!ttf__extract_zone1_points(font, glyphData, glyphIdx, numContours)) {
+    if (!ttf__extract_zone1_points(font, glyphIdx, numContours)) {
         free(font->instance->zone1.mem);
         return TTF_FALSE;
     }
 
     TTF_uint32 insOff = 10 + numContours * 2;
-    TTF_uint16 insLen = ttf__get_int16(glyphData + insOff);
+    TTF_uint16 insLen = ttf__get_int16(font->instance->glyfData + insOff);
 
     TTF_Ins_Stream stream;
-    ttf__ins_stream_init(&stream, glyphData + insOff + 2);
+    ttf__ins_stream_init(&stream, font->instance->glyfData + insOff + 2);
 
     ttf__reset_graphics_state(font->instance);
     ttf__stack_clear(font);
@@ -1312,6 +1316,11 @@ static void ttf__IP(TTF* font) {
     }
 }
 
+static void ttf__IUP(TTF* font, TTF_uint8 ins) {
+    TTF_PRINT_INS();
+    assert(0);
+}
+
 static void ttf__LOOPCALL(TTF* font) {
     TTF_PRINT_INS();
     TTF_uint32 funcId = ttf__stack_pop_uint32(font);
@@ -1334,9 +1343,9 @@ static void ttf__MDAP(TTF* font, TTF_uint8 ins) {
 
     if (ins & 0x1) {
         // Move the point to its rounded position
-        TTF_F26Dot6 curDist = ttf__fix_v2_dot(point, &font->instance->gs->projVec, 14);
-        TTF_F26Dot6 dist    = ttf__round(font, curDist) - curDist;
-        ttf__move_point(font, point, dist);
+        TTF_F26Dot6 curDist     = ttf__fix_v2_dot(point, &font->instance->gs->projVec, 14);
+        TTF_F26Dot6 roundedDist = ttf__round(font, curDist);
+        ttf__move_point(font, point, roundedDist - curDist);
     }
     else {
         // Don't move the point, just mark it as touched
