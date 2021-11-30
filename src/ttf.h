@@ -134,6 +134,7 @@ typedef struct {
 typedef struct {
     TTF_uint8*     data;
     TTF_uint32     size;
+    TTF_bool       hasHinting;
     TTF_uint8*     insMem;
     TTF_Table      cmap;
     TTF_Table      cvt;

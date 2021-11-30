@@ -264,8 +264,10 @@ TTF_bool ttf_init(TTF* font, const char* path) {
         goto init_failure;
     }
 
-    if (!ttf__alloc_mem_for_ins_processing(font)) {
-        goto init_failure;
+    if (font->hasHinting) {
+        if (!ttf__alloc_mem_for_ins_processing(font)) {
+            goto init_failure;
+        }
     }
 
     ttf__execute_font_program(font);
@@ -285,7 +287,7 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
     instance->stretched     = TTF_FALSE;
     instance->cvtIsOutdated = TTF_TRUE;
 
-    if (font->cvt.exists) {
+    if (font->hasHinting) {
         // Allocate memory for the Control Value Table and graphics state
         size_t cvtSize = font->cvt.size / sizeof(TTF_FWORD) * sizeof(TTF_F26Dot6);
         size_t gsSize  = sizeof(TTF_Graphics_State);
@@ -361,9 +363,11 @@ void ttf_free_image(TTF_Image* image) {
 void ttf_set_current_instance(TTF* font, TTF_Instance* instance) {
     font->instance = instance;
 
-    if (font->cvt.exists && instance->cvtIsOutdated) {
-        ttf__execute_cv_program(font);
-        font->instance->cvtIsOutdated = TTF_FALSE;
+    if (font->hasHinting) {
+        if (instance->cvtIsOutdated) {
+            ttf__execute_cv_program(font);
+            font->instance->cvtIsOutdated = TTF_FALSE;
+        }
     }
 }
 
@@ -378,8 +382,7 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uin
 
     TTF_uint32 idx = ttf__get_char_glyph_index(font, cp);
     
-    if (font->cvt.exists) {
-        // The font has hinting
+    if (font->hasHinting) {
         if (!ttf__execute_glyph_program(font, idx)) {
             return TTF_FALSE;
         }
@@ -457,7 +460,7 @@ static TTF_bool ttf__extract_info_from_table_directory(TTF* font) {
         else if (!font->prep.exists && !memcmp(tag, "prep", 4)) {
             table = &font->prep;
         }
-        else if (!font->prep.exists && !memcmp(tag, "vmtx", 4)) {
+        else if (!font->vmtx.exists && !memcmp(tag, "vmtx", 4)) {
             table = &font->vmtx;
         }
 
@@ -467,6 +470,8 @@ static TTF_bool ttf__extract_info_from_table_directory(TTF* font) {
             table->size   = ttf__get_uint32(record + 12);
         }
     }
+
+    font->hasHinting = font->cvt.exists && font->fpgm.exists && font->prep.exists;
 
     return 
         font->cmap.exists && 
