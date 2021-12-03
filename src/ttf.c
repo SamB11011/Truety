@@ -202,6 +202,7 @@ static TTF_F26Dot6 ttf__round                    (TTF* font, TTF_F26Dot6 v);
 static void        ttf__move_point               (TTF* font, TTF_F26Dot6_V2* point, TTF_F26Dot6 amount);
 static TTF_F26Dot6 ttf__apply_single_width_cut_in(TTF* font, TTF_F26Dot6 value);
 static TTF_F26Dot6 ttf__apply_min_dist           (TTF* font, TTF_F26Dot6 value);
+static void        ttf__IUP_interpolate_or_shift (TTF_Zone* zone1, TTF_Touch_Flag touchFlag, TTF_uint16 startPointIdx, TTF_uint16 endPointIdx, TTF_uint16 touch0, TTF_uint16 touch1);
 
 
 /* ------- */
@@ -214,6 +215,7 @@ static TTF_F26Dot6 ttf__apply_min_dist           (TTF* font, TTF_F26Dot6 value);
 static TTF_uint16 ttf__get_uint16(TTF_uint8* data);
 static TTF_uint32 ttf__get_uint32(TTF_uint8* data);
 static TTF_int16  ttf__get_int16 (TTF_uint8* data);
+static void       ttf__max_min   (TTF_int32* max, TTF_int32* min, TTF_int32 a, TTF_int32 b);
 static TTF_uint16 ttf__get_upem  (TTF* font);
 
 
@@ -349,8 +351,6 @@ void ttf_free_instance(TTF* font, TTF_Instance* instance) {
             font->instance = NULL;
         }
         free(instance->gsCVTMem);
-        free(instance->zone1.mem);
-        free(instance->zone0.mem);
     }
 }
 
@@ -934,9 +934,9 @@ static TTF_bool ttf__execute_glyph_program(TTF* font, TTF_uint32 glyphIdx) {
     assert(numContours >= 0);
 
     {
-        TTF_uint16 numTwilightPoints = ttf__get_uint16(font->data + font->maxp.off + 16);
+        TTF_uint16 maxTwilightPoints = ttf__get_uint16(font->data + font->maxp.off + 16);
 
-        if (!ttf__alloc_zone(&font->instance->zone0, numTwilightPoints)) {
+        if (!ttf__alloc_zone(&font->instance->zone0, maxTwilightPoints)) {
             return TTF_FALSE;
         }
     }
@@ -947,7 +947,7 @@ static TTF_bool ttf__execute_glyph_program(TTF* font, TTF_uint32 glyphIdx) {
     }
 
     TTF_uint32 insOff = 10 + numContours * 2;
-    TTF_uint16 insLen = ttf__get_int16(font->instance->glyfData + insOff);
+    TTF_uint16 numIns = ttf__get_int16(font->instance->glyfData + insOff);
 
     TTF_Ins_Stream stream;
     ttf__ins_stream_init(&stream, font->instance->glyfData + insOff + 2);
@@ -955,7 +955,7 @@ static TTF_bool ttf__execute_glyph_program(TTF* font, TTF_uint32 glyphIdx) {
     ttf__reset_graphics_state(font->instance);
     ttf__stack_clear(font);
 
-    while (stream.off < insLen) {
+    while (stream.off < numIns) {
         TTF_uint8 ins = ttf__ins_stream_next(&stream);
         ttf__execute_ins(font, &stream, ins);
     }
@@ -1329,7 +1329,7 @@ static void ttf__IP(TTF* font) {
 static void ttf__IUP(TTF* font, TTF_uint8 ins) {
     TTF_PRINT_INS();
 
-    // Applying IUP to zone0 is an error.
+    // Applying IUP to zone0 is an error
     assert(font->instance->gs->zp2 == &font->instance->zone1);
 
     TTF_int16 numContours = ttf__get_int16(font->instance->glyfData);    
@@ -1340,41 +1340,54 @@ static void ttf__IUP(TTF* font, TTF_uint8 ins) {
     // TODO: handle composite glyphs
     assert(numContours > 0);
 
-    TTF_Touch_Flag touchFlag = ins & 0x1 ? TTF_TOUCH_X : TTF_TOUCH_Y;
-    TTF_uint32     pointIdx  = 0;
-
-    for (int i = 0; i < font->instance->zone1.count; i++) {
-        printf("%d\n", (font->instance->zone1.cur[i].touchFlags & touchFlag) != 0);
-    }
+    TTF_Touch_Flag  touchFlag = ins & 0x1 ? TTF_TOUCH_X : TTF_TOUCH_Y;
+    TTF_F26Dot6_V2* points    = font->instance->zone1.cur;
+    TTF_uint32      pointIdx  = 0;
 
     for (TTF_uint16 contourIdx = 0; contourIdx < numContours; contourIdx++) {
+        TTF_uint16 startPointIdx = pointIdx;
         TTF_uint16 endPointIdx   = ttf__get_uint16(font->instance->glyfData + 10 + 2 * contourIdx);
-        TTF_bool   prevIsTouched = TTF_FALSE;
+        TTF_uint16 touch0        = 0;
+        TTF_bool   findingTouch1 = TTF_FALSE;
 
         while (pointIdx <= endPointIdx) {
-            if (font->instance->zone1.cur[pointIdx].touchFlags & touchFlag) {
-                prevIsTouched = TTF_TRUE;
-            }
-            else if (!prevIsTouched || pointIdx == endPointIdx) {
-                // shift
-                printf("\tShift\n");
-            }
-            else {
-                if (font->instance->zone1.cur[pointIdx + 1].touchFlags & touchFlag) {
-                    // interpolate
-                    printf("\tInterpolate\n");
+            if (points[pointIdx].touchFlags & touchFlag) {
+                if (findingTouch1) {
+                    ttf__IUP_interpolate_or_shift(
+                        &font->instance->zone1, touchFlag, startPointIdx, endPointIdx, touch0, 
+                        pointIdx);
+
+                    if (pointIdx == endPointIdx || points[pointIdx + 1].touchFlags & touchFlag) {
+                        findingTouch1 = TTF_FALSE;
+                    }
+                    else {
+                        touch0        = pointIdx;
+                        findingTouch1 = TTF_TRUE;
+                    }
                 }
                 else {
-                    // shift
-                    printf("\tShift\n");
+                    touch0        = pointIdx;
+                    findingTouch1 = TTF_TRUE;
                 }
-                prevIsTouched = TTF_FALSE;
             }
+
             pointIdx++;
+        }
+
+        if (findingTouch1) {
+            // The index of the second touched point wraps back to the 
+            // beginning.
+            for (TTF_uint32 i = startPointIdx; i <= touch0; i++) {
+                if (points[i].touchFlags & touchFlag) {
+                    ttf__IUP_interpolate_or_shift(
+                        &font->instance->zone1, touchFlag, startPointIdx, endPointIdx, touch0, i);
+                    break;
+                }
+            }
         }
     }
 
-    assert(0);
+    // assert(0);
 }
 
 static void ttf__LOOPCALL(TTF* font) {
@@ -1804,7 +1817,8 @@ static void ttf__move_point(TTF* font, TTF_F26Dot6_V2* point, TTF_F26Dot6 amount
 }
 
 static TTF_F26Dot6 ttf__apply_single_width_cut_in(TTF* font, TTF_F26Dot6 value) {
-    if (labs(value - font->instance->gs->singleWidthValue) < font->instance->gs->singleWidthCutIn) {
+    TTF_F26Dot6 absDiff = labs(value - font->instance->gs->singleWidthValue);
+    if (absDiff < font->instance->gs->singleWidthCutIn) {
         if (value < 0) {
             return -font->instance->gs->singleWidthValue;
         }
@@ -1823,6 +1837,43 @@ static TTF_F26Dot6 ttf__apply_min_dist(TTF* font, TTF_F26Dot6 value) {
     return value;
 }
 
+static void ttf__IUP_interpolate_or_shift(TTF_Zone* zone1, TTF_Touch_Flag touchFlag, TTF_uint16 startPointIdx, TTF_uint16 endPointIdx, TTF_uint16 touch0, TTF_uint16 touch1) {
+    #define TTF_IUP_INTERPOLATE_OR_SHIFT                                              \
+        TTF_int32 coord = touchFlag & TTF_TOUCH_X ? zone1->org[i].x : zone1->org[i].y;\
+        if (coord0 <= coord && coord <= coord1) {                                     \
+            printf("Interpolate %d\n", i);\
+        }\
+        else {\
+            printf("Shift %d\n", i);\
+        }
+
+    TTF_int32 coord0, coord1;
+
+    if (touchFlag & TTF_TOUCH_X) {
+        ttf__max_min(&coord1, &coord0, zone1->org[touch0].x, zone1->org[touch1].x);
+    }
+    else {
+        ttf__max_min(&coord1, &coord0, zone1->org[touch0].y, zone1->org[touch1].y);
+    }
+
+    if (touch0 >= touch1) {
+        for (TTF_uint32 i = touch0 + 1; i <= endPointIdx; i++) {
+            TTF_IUP_INTERPOLATE_OR_SHIFT
+        }
+
+        for (TTF_uint32 i = startPointIdx; i < touch1; i++) {
+            TTF_IUP_INTERPOLATE_OR_SHIFT
+        } 
+    }
+    else {
+        for (TTF_uint32 i = touch0 + 1; i < touch1; i++) {
+            TTF_IUP_INTERPOLATE_OR_SHIFT
+        }
+    }
+
+    #undef TTF_IUP_INTERPOLATE_OR_SHIFT
+}
+
 
 /* ------- */
 /* Utility */
@@ -1837,6 +1888,17 @@ static TTF_uint32 ttf__get_uint32(TTF_uint8* data) {
 
 static TTF_int16 ttf__get_int16(TTF_uint8* data) {
     return data[0] << 8 | data[1];
+}
+
+static void ttf__max_min(TTF_int32* max, TTF_int32* min, TTF_int32 a, TTF_int32 b) {
+    if (a > b) {
+        *max = a;
+        *min = b;
+    }
+    else {
+        *max = b;
+        *min = a;
+    }
 }
 
 static TTF_uint16 ttf__get_upem(TTF* font) {
