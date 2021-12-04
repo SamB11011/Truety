@@ -106,6 +106,8 @@ enum {
     TTF_MDRP      = 0xC0,
     TTF_MDRP_MAX  = 0xDF,
     TTF_MINDEX    = 0x26,
+    TTF_MIRP      = 0xE0,
+    TTF_MIRP_MAX  = 0xFF,
     TTF_MPPEM     = 0x4B,
     TTF_MUL       = 0x63,
     TTF_NPUSHB    = 0x40,
@@ -171,6 +173,7 @@ static void ttf__LT      (TTF* font);
 static void ttf__MDAP    (TTF* font, TTF_uint8 ins);
 static void ttf__MDRP    (TTF* font, TTF_uint8 ins);
 static void ttf__MINDEX  (TTF* font);
+static void ttf__MIRP    (TTF* font, TTF_uint8 ins);
 static void ttf__MPPEM   (TTF* font);
 static void ttf__MUL     (TTF* font);
 static void ttf__NPUSHB  (TTF* font, TTF_Ins_Stream* stream);
@@ -1093,6 +1096,10 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         ttf__MDRP(font, ins);
         return;
     }
+    else if (ins >= TTF_MIRP && ins <= TTF_MIRP_MAX) {
+        ttf__MIRP(font, ins);
+        return;
+    }
     else if (ins >= TTF_PUSHB && ins <= TTF_PUSHB_MAX) {
         ttf__PUSHB(font, stream, ins);
         return;
@@ -1294,17 +1301,22 @@ static void ttf__IP(TTF* font) {
     TTF_F26Dot6_V2* rp1Cur = font->instance->gs->zp0->cur + font->instance->gs->rp1;
     TTF_F26Dot6_V2* rp2Cur = font->instance->gs->zp1->cur + font->instance->gs->rp2;
 
+    TTF_bool isTwilightZone = 
+        (font->instance->gs->zp0 == &font->instance->zone0) ||
+        (font->instance->gs->zp1 == &font->instance->zone0) ||
+        (font->instance->gs->zp2 == &font->instance->zone0);
+
     TTF_F26Dot6_V2* rp1Org, *rp2Org;
 
-    if (font->instance->gs->zp0 == &font->instance->zone1) {
-        // Use unscaled coordinates for more precision, then scale the results
-        rp1Org = font->instance->gs->zp0->org + font->instance->gs->rp1;
-        rp2Org = font->instance->gs->zp1->org + font->instance->gs->rp2;
-    }
-    else {
+    if (isTwilightZone) {
         // Twilight zone doesn't have unscaled coordinates
         rp1Org = font->instance->gs->zp0->orgScaled + font->instance->gs->rp1;
         rp2Org = font->instance->gs->zp1->orgScaled + font->instance->gs->rp2;
+    }
+    else {
+        // Use unscaled coordinates for more precision, then scale the results
+        rp1Org = font->instance->gs->zp0->org + font->instance->gs->rp1;
+        rp2Org = font->instance->gs->zp1->org + font->instance->gs->rp2;
     }
 
     TTF_F26Dot6_V2 diff;
@@ -1315,7 +1327,7 @@ static void ttf__IP(TTF* font) {
     ttf__fix_v2_sub(rp2Org, rp1Org, &diff);
     TTF_F26Dot6 totalDistOrg = ttf__fix_v2_dot(&diff, &font->instance->gs->dualProjVec, 14);
 
-    if (font->instance->gs->zp0 == &font->instance->zone0) {
+    if (!isTwilightZone) {
         ttf__fix_mul(totalDistOrg, font->instance->scale, 22);
     }
 
@@ -1332,7 +1344,7 @@ static void ttf__IP(TTF* font) {
         ttf__fix_v2_sub(pointOrg, rp1Org, &diff);
         TTF_F26Dot6 distOrg = ttf__fix_v2_dot(&diff, &font->instance->gs->dualProjVec, 14);
 
-        if (font->instance->gs->zp0 == &font->instance->zone0) {
+        if (!isTwilightZone) {
             ttf__fix_mul(distOrg, font->instance->scale, 22);
         }
 
@@ -1345,9 +1357,7 @@ static void ttf__IP(TTF* font) {
 
         ttf__move_point(font, pointCur, newDist - distCur);
 
-        printf("\tMove amount = %d\n", newDist - distCur);
-        printf("\tprojection_vector = (%d, %d)\n", font->instance->gs->projVec.x, font->instance->gs->projVec.y);
-        printf("\tNew point = (%d, %d)\n", pointCur->x, pointCur->y);
+        printf("\t(%d, %d)\n", pointCur->x, pointCur->y);
     }
 }
 
@@ -1449,7 +1459,7 @@ static void ttf__MDAP(TTF* font, TTF_uint8 ins) {
     font->instance->gs->rp0 = pointIdx;
     font->instance->gs->rp1 = pointIdx;
 
-    printf("\tNew point = (%d, %d)\n", point->x, point->y);
+    printf("\t(%d, %d)\n", point->x, point->y);
 }
 
 static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
@@ -1462,8 +1472,23 @@ static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
 
     TTF_F26Dot6_V2* rp0Cur   = font->instance->gs->zp0->cur + font->instance->gs->rp0;
     TTF_F26Dot6_V2* pointCur = font->instance->gs->zp1->cur + pointIdx;
-    TTF_F26Dot6_V2* rp0Org   = font->instance->gs->zp0->orgScaled + font->instance->gs->rp0;
-    TTF_F26Dot6_V2* pointOrg = font->instance->gs->zp1->orgScaled + pointIdx;
+
+    TTF_bool isTwilightZone = 
+        (font->instance->gs->zp0 == &font->instance->zone0) || 
+        (font->instance->gs->zp1 == &font->instance->zone0);
+
+    TTF_F26Dot6_V2* rp0Org, *pointOrg;
+
+    if (isTwilightZone) {
+        // Twilight zone doesn't have unscaled coordinates
+        rp0Org   = font->instance->gs->zp0->orgScaled + font->instance->gs->rp0;
+        pointOrg = font->instance->gs->zp1->orgScaled + pointIdx;
+    }
+    else {
+        // Use unscaled coordinates for more precision, then scale the results
+        rp0Org   = font->instance->gs->zp0->org + font->instance->gs->rp0;
+        pointOrg = font->instance->gs->zp1->org + pointIdx;
+    }
 
     TTF_F26Dot6_V2 diff;
 
@@ -1472,6 +1497,10 @@ static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
 
     ttf__fix_v2_sub(pointOrg, rp0Org, &diff);
     TTF_F26Dot6 distOrg = ttf__fix_v2_dot(&diff, &font->instance->gs->dualProjVec, 14);
+
+    if (!isTwilightZone) {
+        distOrg = ttf__fix_mul(distOrg, font->instance->scale, 22);
+    }
 
     distOrg = ttf__apply_single_width_cut_in(font, distOrg);
 
@@ -1489,7 +1518,7 @@ static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
 
     ttf__move_point(font, pointCur, distOrg - distCur);
 
-    printf("\tNew point = (%d, %d)\n", pointCur->x, pointCur->y);
+    printf("\t(%d, %d)\n", pointCur->x, pointCur->y);
 }
 
 static void ttf__MINDEX(TTF* font) {
@@ -1500,10 +1529,17 @@ static void ttf__MINDEX(TTF* font) {
     TTF_Stack_Frame  frame = *ptr;
     TTF_uint32       size  = sizeof(TTF_Stack_Frame) * (font->stack.count - idx - 1);
     memmove(ptr, ptr, size);
-
+    
     font->stack.count--;
-
     ttf__stack_push_uint32(font, frame.uValue);
+}
+
+static void ttf__MIRP(TTF* font, TTF_uint8 ins) {
+    TTF_uint32 cvtIdx   = ttf__stack_pop_uint32(font);
+    TTF_uint32 pointIdx = ttf__stack_pop_uint32(font);
+    
+
+    assert(0);
 }
 
 static void ttf__MPPEM(TTF* font) {
@@ -1709,7 +1745,6 @@ static void ttf__WCVTF(TTF* font) {
     TTF_PRINT_INS();
 
     TTF_uint32 funits = ttf__stack_pop_uint32(font);
-
     TTF_uint32 cvtIdx = ttf__stack_pop_uint32(font);
     assert(cvtIdx < font->cvt.size / sizeof(TTF_FWORD));
 
