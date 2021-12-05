@@ -752,7 +752,7 @@ static TTF_bool ttf__extract_zone1_points(TTF* font, TTF_uint32 glyphIdx, TTF_in
     }
 
 
-    // Set the current points, phantom points are rounded
+    // Set the current points, phantom points 2 and 4 are rounded
     TTF_uint32 off = font->instance->zone1.count - 4;
     
     memcpy(
@@ -760,9 +760,7 @@ static TTF_bool ttf__extract_zone1_points(TTF* font, TTF_uint32 glyphIdx, TTF_in
         font->instance->zone1.orgScaled, 
         sizeof(TTF_Fix_V2) * font->instance->zone1.cap);
 
-    font->instance->zone1.cur[off    ].x = ttf__round(font, font->instance->zone1.cur[off    ].x);
     font->instance->zone1.cur[off + 1].x = ttf__round(font, font->instance->zone1.cur[off + 1].x);
-    font->instance->zone1.cur[off + 2].y = ttf__round(font, font->instance->zone1.cur[off + 2].y);
     font->instance->zone1.cur[off + 3].y = ttf__round(font, font->instance->zone1.cur[off + 3].y);
 
     return TTF_TRUE;
@@ -816,7 +814,7 @@ static void ttf__extract_zone1_phantom_points(TTF* font, TTF_uint32 glyphIdx) {
         }
 
         advanceHeight  = defaultAscender - defaultDescender;
-        topSideBearing = defaultAscender - yMax;
+        topSideBearing = defaultAscender;
     }
 
     font->instance->zone1.org[font->instance->zone1.count + 2].y = yMax + topSideBearing;
@@ -931,6 +929,9 @@ static void ttf__execute_cv_program(TTF* font) {
 static TTF_bool ttf__execute_glyph_program(TTF* font, TTF_uint32 glyphIdx) {
     TTF_PRINT_PROGRAM("Glyph Program");
 
+    ttf__reset_graphics_state(font->instance);
+    ttf__stack_clear(font);
+
     font->instance->glyfData = ttf__get_glyf_data_block(font, glyphIdx);
 
     TTF_int16 numContours = ttf__get_int16(font->instance->glyfData);
@@ -956,9 +957,6 @@ static TTF_bool ttf__execute_glyph_program(TTF* font, TTF_uint32 glyphIdx) {
 
     TTF_Ins_Stream stream;
     ttf__ins_stream_init(&stream, font->instance->glyfData + insOff + 2);
-
-    ttf__reset_graphics_state(font->instance);
-    ttf__stack_clear(font);
 
     while (stream.off < numIns) {
         TTF_uint8 ins = ttf__ins_stream_next(&stream);
