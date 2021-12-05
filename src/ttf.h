@@ -86,6 +86,7 @@ typedef struct {
 } TTF_Zone;
 
 typedef struct {
+    TTF_bool       autoFlip;
     TTF_F26Dot6    controlValueCutIn;
     TTF_uint32     deltaBase;
     TTF_uint32     deltaShift;
