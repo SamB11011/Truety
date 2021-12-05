@@ -1397,8 +1397,7 @@ static void ttf__IUP(TTF* font, TTF_uint8 ins) {
                         findingTouch1 = TTF_FALSE;
                     }
                     else {
-                        touch0        = pointIdx;
-                        findingTouch1 = TTF_TRUE;
+                        touch0 = pointIdx;
                     }
                 }
                 else {
@@ -1422,8 +1421,6 @@ static void ttf__IUP(TTF* font, TTF_uint8 ins) {
             }
         }
     }
-
-    assert(0);
 }
 
 static void ttf__LOOPCALL(TTF* font) {
@@ -1960,19 +1957,16 @@ static TTF_F26Dot6 ttf__apply_min_dist(TTF* font, TTF_F26Dot6 value) {
 }
 
 static void ttf__IUP_interpolate_or_shift(TTF_Zone* zone1, TTF_Touch_Flag touchFlag, TTF_uint16 startPointIdx, TTF_uint16 endPointIdx, TTF_uint16 touch0, TTF_uint16 touch1) {
-    // Get the original distance from point to touch0, (call this distance d)
-    // new point then equals touch0_cur + d * ((touch1_org - touch0_org) / (touch1_cur - touch0_cur))
-
     #define TTF_IUP_INTERPOLATE(coord)\
-        TTF_F26Dot6 totalDistOrg = zone1->org[touch0].coord - zone1->org[touch1].coord;\
-        TTF_F26Dot6 orgDist      = zone1->org[i].coord      - zone1->org[touch1].coord;\
-        TTF_F26Dot6 foo = zone1->cur[i].coord;\
-        \
-        TTF_int32 scale = ttf__rounded_div(1295 << 16, totalDistOrg);\
-        zone1->cur[i].coord = zone1->cur[touch1].coord + ttf__fix_mul((orgDist << 6), scale, 22);\
-        \
-        printf("\tInterpolating %3d: %5d => %5d\n", i, foo, zone1->cur[i].coord);
-
+        TTF_F26Dot6 totalDistCur = zone1->cur[touch1].coord - zone1->cur[touch0].coord;        \
+        TTF_F26Dot6 totalDistOrg = zone1->org[touch1].coord - zone1->org[touch0].coord;        \
+        TTF_F26Dot6 orgDist      = zone1->org[i].coord      - zone1->org[touch0].coord;        \
+                                                                                               \
+        TTF_F10Dot22 scale   = ttf__rounded_div((TTF_int64)totalDistCur << 16, totalDistOrg);  \
+        TTF_F26Dot6  newDist = ttf__fix_mul(orgDist << 6, scale, 22);                          \
+        zone1->cur[i].coord = zone1->cur[touch0].coord + newDist;                              \
+                                                                                               \
+        printf("\tInterp %3d: %5d\n", i, zone1->cur[i].coord);
 
     #define TTF_IUP_SHIFT(coord)\
         TTF_int32 diff0 = labs(zone1->org[touch0].coord - zone1->org[i].coord);        \
@@ -1985,24 +1979,25 @@ static void ttf__IUP_interpolate_or_shift(TTF_Zone* zone1, TTF_Touch_Flag touchF
         else {                                                                         \
             TTF_int32 diff = zone1->cur[touch1].coord - zone1->orgScaled[touch1].coord;\
             zone1->cur[i].coord += diff;                                               \
-        }
+        }                                                                              \
+        printf("\tShift %3d: %5d\n", i, zone1->cur[i].coord);
 
-    #define TTF_IUP_INTERPOLATE_OR_SHIFT\
-        if (touchFlag == TTF_TOUCH_X) {\
+    #define TTF_IUP_INTERPOLATE_OR_SHIFT                                 \
+        if (touchFlag == TTF_TOUCH_X) {                                  \
             if (coord0 <= zone1->org[i].x && zone1->org[i].x <= coord1) {\
-                TTF_IUP_INTERPOLATE(x);\
-            }\
-            else {\
-                TTF_IUP_SHIFT(x)\
-            }\
-        }\
-        else {\
+                TTF_IUP_INTERPOLATE(x);                                  \
+            }                                                            \
+            else {                                                       \
+                TTF_IUP_SHIFT(x)                                         \
+            }                                                            \
+        }                                                                \
+        else {                                                           \
             if (coord0 <= zone1->org[i].y && zone1->org[i].y <= coord1) {\
-                TTF_IUP_INTERPOLATE(y);\
-            }\
-            else {\
-                TTF_IUP_SHIFT(y)\
-            }\
+                TTF_IUP_INTERPOLATE(y);                                  \
+            }                                                            \
+            else {                                                       \
+                TTF_IUP_SHIFT(y)                                         \
+            }                                                            \
         }
 
     TTF_int32 coord0, coord1;
