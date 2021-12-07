@@ -28,6 +28,11 @@ typedef TTF_int32  TTF_F16Dot16;
 typedef TTF_int32  TTF_F26Dot6;
 
 typedef enum {
+    TTF_ON_CURVE_POINT ,
+    TTF_OFF_CURVE_POINT,
+} TTF_Point_Type;
+
+typedef enum {
     TTF_UNTOUCHED = 0x0,
     TTF_TOUCH_X   = 0x1,
     TTF_TOUCH_Y   = 0x2,
@@ -45,6 +50,16 @@ typedef struct {
     TTF_uint16   format;
     TTF_Offset32 off;
 } TTF_Encoding;
+
+typedef struct {
+    TTF_int32      x;
+    TTF_int32      y;
+    TTF_Touch_Flag touchFlags;
+    TTF_bool       isOnCurve;
+} TTF_V2,
+  TTF_Fix_V2,
+  TTF_F2Dot14_V2,
+  TTF_F26Dot6_V2;
 
 typedef union {
     TTF_int32  sValue;
@@ -66,15 +81,6 @@ typedef struct {
     TTF_uint16 count;
     TTF_uint16 cap;
 } TTF_Func_Array;
-
-typedef struct {
-    TTF_int32      x;
-    TTF_int32      y;
-    TTF_Touch_Flag touchFlags;
-} TTF_V2,
-  TTF_Fix_V2,
-  TTF_F2Dot14_V2,
-  TTF_F26Dot6_V2;
 
 typedef struct {
     TTF_uint8*      mem;
@@ -109,17 +115,26 @@ typedef struct {
 } TTF_Graphics_State;
 
 typedef struct {
-    TTF_uint32          ppem;
-    TTF_F10Dot22        scale;
-    TTF_bool            rotated;   /* TODO: Not supported yet */
-    TTF_bool            stretched; /* TODO: Not supported yet */
-    TTF_uint8*          glyfData;
-    TTF_Zone            zone0;
-    TTF_Zone            zone1;
-    TTF_uint8*          gsCVTMem;
-    TTF_Graphics_State* gs;
-    TTF_F26Dot6*        cvt;
-    TTF_bool            cvtIsOutdated;
+    union {
+        TTF_Zone zones[2];
+        TTF_V2*  points;
+    };
+
+    TTF_uint32 idx;
+    TTF_uint16 numContours;
+    TTF_uint32 numPoints;
+    TTF_uint8* glyfBlock;
+} TTF_Current_Glyph;
+
+typedef struct {
+    TTF_F26Dot6* cvt;
+    TTF_bool     cvtIsOutdated;
+    TTF_bool     rotated;       /* TODO: Not supported yet */
+    TTF_bool     stretched;     /* TODO: Not supported yet */
+    TTF_uint32   ppem;
+    TTF_F10Dot22 scale;
+    /* TODO: Keep Graphics State default values here in case defaults are set
+             by the CV program. */
 } TTF_Instance;
 
 typedef struct {
@@ -130,28 +145,29 @@ typedef struct {
 } TTF_Image;
 
 typedef struct {
-    TTF_uint8*     data;
-    TTF_uint32     size;
-    TTF_bool       hasHinting;
-    TTF_uint8*     insMem;
-    TTF_Table      cmap;
-    TTF_Table      cvt;
-    TTF_Table      fpgm;
-    TTF_Table      glyf;
-    TTF_Table      head;
-    TTF_Table      hhea;
-    TTF_Table      hmtx;
-    TTF_Table      loca;
-    TTF_Table      maxp;
-    TTF_Table      OS2;
-    TTF_Table      prep;
-    TTF_Table      vmtx;
-    TTF_Encoding   encoding;
-    TTF_Stack      stack;
-    TTF_Func_Array funcArray;
-    TTF_Instance*  instance;
+    TTF_uint8*          data;
+    TTF_uint32          size;
+    TTF_bool            hasHinting;
+    TTF_uint8*          insMem;
+    TTF_Table           cmap;
+    TTF_Table           cvt;
+    TTF_Table           fpgm;
+    TTF_Table           glyf;
+    TTF_Table           head;
+    TTF_Table           hhea;
+    TTF_Table           hmtx;
+    TTF_Table           loca;
+    TTF_Table           maxp;
+    TTF_Table           OS2;
+    TTF_Table           prep;
+    TTF_Table           vmtx;
+    TTF_Encoding        encoding;
+    TTF_Stack           stack;
+    TTF_Func_Array      funcArray;
+    TTF_Graphics_State  gState;
+    TTF_Current_Glyph   glyph;
+    TTF_Instance*       instance;
 } TTF;
-
 
 TTF_bool ttf_init         (TTF* font, const char* path);
 TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem);
