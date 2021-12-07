@@ -1902,29 +1902,33 @@ static TTF_uint8 ttf__jump_to_else_or_eif(TTF_Ins_Stream* stream) {
 
     while (TTF_TRUE) {
         TTF_uint8 ins = ttf__ins_stream_next(stream);
-        
-        if (ins == TTF_PUSHB) {
-            ttf__ins_stream_skip(stream, ttf__get_num_vals_to_push(ins));
-        }
-        else if (ins == TTF_PUSHW) {
-            ttf__ins_stream_skip(stream, 2 * ttf__get_num_vals_to_push(ins));
-        }
-        else if (ins == TTF_NPUSHB) {
-            ttf__ins_stream_skip(stream, ttf__ins_stream_next(stream));
-        }
-        else if (ins == TTF_NPUSHW) {
-            ttf__ins_stream_skip(stream, 2 * ttf__ins_stream_next(stream));
-        }
-        else if (ins == TTF_IF) {
-            numNested++;
-        }
-        else if (numNested == 0){
-            if (ins == TTF_EIF || ins == TTF_ELSE) {
-                return ins;
-            }
-        }
-        else if (ins == TTF_EIF) {
-            numNested--;
+
+        switch (ins) {
+            case TTF_PUSHB:
+                ttf__ins_stream_skip(stream, ttf__get_num_vals_to_push(ins));
+                break;
+            case TTF_PUSHW:
+                ttf__ins_stream_skip(stream, 2 * ttf__get_num_vals_to_push(ins));
+                break;
+            case TTF_NPUSHB:
+                ttf__ins_stream_skip(stream, ttf__ins_stream_next(stream));
+                break;
+            case TTF_NPUSHW:
+                ttf__ins_stream_skip(stream, 2 * ttf__ins_stream_next(stream));
+                break;
+            case TTF_IF:
+                numNested++;
+                break;
+            default:
+                if (numNested == 0){
+                    if (ins == TTF_EIF || ins == TTF_ELSE) {
+                        return ins;
+                    }
+                }
+                else if (ins == TTF_EIF) {
+                    numNested--;
+                }
+                break;
         }
     }
 
