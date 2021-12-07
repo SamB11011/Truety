@@ -235,13 +235,13 @@ static TTF_uint16 ttf__get_upem  (TTF* font);
 /* ---------------------- */
 static TTF_int64 ttf__rounded_div     (TTF_int64 a, TTF_int64 b);
 static TTF_int32 ttf__rounded_div_pow2(TTF_int64 a, TTF_int64 b);
-static TTF_int32 ttf__fix_mul         (TTF_int32 a, TTF_int32 b, TTF_uint8 bShift);
+static TTF_int32 ttf__fix_mul         (TTF_int32 a, TTF_int32 b, TTF_uint8 shift);
 static TTF_int32 ttf__fix_div         (TTF_int32 a, TTF_int32 b, TTF_uint8 aShift, TTF_uint8 bShift);
 static void      ttf__fix_v2_add      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result);
 static void      ttf__fix_v2_sub      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result);
-static void      ttf__fix_v2_mul      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 bShift);
+static void      ttf__fix_v2_mul      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 shift);
 static void      ttf__fix_v2_div      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 aShift, TTF_uint8 bShift);
-static TTF_int32 ttf__fix_v2_dot      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_uint8 bShift);
+static TTF_int32 ttf__fix_v2_dot      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_uint8 shift);
 static TTF_int32 ttf__fix_v2_sub_dot(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* c, TTF_uint8 shift);
 static void      ttf__fix_v2_scale    (TTF_Fix_V2* v, TTF_int32 scale, TTF_uint8 shift);
 
@@ -1367,13 +1367,8 @@ static void ttf__IP(TTF* font) {
         rp2Org = font->gState.zp1->org + font->gState.rp2;
     }
 
-    TTF_F26Dot6_V2 diff;
-
-    ttf__fix_v2_sub(rp2Cur, rp1Cur, &diff);
-    TTF_F26Dot6 totalDistCur = ttf__fix_v2_dot(&diff, &font->gState.projVec, 14);
-
-    ttf__fix_v2_sub(rp2Org, rp1Org, &diff);
-    TTF_F26Dot6 totalDistOrg = ttf__fix_v2_dot(&diff, &font->gState.dualProjVec, 14);
+    TTF_F26Dot6 totalDistCur = ttf__fix_v2_sub_dot(rp2Cur, rp1Cur, &font->gState.projVec, 14);
+    TTF_F26Dot6 totalDistOrg = ttf__fix_v2_sub_dot(rp2Org, rp1Org, &font->gState.dualProjVec, 14);
 
     if (!isTwilightZone) {
         ttf__fix_mul(totalDistOrg, font->instance->scale, 22);
@@ -1386,11 +1381,8 @@ static void ttf__IP(TTF* font) {
         TTF_F26Dot6_V2* pointCur = font->gState.zp2->cur + pointIdx;
         TTF_F26Dot6_V2* pointOrg = font->gState.zp2->org + pointIdx;
 
-        ttf__fix_v2_sub(pointCur, rp1Cur, &diff);
-        TTF_F26Dot6 distCur = ttf__fix_v2_dot(&diff, &font->gState.projVec, 14);
-
-        ttf__fix_v2_sub(pointOrg, rp1Org, &diff);
-        TTF_F26Dot6 distOrg = ttf__fix_v2_dot(&diff, &font->gState.dualProjVec, 14);
+        TTF_F26Dot6 distCur = ttf__fix_v2_sub_dot(pointCur, rp1Cur, &font->gState.projVec, 14);
+        TTF_F26Dot6 distOrg = ttf__fix_v2_sub_dot(pointOrg, rp1Org, &font->gState.dualProjVec, 14);
 
         if (!isTwilightZone) {
             ttf__fix_mul(distOrg, font->instance->scale, 22);
@@ -1535,13 +1527,8 @@ static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
         pointOrg = font->gState.zp1->org + pointIdx;
     }
 
-    TTF_F26Dot6_V2 diff;
-
-    ttf__fix_v2_sub(pointCur, rp0Cur, &diff);
-    TTF_F26Dot6 distCur = ttf__fix_v2_dot(&diff, &font->gState.projVec, 14);
-
-    ttf__fix_v2_sub(pointOrg, rp0Org, &diff);
-    TTF_F26Dot6 distOrg = ttf__fix_v2_dot(&diff, &font->gState.dualProjVec, 14);
+    TTF_F26Dot6 distCur = ttf__fix_v2_sub_dot(pointCur, rp0Cur, &font->gState.projVec, 14);
+    TTF_F26Dot6 distOrg = ttf__fix_v2_sub_dot(pointOrg, rp0Org, &font->gState.dualProjVec, 14);
 
     if (!isTwilightZone) {
         distOrg = ttf__fix_mul(distOrg, font->instance->scale, 22);
@@ -1606,9 +1593,7 @@ static void ttf__MIRP(TTF* font, TTF_uint8 ins) {
         *pointCur   = *pointOrg;
     }
 
-    TTF_int32 distOrg = 
-        ttf__fix_v2_sub_dot(pointOrg, rp0Org, &font->gState.dualProjVec, 14);
-
+    TTF_int32 distOrg = ttf__fix_v2_sub_dot(pointOrg, rp0Org, &font->gState.dualProjVec, 14);
     TTF_int32 distCur = ttf__fix_v2_sub_dot(pointCur, rp0Cur, &font->gState.projVec, 14);
 
     if (font->gState.autoFlip) {
@@ -2123,12 +2108,10 @@ static TTF_int32 ttf__rounded_div_pow2(TTF_int64 a, TTF_int64 shift) {
     return (a + (1 << (shift - 1))) >> shift;
 }
 
-/* The result has a scale factor of 1 << bShift */
-static TTF_int32 ttf__fix_mul(TTF_int32 a, TTF_int32 b, TTF_uint8 bShift) {
-    return ttf__rounded_div_pow2((TTF_uint64)a * (TTF_uint64)b, bShift);
+static TTF_int32 ttf__fix_mul(TTF_int32 a, TTF_int32 b, TTF_uint8 shift) {
+    return ttf__rounded_div_pow2((TTF_uint64)a * (TTF_uint64)b, shift);
 }
 
-/* The result has a scale factor of 1 << bShift */
 static TTF_int32 ttf__fix_div(TTF_int32 a, TTF_int32 b, TTF_uint8 aShift, TTF_uint8 bShift) {
     TTF_int64 q = ttf__rounded_div((TTF_int64)a << 32, b);
     return ttf__rounded_div_pow2(q, 32 + aShift - (bShift << 1));
@@ -2146,24 +2129,21 @@ static void ttf__fix_v2_sub(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result) {
     result->y = a->y - b->y;
 }
 
-/* The result has a scale factor of 1 << bShift */
-static void ttf__fix_v2_mul(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 bShift) {
-    result->x = ttf__fix_mul(a->x, b->x, bShift);
-    result->y = ttf__fix_mul(a->y, b->y, bShift);
+static void ttf__fix_v2_mul(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 shift) {
+    result->x = ttf__fix_mul(a->x, b->x, shift);
+    result->y = ttf__fix_mul(a->y, b->y, shift);
 }
 
-/* The result has a scale factor of 1 << bShift */
 static void ttf__fix_v2_div(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 aShift, TTF_uint8 bShift) {
     result->x = ttf__fix_div(a->x, b->x, aShift, bShift);
     result->y = ttf__fix_div(a->y, b->y, aShift, bShift);
 }
 
-/* The result has a scale factor of 1 << bShift */
-static TTF_int32 ttf__fix_v2_dot(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_uint8 bShift) {
-    return ttf__fix_mul(a->x, b->x, bShift) + ttf__fix_mul(a->y, b->y, bShift);
+static TTF_int32 ttf__fix_v2_dot(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_uint8 shift) {
+    return ttf__fix_mul(a->x, b->x, shift) + ttf__fix_mul(a->y, b->y, shift);
 }
 
-/* dot(a-b, c) */
+/* dot(a - b, c) */
 static TTF_int32 ttf__fix_v2_sub_dot(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* c, TTF_uint8 shift) {
     TTF_Fix_V2 diff;
     ttf__fix_v2_sub(a, b, &diff);
