@@ -598,6 +598,9 @@ static TTF_bool ttf__alloc_mem_for_ins_processing(TTF* font) {
 /* Rendering Operations */
 /* -------------------- */
 static void ttf__convert_glyph_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* points) {
+    // This function ensures that the x and y minimums are 0 and inverts the 
+    // y-axis so that y values increase downwards.
+
     TTF_F26Dot6 xMin = points[0].x;
     TTF_F26Dot6 yMin = points[0].y;
     TTF_F26Dot6 yMax = points[0].y;
@@ -748,7 +751,7 @@ static TTF_bool ttf__extract_glyph_points(TTF* font) {
     }
 
 
-    // Get the glyph points from the glyf table data
+    // Get the contour points from the glyf table data
     {
         TTF_uint32 flagsSize = 0;
         TTF_uint32 xDataSize = 0;
@@ -896,7 +899,7 @@ static TTF_bool ttf__extract_glyph_points(TTF* font) {
         font, points, font->glyph.zones[1].orgScaled, font->glyph.zones[1].count);
     
 
-    // Set the current points of the zone, phantom points are rounded
+    // Set the current points, phantom points are rounded
     memcpy(
         font->glyph.zones[1].cur, font->glyph.zones[1].orgScaled, 
         sizeof(TTF_Fix_V2) * font->glyph.zones[1].count);
