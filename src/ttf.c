@@ -19,16 +19,24 @@ static TTF_bool ttf__alloc_mem_for_ins_processing     (TTF* font);
 /* Rendering Operations */
 /* -------------------- */
 typedef struct {
-    TTF_F26Dot6 x, y;
-} TTF_Edge_Point;
+    TTF_F26Dot6_V2 p0;
+    TTF_F26Dot6_V2 p1; /* Control point */
+    TTF_F26Dot6_V2 p2;
+} TTF_Curve;
 
 typedef struct {
-    TTF_Edge_Point start;
-    TTF_Edge_Point end;
+    TTF_F26Dot6 x, y;
+} TTF_Point;
+
+typedef struct {
+    TTF_Point start;
+    TTF_Point end;
 } TTF_Edge;
 
-static void      ttf__convert_glyph_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* points);
-static TTF_Edge* ttf__convert_glyph_points_to_edges       (TTF* font, TTF_F26Dot6_V2* points);
+static TTF_Edge*  ttf__get_glyph_edges               (TTF* font);
+static void       ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* points);
+static TTF_Curve* ttf__convert_points_into_curves    (TTF* font, TTF_F26Dot6_V2* points, TTF_uint32* numCurves);
+static TTF_Edge*  ttf__subdivide_curves_into_edges   (TTF* font, TTF_Curve* curves, TTF_uint32 numCurves, TTF_uint32* numEdges);
 
 
 /* ------------------- */
@@ -405,32 +413,10 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uin
     font->glyph.numContours = ttf__get_num_glyph_contours(font);
     font->glyph.numPoints   = ttf__get_num_glyph_points(font);
 
-    TTF_Edge* edges;
-
-    if (font->hasHinting) {
-        if (!ttf__execute_glyph_program(font)) {
-            return TTF_FALSE;
-        }
-
-        ttf__convert_glyph_points_to_bitmap_space(font, font->glyph.zones[1].cur);
-        edges = ttf__convert_glyph_points_to_edges(font, font->glyph.zones[1].cur);
-        ttf__zone_free(font->glyph.zones + 1);
-    }
-    else {
-        if (!ttf__extract_glyph_points(font)) {
-            return TTF_FALSE;
-        }
-
-        ttf__convert_glyph_points_to_bitmap_space(font, font->glyph.points);
-        edges = ttf__convert_glyph_points_to_edges(font, font->glyph.points);
-        free(font->glyph.points);
-    }
-
+    TTF_Edge* edges = ttf__get_glyph_edges(font);
     if (edges == NULL) {
         return TTF_FALSE;
     }
-
-    free(edges);
 
     return TTF_TRUE;
 }
@@ -597,7 +583,7 @@ static TTF_bool ttf__alloc_mem_for_ins_processing(TTF* font) {
 /* -------------------- */
 /* Rendering Operations */
 /* -------------------- */
-static void ttf__convert_glyph_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* points) {
+static void ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* points) {
     // This function ensures that the x and y minimums are 0 and inverts the 
     // y-axis so that y values increase downwards.
 
@@ -625,9 +611,117 @@ static void ttf__convert_glyph_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2*
     }
 }
 
-static TTF_Edge* ttf__convert_glyph_points_to_edges(TTF* font, TTF_F26Dot6_V2* points) {
-    // Count the number of edges that are needed
+static TTF_Edge* ttf__get_glyph_edges(TTF* font) {
+    // Get the points of the glyph
+    TTF_F26Dot6_V2* points;
 
+    if (font->hasHinting) {
+        if (!ttf__execute_glyph_program(font)) {
+            return NULL;
+        }
+        points = font->glyph.zones[1].cur;
+    }
+    else {
+        if (!ttf__extract_glyph_points(font)) {
+            return NULL;
+        }
+        points = font->glyph.points;
+    }
+
+    ttf__convert_points_to_bitmap_space(font, points);
+
+
+    // Convert the glyph points into curves
+    TTF_uint32 numCurves;
+    TTF_Curve* curves = ttf__convert_points_into_curves(font, points, &numCurves);
+
+    if (font->hasHinting) {
+        ttf__zone_free(font->glyph.zones + 1);
+    }
+    else {
+        free(font->glyph.points);
+    }
+
+    if (curves == NULL) {
+        return NULL;
+    }
+
+
+    // Approximate the glyph curves using edges
+    //
+    // This is done because the intersection of a scanline and an edge is 
+    // simpler and cheaper to calculate than the intersection of a scanline and 
+    // a curve.
+    TTF_uint32 numEdges;
+    TTF_Edge* edges = ttf__subdivide_curves_into_edges(font, curves, numCurves, &numEdges);
+
+    free(curves);
+
+    if (edges == NULL) {
+        return NULL;
+    }
+
+    return edges;
+}
+
+static TTF_Curve* ttf__convert_points_into_curves(TTF* font, TTF_F26Dot6_V2* points, TTF_uint32* numCurves) {
+    TTF_Curve* curves = malloc(font->glyph.numPoints * sizeof(TTF_Curve));
+    if (curves == NULL) {
+        return NULL;
+    }
+
+    TTF_uint32 startPointIdx = 0;
+    *numCurves = 0;
+
+    for (TTF_uint32 i = 0; i < font->glyph.numContours; i++) {
+        TTF_uint16 endPointIdx   = ttf__get_uint16(font->glyph.glyfBlock + 10 + 2 * i);
+        TTF_bool   addFinalCurve = TTF_TRUE;
+
+        TTF_F26Dot6_V2* startPoint = points + startPointIdx;
+        TTF_F26Dot6_V2* nextP0     = startPoint;
+        
+        for (TTF_uint32 j = startPointIdx + 1; j <= endPointIdx; j++) {
+            TTF_Curve* curve = curves + *numCurves;
+            curve->p0 = *nextP0;
+            curve->p1 = points[j];
+
+            if (points[j].isOnCurve) {
+                curve->p2 = curve->p1;
+            }
+            else if (j == endPointIdx) {
+                curve->p2     = *startPoint;
+                addFinalCurve = TTF_FALSE;
+            }
+            else if (points[j + 1].isOnCurve) {
+                curve->p2 = points[++j];
+            }
+            else { // Implied on-curve point
+                TTF_V2* nextPoint = points + j + 1;
+                ttf__fix_v2_sub(nextPoint, &curve->p1, &curve->p2);
+                ttf__fix_v2_scale(&curve->p2, 0x10, 6);
+                ttf__fix_v2_add(&curve->p1, &curve->p2, &curve->p2);
+            }
+
+            nextP0 = &curve->p2;
+            (*numCurves)++;
+        }
+
+        if (addFinalCurve) {
+            TTF_Curve* finalCurve = curves + *numCurves;
+            finalCurve->p0 = *nextP0;
+            finalCurve->p1 = *startPoint;
+            finalCurve->p2 = *startPoint;
+            (*numCurves)++;
+        }
+
+        startPointIdx = endPointIdx + 1;
+    }
+
+    return curves;
+}
+
+static TTF_Edge* ttf__subdivide_curves_into_edges(TTF* font, TTF_Curve* curves, TTF_uint32 numCurves, TTF_uint32* numEdges) {
+    
     return NULL;
 }
 
@@ -1467,26 +1561,24 @@ static void ttf__IP(TTF* font) {
 }
 
 static void ttf__IUP(TTF* font, TTF_uint8 ins) {
+    // Applying IUP to zone0 is an error
+    // TODO: How are composite glyphs handled?
+    assert(font->gState.zp2 == &font->glyph.zones[1]);
+    assert(font->glyph.numContours >= 0);
+
     TTF_PRINT_INS();
 
-    // Applying IUP to zone0 is an error
-    assert(font->gState.zp2 == &font->glyph.zones[1]);
-
-    TTF_int16 numContours = ttf__get_int16(font->glyph.glyfBlock);    
-    if (numContours == 0) {
+    if (font->glyph.numContours == 0) {
         return;
     }
-
-    // TODO: How are composite glyphs handled?
-    assert(numContours > 0);
 
     TTF_Touch_Flag  touchFlag = ins & 0x1 ? TTF_TOUCH_X : TTF_TOUCH_Y;
     TTF_F26Dot6_V2* points    = font->glyph.zones[1].cur;
     TTF_uint32      pointIdx  = 0;
 
-    for (TTF_uint16 contourIdx = 0; contourIdx < numContours; contourIdx++) {
+    for (TTF_uint16 i = 0; i < font->glyph.numContours; i++) {
         TTF_uint16 startPointIdx = pointIdx;
-        TTF_uint16 endPointIdx   = ttf__get_uint16(font->glyph.glyfBlock + 10 + 2 * contourIdx);
+        TTF_uint16 endPointIdx   = ttf__get_uint16(font->glyph.glyfBlock + 10 + 2 * i);
         TTF_uint16 touch0        = 0;
         TTF_bool   findingTouch1 = TTF_FALSE;
 
