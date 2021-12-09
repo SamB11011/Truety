@@ -19,8 +19,9 @@ static TTF_bool ttf__alloc_mem_for_ins_processing     (TTF* font);
 /* -------------------- */
 /* Rendering Operations */
 /* -------------------- */
-#define TTF_SUBDIVIDE_SQRD_ERROR 1  /* 26.6 */
+#define TTF_SUBDIVIDE_SQRD_ERROR 0x1  /* 26.6 */
 #define TTF_EDGES_PER_CHUNK      10
+#define TTF_PIXELS_PER_SCANLINE  0x10 /* 26.6 */
 
 typedef struct {
     TTF_F26Dot6_V2 p0;
@@ -55,14 +56,15 @@ typedef struct {
     TTF_Active_Edge*  reusableEdges;
 } TTF_Active_Edge_List;
 
-static TTF_Edge*    ttf__get_glyph_edges               (TTF* font, TTF_uint32* numEdges);
-static void         ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* points);
-static TTF_Curve*   ttf__convert_points_into_curves    (TTF* font, TTF_F26Dot6_V2* points, TTF_Point_Type* pointTypes, TTF_uint32* numCurves);
-static TTF_Edge*    ttf__subdivide_curves_into_edges   (TTF* font, TTF_Curve* curves, TTF_uint32 numCurves, TTF_uint32* numEdges);
-static void         ttf__subdivide_curve_into_edges    (TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1, TTF_F26Dot6_V2* p2, TTF_int8 dir, TTF_Edge* edges, TTF_uint32* numEdges);
-static void         ttf__edge_init                     (TTF_Edge* edge, TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1, TTF_int8 dir);
-static TTF_F10Dot22 ttf__get_inv_slope                 (TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1);
-static int          ttf__compare_edges                 (const void* edge0, const void* edge1);
+static TTF_Edge*    ttf__get_glyph_edges                 (TTF* font, TTF_uint32* numEdges);
+static void         ttf__convert_points_to_bitmap_space  (TTF* font, TTF_F26Dot6_V2* points);
+static TTF_Curve*   ttf__convert_points_into_curves      (TTF* font, TTF_F26Dot6_V2* points, TTF_Point_Type* pointTypes, TTF_uint32* numCurves);
+static TTF_Edge*    ttf__subdivide_curves_into_edges     (TTF* font, TTF_Curve* curves, TTF_uint32 numCurves, TTF_uint32* numEdges);
+static void         ttf__subdivide_curve_into_edges      (TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1, TTF_F26Dot6_V2* p2, TTF_int8 dir, TTF_Edge* edges, TTF_uint32* numEdges);
+static void         ttf__edge_init                       (TTF_Edge* edge, TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1, TTF_int8 dir);
+static TTF_F10Dot22 ttf__get_inv_slope                   (TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1);
+static int          ttf__compare_edges                   (const void* edge0, const void* edge1);
+static TTF_F26Dot6  ttf__get_edge_scanline_x_intersection(TTF_Edge* edge, TTF_F26Dot6 scanline);
 
 static TTF_bool         ttf__active_edge_list_init    (TTF_Active_Edge_List* list);
 static void             ttf__active_edge_list_free    (TTF_Active_Edge_List* list);
@@ -264,7 +266,7 @@ static void ttf__WCVTP   (TTF* font);
 static void        ttf__reset_graphics_state     (TTF* font);
 static void        ttf__call_func                (TTF* font, TTF_uint32 funcId, TTF_uint32 times);
 static TTF_uint8   ttf__jump_to_else_or_eif      (TTF_Ins_Stream* stream);
-static TTF_F26Dot6 ttf__round                    (TTF* font, TTF_F26Dot6 v);
+static TTF_F26Dot6 ttf__round                    (TTF* font, TTF_F26Dot6 val);
 static void        ttf__move_point               (TTF* font, TTF_uint32 idx, TTF_F26Dot6 amount);
 static TTF_F26Dot6 ttf__apply_single_width_cut_in(TTF* font, TTF_F26Dot6 value);
 static TTF_F26Dot6 ttf__apply_min_dist           (TTF* font, TTF_F26Dot6 value);
@@ -282,35 +284,55 @@ static TTF_uint16 ttf__get_uint16(TTF_uint8* data);
 static TTF_uint32 ttf__get_uint32(TTF_uint8* data);
 static TTF_int16  ttf__get_int16 (TTF_uint8* data);
 static void       ttf__max_min   (TTF_int32 a, TTF_int32 b, TTF_int32* max, TTF_int32* min);
+static TTF_int32  ttf__min       (TTF_int32 a, TTF_int32 b);
+static TTF_int32  ttf__max       (TTF_int32 a, TTF_int32 b);
 static TTF_uint16 ttf__get_upem  (TTF* font);
 
 
 /* ---------------------- */
 /* Fixed-point operations */
 /* ---------------------- */
-static TTF_int64 ttf__rounded_div     (TTF_int64 a, TTF_int64 b);
-static TTF_int32 ttf__rounded_div_pow2(TTF_int64 a, TTF_int64 b);
-static TTF_int32 ttf__fix_mul         (TTF_int32 a, TTF_int32 b, TTF_uint8 shift);
-static TTF_int32 ttf__fix_div         (TTF_int32 a, TTF_int32 b, TTF_uint8 shift);
-static void      ttf__fix_v2_add      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result);
-static void      ttf__fix_v2_sub      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result);
-static void      ttf__fix_v2_mul      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 shift);
-static void      ttf__fix_v2_div      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 shift);
-static TTF_int32 ttf__fix_v2_dot      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_uint8 shift);
-static TTF_int32 ttf__fix_v2_sub_dot  (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* c, TTF_uint8 shift);
-static void      ttf__fix_v2_scale    (TTF_Fix_V2* v, TTF_int32 scale, TTF_uint8 shift);
+static TTF_int64   ttf__rounded_div     (TTF_int64 a, TTF_int64 b);
+static TTF_int32   ttf__rounded_div_pow2(TTF_int64 a, TTF_int64 b);
+static TTF_int32   ttf__fix_mul         (TTF_int32 a, TTF_int32 b, TTF_uint8 shift);
+static TTF_int32   ttf__fix_div         (TTF_int32 a, TTF_int32 b, TTF_uint8 shift);
+static void        ttf__fix_v2_add      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result);
+static void        ttf__fix_v2_sub      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result);
+static void        ttf__fix_v2_mul      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 shift);
+static void        ttf__fix_v2_div      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 shift);
+static TTF_int32   ttf__fix_v2_dot      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_uint8 shift);
+static TTF_int32   ttf__fix_v2_sub_dot  (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* c, TTF_uint8 shift);
+static void        ttf__fix_v2_scale    (TTF_Fix_V2* v, TTF_int32 scale, TTF_uint8 shift);
+static TTF_F26Dot6 ttf__f26dot6_ceil    (TTF_F26Dot6 val);
+static TTF_F26Dot6 ttf__f26dot6_floor   (TTF_F26Dot6 val);
 
 
 #define TTF_DEBUG
 
 #ifdef TTF_DEBUG
-    #define TTF_PRINT_INS()            printf("%s\n", __func__ + 5)
-    #define TTF_PRINT_UNKNOWN_INS(ins) printf("Unknown instruction: %#X\n", ins)
-    #define TTF_PRINT_PROGRAM(program) printf("\n--- %s ---\n", program)
+    #define TTF_PRINT_INS()              printf("%s\n", __func__ + 5)
+    #define TTF_PRINT_UNKNOWN_INS(ins)   printf("Unknown instruction: %#X\n", ins)
+    #define TTF_PRINT_PROGRAM(program)   printf("\n--- %s ---\n", program)
+    #define TTF_FIX_TO_FLOAT(val, shift) ttf__fix_to_float(val, shift)
+    
+    float ttf__fix_to_float(TTF_int32 val, TTF_int32 shift) {
+        float value = val >> shift;
+        float power = 0.5f;
+        TTF_int32 mask = 1 << (shift - 1);
+        for (TTF_uint32 i = 0; i < shift; i++) {
+            if (val & mask) {
+                value += power;
+            }
+            mask >>= 1;
+            power /= 2.0f;
+        }
+        return value;
+    }
 #else
     #define TTF_PRINT_INS()           
     #define TTF_PRINT_UNKNOWN_INS(ins)
     #define TTF_PRINT_PROGRAM(program)
+    #define TTF_FIX_TO_FLOAT(val, shift)
 #endif
 
 
@@ -437,8 +459,11 @@ TTF_bool ttf_render_glyph(TTF* font, TTF_Image* image, TTF_uint32 cp) {
     return TTF_FALSE;
 }
 
-TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uint32 cp, TTF_uint32 x, TTF_uint32 y) {
+TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uint32 cp, TTF_uint32 x, TTF_uint32 FOOBAR) {
     assert(font->instance != NULL);
+
+    // TODO: support other positions
+    assert(x == 0 && FOOBAR == 0); // TODO: change FOOBAR back to y
 
     font->glyph.idx         = ttf__get_glyph_index(font, cp);
     font->glyph.glyfBlock   = ttf__get_glyf_data_block(font);
@@ -463,7 +488,123 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uin
     }
 
 
-    
+    TTF_F26Dot6 yCur    = edges->yMin;
+    TTF_F26Dot6 yEnd    = ttf__min(edges[numEdges - 1].yMax, image->h << 6);
+    TTF_uint32  edgeIdx = 0;
+
+    while (yCur <= yEnd) {
+        {
+            // If an edge is no longer active, remove it from the list, else
+            // update its x-intersection with the current scanline
+            //
+            // TODO: Resort edges based on new-xintersection?
+
+            TTF_Active_Edge* activeEdge     = activeEdgeList.headEdge;
+            TTF_Active_Edge* prevActiveEdge = NULL;
+
+            while (activeEdge != NULL) {
+                TTF_Active_Edge* next = activeEdge->next;
+                
+                if (activeEdge->edge->yMax <= yCur) {
+                    ttf__remove_active_edge(&activeEdgeList, prevActiveEdge, activeEdge);
+                }
+                else {
+                    activeEdge->xIntersection = 
+                        ttf__get_edge_scanline_x_intersection(activeEdge->edge, yCur);
+                    
+                    prevActiveEdge = activeEdge;
+                }
+                
+                activeEdge = next;
+            }
+        }
+
+
+        // Find any edges that intersect the current scanline and insert them
+        // into the active edge list
+        while (edgeIdx < numEdges) {
+            if (edges[edgeIdx].yMin > yCur) {
+                // All further edges start below the scanline
+                break;
+            }
+            
+            if (edges[edgeIdx].yMax > yCur) {
+                TTF_F26Dot6 xIntersection = 
+                    ttf__get_edge_scanline_x_intersection(edges + edgeIdx, yCur);
+                
+                TTF_Active_Edge* activeEdge     = activeEdgeList.headEdge;
+                TTF_Active_Edge* prevActiveEdge = NULL;
+                
+                while (activeEdge != NULL) {
+                    if (xIntersection <= activeEdge->xIntersection) {
+                        break;
+                    }
+                    prevActiveEdge = activeEdge;
+                    activeEdge     = activeEdge->next;
+                }
+                
+                TTF_Active_Edge* newActiveEdge = 
+                    prevActiveEdge == NULL ?
+                    ttf__insert_active_edge_first(&activeEdgeList) :
+                    ttf__insert_active_edge_after(&activeEdgeList, prevActiveEdge);
+                
+                if (newActiveEdge == NULL) {
+                    ttf__active_edge_list_free(&activeEdgeList);
+                    free(edges);
+                    return TTF_FALSE;
+                }
+                
+                newActiveEdge->edge          = edges + edgeIdx;
+                newActiveEdge->xIntersection = xIntersection;
+            }
+            
+            edgeIdx++;
+        }
+
+
+        if (activeEdgeList.headEdge != NULL) {
+            // Set the opacity of the pixels along the scanline
+            TTF_Active_Edge* activeEdge    = activeEdgeList.headEdge;
+            TTF_int32        windingNumber = 0;
+            TTF_F10Dot22     weightedAlpha = ttf__fix_mul(0x3FFFFFFF, TTF_PIXELS_PER_SCANLINE, 6);
+            
+            TTF_F26Dot6 x      = ttf__f26dot6_ceil(activeEdge->xIntersection);
+            TTF_F26Dot6 xPrev  = x == 0 ? x : x - 0x40;
+            TTF_uint32  col    = xPrev >> 6;
+            TTF_uint32  rowOff = (yCur >> 6) * image->stride;
+
+            while (TTF_TRUE) {
+                TTF_F10Dot22 alpha =
+                    windingNumber == 0 ?
+                    ttf__fix_mul(weightedAlpha, x - activeEdge->xIntersection, 6) :
+                    ttf__fix_mul(weightedAlpha, activeEdge->xIntersection - xPrev, 6);
+
+                image->pixels[col + rowOff] += (alpha >> 22);
+
+                windingNumber += activeEdge->edge->dir;
+                activeEdge     = activeEdge->next;
+                
+                if (activeEdge == NULL) {
+                    break;
+                }
+
+                if (x < activeEdge->xIntersection) {
+                    // TODO: if winding number is 0, skip the loop
+                    alpha = windingNumber == 0 ? 0 : weightedAlpha;
+                    xPrev = x++;
+                    col   = xPrev >> 6;
+                    while (x < activeEdge->xIntersection) {
+                        image->pixels[col + rowOff] += (alpha >> 22);
+                        xPrev = x++;
+                        col   = xPrev >> 6;
+                    }
+                }
+            }
+        }
+
+        printf("%f\n", ttf__fix_to_float(yCur, 6));
+        yCur += TTF_PIXELS_PER_SCANLINE;
+    }
 
 
     ttf__active_edge_list_free(&activeEdgeList);
@@ -861,6 +1002,10 @@ static TTF_F16Dot16 ttf__get_inv_slope(TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1) {
 
 static int ttf__compare_edges(const void* edge0, const void* edge1) {
     return ((TTF_Edge*)edge0)->yMin - ((TTF_Edge*)edge1)->yMin;
+}
+
+static TTF_F26Dot6 ttf__get_edge_scanline_x_intersection(TTF_Edge* edge, TTF_F26Dot6 scanline) {
+    return ttf__fix_mul(scanline - edge->p0.y, edge->invSlope, 16) + edge->p0.x;
 }
 
 static TTF_bool ttf__active_edge_list_init(TTF_Active_Edge_List* list) {
@@ -2323,7 +2468,7 @@ static TTF_uint8 ttf__jump_to_else_or_eif(TTF_Ins_Stream* stream) {
     return 0;
 }
 
-static TTF_F26Dot6 ttf__round(TTF* font, TTF_F26Dot6 v) {
+static TTF_F26Dot6 ttf__round(TTF* font, TTF_F26Dot6 val) {
     // TODO: No idea how to apply "engine compensation" described in the spec
 
     switch (font->gState.roundState) {
@@ -2332,17 +2477,15 @@ static TTF_F26Dot6 ttf__round(TTF* font, TTF_F26Dot6 v) {
             assert(0);
             break;
         case TTF_ROUND_TO_GRID:
-            return ((v & 0x20) << 1) + (v & 0xFFFFFFC0);
+            return ((val & 0x20) << 1) + (val & 0xFFFFFFC0);
         case TTF_ROUND_TO_DOUBLE_GRID:
             // TODO
             assert(0);
             break;
         case TTF_ROUND_DOWN_TO_GRID:
-            return v & 0xFFFFFFC0;
+            return ttf__f26dot6_floor(val);
         case TTF_ROUND_UP_TO_GRID:
-            // TODO
-            assert(0);
-            break;
+            return ttf__f26dot6_ceil(val);
         case TTF_ROUND_OFF:
             // TODO
             assert(0);
@@ -2478,6 +2621,15 @@ static void ttf__max_min(TTF_int32 a, TTF_int32 b, TTF_int32* max, TTF_int32* mi
     }
 }
 
+static TTF_int32 ttf__min(TTF_int32 a, TTF_int32 b) {
+    return a < b ? a : b;
+}
+
+static TTF_int32 ttf__max(TTF_int32 a, TTF_int32 b) {
+    return a > b ? a : b;
+}
+
+
 static TTF_uint16 ttf__get_upem(TTF* font) {
     return ttf__get_uint16(font->data + font->head.off + 18);
 }
@@ -2546,4 +2698,12 @@ static TTF_int32 ttf__fix_v2_sub_dot(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* c
 static void ttf__fix_v2_scale(TTF_Fix_V2* v, TTF_int32 scale, TTF_uint8 shift) {
     v->x = ttf__fix_mul(v->x, scale, shift);
     v->y = ttf__fix_mul(v->y, scale, shift);
+}
+
+static TTF_F26Dot6 ttf__f26dot6_ceil(TTF_F26Dot6 val) {
+    return (val & 0x3F) ? (val & 0xFFFFFFC0) + 1 : val;
+}
+
+static TTF_F26Dot6 ttf__f26dot6_floor(TTF_F26Dot6 val) {
+    return val & 0xFFFFFFC0;
 }
