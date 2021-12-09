@@ -5,8 +5,6 @@
 #include <assert.h>
 #include "ttf.h"
 
-#define TTF_SUBDIVIDE_SQRD_ERROR 1 /* 26.6 */
-
 
 /* -------------- */
 /* Initialization */
@@ -17,9 +15,13 @@ static TTF_bool ttf__extract_char_encoding            (TTF* font);
 static TTF_bool ttf__format_is_supported              (TTF_uint16 format);
 static TTF_bool ttf__alloc_mem_for_ins_processing     (TTF* font);
 
+
 /* -------------------- */
 /* Rendering Operations */
 /* -------------------- */
+#define TTF_SUBDIVIDE_SQRD_ERROR 1  /* 26.6 */
+#define TTF_EDGES_PER_CHUNK      10
+
 typedef struct {
     TTF_F26Dot6_V2 p0;
     TTF_F26Dot6_V2 p1; /* Control point */
@@ -35,6 +37,24 @@ typedef struct {
     TTF_int8       dir;
 } TTF_Edge;
 
+typedef struct TTF_Active_Edge {
+    TTF_Edge*               edge;
+    TTF_F26Dot6             xIntersection;
+    struct TTF_Active_Edge* next;
+} TTF_Active_Edge;
+
+typedef struct TTF_Active_Chunk {
+    TTF_Active_Edge          edges[TTF_EDGES_PER_CHUNK];
+    TTF_uint32               numEdges;
+    struct TTF_Active_Chunk* next;
+} TTF_Active_Chunk;
+
+typedef struct {
+    TTF_Active_Chunk* headChunk;
+    TTF_Active_Edge*  headEdge;
+    TTF_Active_Edge*  reusableEdges;
+} TTF_Active_Edge_List;
+
 static TTF_Edge*    ttf__get_glyph_edges               (TTF* font, TTF_uint32* numEdges);
 static void         ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* points);
 static TTF_Curve*   ttf__convert_points_into_curves    (TTF* font, TTF_F26Dot6_V2* points, TTF_Point_Type* pointTypes, TTF_uint32* numCurves);
@@ -42,6 +62,14 @@ static TTF_Edge*    ttf__subdivide_curves_into_edges   (TTF* font, TTF_Curve* cu
 static void         ttf__subdivide_curve_into_edges    (TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1, TTF_F26Dot6_V2* p2, TTF_int8 dir, TTF_Edge* edges, TTF_uint32* numEdges);
 static void         ttf__edge_init                     (TTF_Edge* edge, TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1, TTF_int8 dir);
 static TTF_F10Dot22 ttf__get_inv_slope                 (TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1);
+static int          ttf__compare_edges                 (const void* edge0, const void* edge1);
+
+static TTF_bool         ttf__active_edge_list_init    (TTF_Active_Edge_List* list);
+static void             ttf__active_edge_list_free    (TTF_Active_Edge_List* list);
+static TTF_Active_Edge* ttf__get_available_active_edge(TTF_Active_Edge_List* list);
+static TTF_Active_Edge* ttf__insert_active_edge_first (TTF_Active_Edge_List* list);
+static TTF_Active_Edge* ttf__insert_active_edge_after (TTF_Active_Edge_List* list, TTF_Active_Edge* after);
+static void             ttf__remove_active_edge       (TTF_Active_Edge_List* list, TTF_Active_Edge* prev, TTF_Active_Edge* remove);
 
 
 /* ------------------- */
@@ -409,20 +437,6 @@ TTF_bool ttf_render_glyph(TTF* font, TTF_Image* image, TTF_uint32 cp) {
     return TTF_FALSE;
 }
 
-static float ttf__fixed_to_float(TTF_int32 val) {
-    float value = val >> 6;
-    float power = 0.5f;
-    TTF_int32 mask = 1 << 5;
-    for (TTF_uint32 i = 0; i < 6; i++) {
-        if (val & mask) {
-            value += power;
-        }
-        mask >>= 1;
-        power /= 2.0f;
-    }
-    return value;
-}
-
 TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uint32 cp, TTF_uint32 x, TTF_uint32 y) {
     assert(font->instance != NULL);
 
@@ -431,22 +445,29 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uin
     font->glyph.numContours = ttf__get_num_glyph_contours(font);
     font->glyph.numPoints   = ttf__get_num_glyph_points(font);
 
+
     TTF_uint32 numEdges;
     TTF_Edge* edges = ttf__get_glyph_edges(font, &numEdges);
     if (edges == NULL) {
         return TTF_FALSE;
     }
 
-    for (TTF_uint32 i = 0; i < numEdges; i++) {
-        printf(
-            "%d) (%f, %f) (%f, %f)\n", 
-            i, 
-            ttf__fixed_to_float(edges[i].p0.x), 
-            ttf__fixed_to_float(edges[i].p0.y), 
-            ttf__fixed_to_float(edges[i].p1.x), 
-            ttf__fixed_to_float(edges[i].p1.y));
+    // Sort edges from topmost to bottom most (smallest to largest y)
+    qsort(edges, numEdges, sizeof(TTF_Edge), ttf__compare_edges);
+
+
+    TTF_Active_Edge_List activeEdgeList;
+    if (!ttf__active_edge_list_init(&activeEdgeList)) {
+        free(edges);
+        return TTF_FALSE;
     }
 
+
+    
+
+
+    ttf__active_edge_list_free(&activeEdgeList);
+    free(edges);
     return TTF_TRUE;
 }
 
@@ -836,6 +857,87 @@ static TTF_F16Dot16 ttf__get_inv_slope(TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1) {
     
     TTF_F16Dot16 slope = ttf__fix_div(p1->y - p0->y, p1->x - p0->x, 16);
     return ttf__fix_div(1l << 16, slope, 16);
+}
+
+static int ttf__compare_edges(const void* edge0, const void* edge1) {
+    return ((TTF_Edge*)edge0)->yMin - ((TTF_Edge*)edge1)->yMin;
+}
+
+static TTF_bool ttf__active_edge_list_init(TTF_Active_Edge_List* list) {
+    list->headChunk = calloc(1, sizeof(TTF_Active_Chunk));
+    if (list->headChunk != NULL) {
+        list->headEdge      = NULL;
+        list->reusableEdges = NULL;
+        return TTF_TRUE;
+    }
+    return TTF_FALSE;
+}
+
+static void ttf__active_edge_list_free(TTF_Active_Edge_List* list) {
+    TTF_Active_Chunk* chunk = list->headChunk;
+    while (chunk != NULL) {
+        TTF_Active_Chunk* next = chunk->next;
+        free(chunk);
+        chunk = next;
+    }
+}
+
+static TTF_Active_Edge* ttf__get_available_active_edge(TTF_Active_Edge_List* list) {
+    if (list->reusableEdges != NULL) {
+        // Reuse the memory from a previously removed edge
+        TTF_Active_Edge* edge = list->reusableEdges;
+        list->reusableEdges = edge->next;
+        edge->next          = NULL;
+        return edge;
+    }
+    
+    if (list->headChunk->numEdges == TTF_EDGES_PER_CHUNK) {
+        // The current chunk is full, so allocate a new one
+        TTF_Active_Chunk* chunk = calloc(1, sizeof(TTF_Active_Chunk));
+        if (chunk == NULL) {
+            return NULL;
+        }
+        chunk->next     = list->headChunk;
+        list->headChunk = chunk;
+    }
+
+    TTF_Active_Edge* edge = list->headChunk->edges + list->headChunk->numEdges;
+    
+    // TODO: remove assertions
+    assert(edge->next == NULL);
+    assert(edge->edge == NULL);
+
+    list->headChunk->numEdges++;
+    return edge;
+}
+
+static TTF_Active_Edge* ttf__insert_active_edge_first(TTF_Active_Edge_List* list) {
+    TTF_Active_Edge* edge = ttf__get_available_active_edge(list);
+    edge->next     = list->headEdge;
+    list->headEdge = edge;
+    return edge;
+}
+
+static TTF_Active_Edge* ttf__insert_active_edge_after(TTF_Active_Edge_List* list, TTF_Active_Edge* after) {
+    TTF_Active_Edge* edge = ttf__get_available_active_edge(list);
+    edge->next  = after->next;
+    after->next = edge;
+    return edge;
+}
+
+static void ttf__remove_active_edge(TTF_Active_Edge_List* list, TTF_Active_Edge* prev, TTF_Active_Edge* remove) {
+    if (prev == NULL) {
+        list->headEdge = list->headEdge->next;
+    }
+    else {
+        prev->next = remove->next;
+    }
+    
+    // Add the edge to the list of reusable edges so its memory can be reused
+    remove->edge          = NULL;
+    remove->xIntersection = 0;
+    remove->next          = list->reusableEdges;
+    list->reusableEdges   = remove;
 }
 
 
