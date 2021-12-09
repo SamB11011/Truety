@@ -802,8 +802,8 @@ static void ttf__subdivide_curve_into_edges(TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* 
         d.x -= mid2.x;
         d.y -= mid2.y;
 
-        TTF_F26Dot6 result = ttf__fix_mul(d.x, d.x, 6) + ttf__fix_mul(d.y, d.y, 6);
-        if (result <= TTF_SUBDIVIDE_SQRD_ERROR) {
+        TTF_F26Dot6 sqrdError = ttf__fix_mul(d.x, d.x, 6) + ttf__fix_mul(d.y, d.y, 6);
+        if (sqrdError <= TTF_SUBDIVIDE_SQRD_ERROR) {
             if (edges != NULL) {
                 ttf__edge_init(edges + *numEdges, p0, p2, dir);
             }
@@ -1655,7 +1655,7 @@ static void ttf__IP(TTF* font) {
         rp2Org = font->gState.zp1->orgScaled + font->gState.rp2;
     }
     else {
-        // Use unscaled coordinates for more precision, then scale the results
+        // Use unscaled coordinates for more precision
         rp1Org = font->gState.zp0->org + font->gState.rp1;
         rp2Org = font->gState.zp1->org + font->gState.rp2;
     }
@@ -1663,23 +1663,17 @@ static void ttf__IP(TTF* font) {
     TTF_F26Dot6 totalDistCur = ttf__fix_v2_sub_dot(rp2Cur, rp1Cur, &font->gState.projVec, 14);
     TTF_F26Dot6 totalDistOrg = ttf__fix_v2_sub_dot(rp2Org, rp1Org, &font->gState.dualProjVec, 14);
 
-    if (!isTwilightZone) {
-        ttf__fix_mul(totalDistOrg, font->instance->scale, 22);
-    }
-
     for (TTF_uint32 i = 0; i < font->gState.loop; i++) {
         TTF_uint32 pointIdx = ttf__stack_pop_uint32(font);
         assert(pointIdx < font->gState.zp2->count);
 
+        // This ain't set up for twilight
         TTF_F26Dot6_V2* pointCur = font->gState.zp2->cur + pointIdx;
-        TTF_F26Dot6_V2* pointOrg = font->gState.zp2->org + pointIdx;
+        TTF_F26Dot6_V2* pointOrg = 
+            (isTwilightZone ? font->gState.zp2->orgScaled : font->gState.zp2->org) + pointIdx;
 
         TTF_F26Dot6 distCur = ttf__fix_v2_sub_dot(pointCur, rp1Cur, &font->gState.projVec, 14);
         TTF_F26Dot6 distOrg = ttf__fix_v2_sub_dot(pointOrg, rp1Org, &font->gState.dualProjVec, 14);
-
-        if (!isTwilightZone) {
-            ttf__fix_mul(distOrg, font->instance->scale, 22);
-        }
 
         // Scale distOrg by however many times bigger totalDistCur is than
         // totalDistOrg. 
@@ -1813,7 +1807,7 @@ static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
         pointOrg = font->gState.zp1->orgScaled + pointIdx;
     }
     else {
-        // Use unscaled coordinates for more precision, then scale the results
+        // Use unscaled coordinates for more precision
         rp0Org   = font->gState.zp0->org + font->gState.rp0;
         pointOrg = font->gState.zp1->org + pointIdx;
     }
