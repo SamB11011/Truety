@@ -564,23 +564,26 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uin
 
         if (activeEdgeList.headEdge != NULL) {
             // Set the opacity of the pixels along the scanline
+
             TTF_Active_Edge* activeEdge    = activeEdgeList.headEdge;
             TTF_int32        windingNumber = 0;
-            TTF_F10Dot22     weightedAlpha = ttf__fix_mul(0x3FFFFFFF, TTF_PIXELS_PER_SCANLINE, 6);
+            TTF_F10Dot22     weightedAlpha = ttf__fix_mul(0x3FC00000, TTF_PIXELS_PER_SCANLINE, 6);
             
             TTF_F26Dot6 x      = ttf__f26dot6_ceil(activeEdge->xIntersection);
             TTF_F26Dot6 xPrev  = x == 0 ? x : x - 0x40;
-            TTF_uint32  col    = xPrev >> 6;
             TTF_uint32  rowOff = (yCur >> 6) * image->stride;
 
             while (TTF_TRUE) {
+                TTF_uint8* pixel = image->pixels + (xPrev >> 6) + rowOff;
+
                 TTF_F10Dot22 alpha =
                     windingNumber == 0 ?
                     ttf__fix_mul(weightedAlpha, x - activeEdge->xIntersection, 6) :
                     ttf__fix_mul(weightedAlpha, activeEdge->xIntersection - xPrev, 6);
 
-                image->pixels[col + rowOff] += (alpha >> 22);
+                assert(*pixel + (alpha >> 22) <= 255);
 
+                (*pixel)      += (alpha >> 22);
                 windingNumber += activeEdge->edge->dir;
                 activeEdge     = activeEdge->next;
                 
@@ -591,18 +594,19 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uin
                 if (x < activeEdge->xIntersection) {
                     // TODO: if winding number is 0, skip the loop
                     alpha = windingNumber == 0 ? 0 : weightedAlpha;
-                    xPrev = x++;
-                    col   = xPrev >> 6;
+                    xPrev = x;
+                    x     += 0x40;
                     while (x < activeEdge->xIntersection) {
-                        image->pixels[col + rowOff] += (alpha >> 22);
-                        xPrev = x++;
-                        col   = xPrev >> 6;
+                        pixel     = image->pixels + (xPrev >> 6) + rowOff;
+                        assert(*pixel + (alpha >> 22) <= 255);
+                        (*pixel) += (alpha >> 22);
+                        xPrev     = x;
+                        x        += 0x40;
                     }
                 }
             }
         }
 
-        printf("%f\n", ttf__fix_to_float(yCur, 6));
         yCur += TTF_PIXELS_PER_SCANLINE;
     }
 
