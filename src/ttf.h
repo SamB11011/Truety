@@ -52,10 +52,7 @@ typedef struct {
 } TTF_Encoding;
 
 typedef struct {
-    TTF_int32      x;
-    TTF_int32      y;
-    TTF_Touch_Flag touchFlags;
-    TTF_bool       isOnCurve;
+    TTF_int32 x, y;
 } TTF_V2,
   TTF_Fix_V2,
   TTF_F2Dot14_V2,
@@ -87,6 +84,8 @@ typedef struct {
     TTF_V2*         org;
     TTF_F26Dot6_V2* orgScaled;
     TTF_F26Dot6_V2* cur;
+    TTF_Touch_Flag* curTouchFlags;
+    TTF_Point_Type* pointTypes;
     TTF_uint32      count;
     TTF_uint32      cap;
 } TTF_Zone;
@@ -115,9 +114,15 @@ typedef struct {
 } TTF_Graphics_State;
 
 typedef struct {
+    TTF_uint8*      mem;
+    TTF_V2*         points;
+    TTF_Point_Type* pointTypes;
+} TTF_Unhinted_Points;
+
+typedef struct {
     union {
-        TTF_Zone zones[2];
-        TTF_V2*  points;
+        TTF_Zone            zones[2];
+        TTF_Unhinted_Points unhinted;
     };
 
     TTF_uint32 idx;
@@ -129,8 +134,8 @@ typedef struct {
 typedef struct {
     TTF_F26Dot6* cvt;
     TTF_bool     cvtIsOutdated;
-    TTF_bool     rotated;       /* TODO: Not supported yet */
-    TTF_bool     stretched;     /* TODO: Not supported yet */
+    TTF_bool     isRotated;
+    TTF_bool     isStretched;
     TTF_uint32   ppem;
     TTF_F10Dot22 scale;
     /* TODO: Keep Graphics State default values here in case defaults are set
@@ -145,28 +150,28 @@ typedef struct {
 } TTF_Image;
 
 typedef struct {
-    TTF_uint8*          data;
-    TTF_uint32          size;
-    TTF_bool            hasHinting;
-    TTF_uint8*          insMem;
-    TTF_Table           cmap;
-    TTF_Table           cvt;
-    TTF_Table           fpgm;
-    TTF_Table           glyf;
-    TTF_Table           head;
-    TTF_Table           hhea;
-    TTF_Table           hmtx;
-    TTF_Table           loca;
-    TTF_Table           maxp;
-    TTF_Table           OS2;
-    TTF_Table           prep;
-    TTF_Table           vmtx;
-    TTF_Encoding        encoding;
-    TTF_Stack           stack;
-    TTF_Func_Array      funcArray;
-    TTF_Graphics_State  gState;
-    TTF_Current_Glyph   glyph;
-    TTF_Instance*       instance;
+    TTF_uint8*         data;
+    TTF_uint32         size;
+    TTF_bool           hasHinting;
+    TTF_uint8*         insMem;
+    TTF_Table          cmap;
+    TTF_Table          cvt;
+    TTF_Table          fpgm;
+    TTF_Table          glyf;
+    TTF_Table          head;
+    TTF_Table          hhea;
+    TTF_Table          hmtx;
+    TTF_Table          loca;
+    TTF_Table          maxp;
+    TTF_Table          OS2;
+    TTF_Table          prep;
+    TTF_Table          vmtx;
+    TTF_Encoding       encoding;
+    TTF_Stack          stack;
+    TTF_Func_Array     funcArray;
+    TTF_Graphics_State gState;
+    TTF_Current_Glyph  glyph;
+    TTF_Instance*      instance;
 } TTF;
 
 TTF_bool ttf_init         (TTF* font, const char* path);
