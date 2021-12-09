@@ -5,6 +5,8 @@
 #include <assert.h>
 #include "ttf.h"
 
+#define TTF_SUBDIVIDE_SQRD_ERROR 1 /* 26.6 */
+
 
 /* -------------- */
 /* Initialization */
@@ -25,17 +27,20 @@ typedef struct {
 } TTF_Curve;
 
 typedef struct {
-    TTF_F26Dot6_V2 start;
-    TTF_F26Dot6_V2 end;
-    TTF_int8       dir;
+    TTF_F26Dot6_V2 p0;
+    TTF_F26Dot6_V2 p1;
+    TTF_F26Dot6    yMin;
+    TTF_F26Dot6    yMax;
     TTF_F16Dot16   invSlope; /* TODO: Should this 26.6 ? */
+    TTF_int8       dir;
 } TTF_Edge;
 
-static TTF_Edge*    ttf__get_glyph_edges               (TTF* font);
+static TTF_Edge*    ttf__get_glyph_edges               (TTF* font, TTF_uint32* numEdges);
 static void         ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* points);
 static TTF_Curve*   ttf__convert_points_into_curves    (TTF* font, TTF_F26Dot6_V2* points, TTF_Point_Type* pointTypes, TTF_uint32* numCurves);
 static TTF_Edge*    ttf__subdivide_curves_into_edges   (TTF* font, TTF_Curve* curves, TTF_uint32 numCurves, TTF_uint32* numEdges);
 static void         ttf__subdivide_curve_into_edges    (TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1, TTF_F26Dot6_V2* p2, TTF_int8 dir, TTF_Edge* edges, TTF_uint32* numEdges);
+static void         ttf__edge_init                     (TTF_Edge* edge, TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1, TTF_int8 dir);
 static TTF_F10Dot22 ttf__get_inv_slope                 (TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1);
 
 
@@ -248,7 +253,7 @@ static void        ttf__IUP_interpolate_or_shift (TTF_Zone* zone1, TTF_Touch_Fla
 static TTF_uint16 ttf__get_uint16(TTF_uint8* data);
 static TTF_uint32 ttf__get_uint32(TTF_uint8* data);
 static TTF_int16  ttf__get_int16 (TTF_uint8* data);
-static void       ttf__max_min   (TTF_int32* max, TTF_int32* min, TTF_int32 a, TTF_int32 b);
+static void       ttf__max_min   (TTF_int32 a, TTF_int32 b, TTF_int32* max, TTF_int32* min);
 static TTF_uint16 ttf__get_upem  (TTF* font);
 
 
@@ -404,6 +409,20 @@ TTF_bool ttf_render_glyph(TTF* font, TTF_Image* image, TTF_uint32 cp) {
     return TTF_FALSE;
 }
 
+static float ttf__fixed_to_float(TTF_int32 val) {
+    float value = val >> 6;
+    float power = 0.5f;
+    TTF_int32 mask = 1 << 5;
+    for (TTF_uint32 i = 0; i < 6; i++) {
+        if (val & mask) {
+            value += power;
+        }
+        mask >>= 1;
+        power /= 2.0f;
+    }
+    return value;
+}
+
 TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uint32 cp, TTF_uint32 x, TTF_uint32 y) {
     assert(font->instance != NULL);
 
@@ -412,9 +431,20 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uin
     font->glyph.numContours = ttf__get_num_glyph_contours(font);
     font->glyph.numPoints   = ttf__get_num_glyph_points(font);
 
-    TTF_Edge* edges = ttf__get_glyph_edges(font);
+    TTF_uint32 numEdges;
+    TTF_Edge* edges = ttf__get_glyph_edges(font, &numEdges);
     if (edges == NULL) {
         return TTF_FALSE;
+    }
+
+    for (TTF_uint32 i = 0; i < numEdges; i++) {
+        printf(
+            "%d) (%f, %f) (%f, %f)\n", 
+            i, 
+            ttf__fixed_to_float(edges[i].p0.x), 
+            ttf__fixed_to_float(edges[i].p0.y), 
+            ttf__fixed_to_float(edges[i].p1.x), 
+            ttf__fixed_to_float(edges[i].p1.y));
     }
 
     return TTF_TRUE;
@@ -610,7 +640,7 @@ static void ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* point
     }
 }
 
-static TTF_Edge* ttf__get_glyph_edges(TTF* font) {
+static TTF_Edge* ttf__get_glyph_edges(TTF* font, TTF_uint32* numEdges) {
     // Get the points of the glyph
     TTF_F26Dot6_V2* points;
     TTF_Point_Type* pointTypes;
@@ -654,9 +684,8 @@ static TTF_Edge* ttf__get_glyph_edges(TTF* font) {
     // This is done because the intersection of a scanline and an edge is 
     // simpler and cheaper to calculate than the intersection of a scanline and 
     // a curve.
-    TTF_uint32 numEdges;
-    TTF_Edge* edges = ttf__subdivide_curves_into_edges(font, curves, numCurves, &numEdges);
-
+    TTF_Edge* edges = ttf__subdivide_curves_into_edges(font, curves, numCurves, numEdges);
+    
     free(curves);
 
     if (edges == NULL) {
@@ -731,8 +760,8 @@ static TTF_Edge* ttf__subdivide_curves_into_edges(TTF* font, TTF_Curve* curves, 
             (*numEdges)++;
         }
         else {
-            // ttf__subdivide_curve_into_edges(
-            //     &curves[i].p0, &curves[i].p1, &curves[i].p2, 0, numEdges);
+            ttf__subdivide_curve_into_edges(
+                &curves[i].p0, &curves[i].p1, &curves[i].p2, 0, NULL, numEdges);
         }
     }
 
@@ -745,17 +774,14 @@ static TTF_Edge* ttf__subdivide_curves_into_edges(TTF* font, TTF_Curve* curves, 
     for (TTF_uint32 i = 0; i < numCurves; i++) {
         TTF_uint8 dir = curves[i].p2.y < curves[i].p0.y ? 1 : -1;
 
-        TTF_V2 p0 = { curves[i].p0.x, curves[i].p0.y };
-        TTF_V2 p2 = { curves[i].p2.x, curves[i].p2.y };
-        printf("invSlope = %d\n", ttf__get_inv_slope(&p2, &p0));
-
         if (curves[i].p1.x == curves[i].p2.x && curves[i].p1.y == curves[i].p2.y) {
             // The curve is a straight line, no need to flatten it
+            ttf__edge_init(edges + *numEdges, &curves[i].p0, &curves[i].p2, dir);
             (*numEdges)++;
         }
         else {
-            // ttf__subdivide_curve_into_edges(
-            //     &curves[i].p0, &curves[i].p1, &curves[i].p2, 0, numEdges);
+            ttf__subdivide_curve_into_edges(
+                &curves[i].p0, &curves[i].p1, &curves[i].p2, dir, edges, numEdges);
         }
     }
 
@@ -763,7 +789,41 @@ static TTF_Edge* ttf__subdivide_curves_into_edges(TTF* font, TTF_Curve* curves, 
 }
 
 static void ttf__subdivide_curve_into_edges(TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1, TTF_F26Dot6_V2* p2, TTF_int8 dir, TTF_Edge* edges, TTF_uint32* numEdges) {
+    #define TTF_DIVIDE(a, b)                        \
+        { ttf__fix_mul(((a)->x + (b)->x), 0x20, 6), \
+          ttf__fix_mul(((a)->y + (b)->y), 0x20, 6) }
 
+    TTF_F26Dot6_V2 mid0 = TTF_DIVIDE(p0, p1);
+    TTF_F26Dot6_V2 mid1 = TTF_DIVIDE(p1, p2);
+    TTF_F26Dot6_V2 mid2 = TTF_DIVIDE(&mid0, &mid1);
+
+    {
+        TTF_F26Dot6_V2 d = TTF_DIVIDE(p0, p2);
+        d.x -= mid2.x;
+        d.y -= mid2.y;
+
+        TTF_F26Dot6 result = ttf__fix_mul(d.x, d.x, 6) + ttf__fix_mul(d.y, d.y, 6);
+        if (result <= TTF_SUBDIVIDE_SQRD_ERROR) {
+            if (edges != NULL) {
+                ttf__edge_init(edges + *numEdges, p0, p2, dir);
+            }
+            (*numEdges)++;
+            return;
+        }
+    }
+
+    ttf__subdivide_curve_into_edges(p0, &mid0, &mid2, dir, edges, numEdges);
+    ttf__subdivide_curve_into_edges(&mid2, &mid1, p2, dir, edges, numEdges);
+
+    #undef TTF_DIVIDE
+}
+
+static void ttf__edge_init(TTF_Edge* edge, TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1, TTF_int8 dir) {
+    edge->p0       = *p0;
+    edge->p1       = *p1;
+    edge->invSlope = ttf__get_inv_slope(p0, p1);
+    edge->dir      = dir;
+    ttf__max_min(p0->y, p1->y, &edge->yMax, &edge->yMin);
 }
 
 static TTF_F16Dot16 ttf__get_inv_slope(TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1) {
@@ -2270,10 +2330,10 @@ static void ttf__IUP_interpolate_or_shift(TTF_Zone* zone1, TTF_Touch_Flag touchF
     TTF_int32 coord0, coord1;
 
     if (touchFlag == TTF_TOUCH_X) {
-        ttf__max_min(&coord1, &coord0, zone1->org[touch0].x, zone1->org[touch1].x);
+        ttf__max_min(zone1->org[touch0].x, zone1->org[touch1].x, &coord1, &coord0);
     }
     else {
-        ttf__max_min(&coord1, &coord0, zone1->org[touch0].y, zone1->org[touch1].y);
+        ttf__max_min(zone1->org[touch0].y, zone1->org[touch1].y, &coord1, &coord0);
     }
 
     if (touch0 >= touch1) {
@@ -2311,7 +2371,7 @@ static TTF_int16 ttf__get_int16(TTF_uint8* data) {
     return data[0] << 8 | data[1];
 }
 
-static void ttf__max_min(TTF_int32* max, TTF_int32* min, TTF_int32 a, TTF_int32 b) {
+static void ttf__max_min(TTF_int32 a, TTF_int32 b, TTF_int32* max, TTF_int32* min) {
     if (a > b) {
         *max = a;
         *min = b;
