@@ -6,9 +6,9 @@
 #include "ttf.h"
 
 
-/* -------------- */
-/* Initialization */
-/* -------------- */
+/* ------------------------- */
+/* Initialization Operations */
+/* ------------------------- */
 static TTF_bool ttf__read_file_into_buffer            (TTF* font, const char* path);
 static TTF_bool ttf__extract_info_from_table_directory(TTF* font);
 static TTF_bool ttf__extract_char_encoding            (TTF* font);
@@ -34,7 +34,7 @@ typedef struct {
     TTF_F26Dot6_V2 p1;
     TTF_F26Dot6    yMin;
     TTF_F26Dot6    yMax;
-    TTF_F16Dot16   invSlope; /* TODO: Should this 26.6 ? */
+    TTF_F16Dot16   invSlope; /* TODO: Should this 26.6? */
     TTF_int8       dir;
 } TTF_Edge;
 
@@ -81,9 +81,9 @@ static TTF_uint32 ttf__get_glyph_index         (TTF* font, TTF_uint32 cp);
 static TTF_uint16 ttf__get_glyph_index_format_4(TTF_uint8* subtable, TTF_uint32 cp);
 
 
-/* --------------- */
-/* glyf Operations */
-/* --------------- */
+/* --------------------- */
+/* glyf Table Operations */
+/* --------------------- */
 enum {
     TTF_GLYF_ON_CURVE_POINT = 0x01,
     TTF_GLYF_X_SHORT_VECTOR = 0x02,
@@ -273,9 +273,9 @@ static TTF_F26Dot6 ttf__apply_min_dist           (TTF* font, TTF_F26Dot6 value);
 static void        ttf__IUP_interpolate_or_shift (TTF_Zone* zone1, TTF_Touch_Flag touchFlag, TTF_uint16 startPointIdx, TTF_uint16 endPointIdx, TTF_uint16 touch0, TTF_uint16 touch1);
 
 
-/* ------- */
-/* Utility */
-/* ------- */
+/* ------------------ */
+/* Utility Operations */
+/* ------------------ */
 #define ttf__get_Offset16(data)       ttf__get_uint16(data)
 #define ttf__get_Offset32(data)       ttf__get_uint32(data)
 #define ttf__get_Version16Dot16(data) ttf__get_uint32(data)
@@ -289,9 +289,9 @@ static TTF_int32  ttf__max       (TTF_int32 a, TTF_int32 b);
 static TTF_uint16 ttf__get_upem  (TTF* font);
 
 
-/* ---------------------- */
-/* Fixed-point operations */
-/* ---------------------- */
+/* ---------------- */
+/* Fixed-point Math */
+/* ---------------- */
 
 /* 
  * The proof:
@@ -300,7 +300,7 @@ static TTF_uint16 ttf__get_upem  (TTF* font);
  *     https://en.wikipedia.org/wiki/Fixed-point_arithmetic
  */
 #define TTF_ROUNDED_DIV_POW2(a, shift) \
-    (((a) + (1l << (shift - 1))) >> shift)
+    (((a) + (1l << ((shift) - 1))) >> (shift))
 
 /* The result has a scale factor of 1 << (shift(a) + shift(b) - shift) */
 #define TTF_FIX_MUL(a, b, shift)\
@@ -637,9 +637,9 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uin
 }
 
 
-/* -------------- */
-/* Initialization */
-/* -------------- */
+/* ------------------------- */
+/* Initialization Operations */
+/* ------------------------- */
 static TTF_bool ttf__read_file_into_buffer(TTF* font, const char* path) {
     FILE* f = fopen(path, "rb");
     if (f == NULL) {
@@ -1185,9 +1185,9 @@ static TTF_uint16 ttf__get_glyph_index_format_4(TTF_uint8* subtable, TTF_uint32 
 }
 
 
-/* --------------- */
-/* glyf Operations */
-/* --------------- */
+/* --------------------- */
+/* glyf Table Operations */
+/* --------------------- */
 static TTF_uint8* ttf__get_glyf_data_block(TTF* font) {
     TTF_int16 version = ttf__get_int16(font->data + font->head.off + 50);
         
@@ -2619,9 +2619,9 @@ static void ttf__IUP_interpolate_or_shift(TTF_Zone* zone1, TTF_Touch_Flag touchF
 }
 
 
-/* ------- */
-/* Utility */
-/* ------- */
+/* ------------------ */
+/* Utility Operations */
+/* ------------------ */
 static TTF_uint16 ttf__get_uint16(TTF_uint8* data) {
     return data[0] << 8 | data[1];
 }
@@ -2653,14 +2653,14 @@ static TTF_int32 ttf__max(TTF_int32 a, TTF_int32 b) {
     return a > b ? a : b;
 }
 
-
 static TTF_uint16 ttf__get_upem(TTF* font) {
     return ttf__get_uint16(font->data + font->head.off + 18);
 }
 
-/* ---------------------- */
-/* Fixed-point operations */
-/* ---------------------- */
+
+/* ---------------- */
+/* Fixed-point Math */
+/* ---------------- */
 static TTF_int64 ttf__rounded_div(TTF_int64 a, TTF_int64 b) {
     // https://stackoverflow.com/a/18067292
     return (a < 0) ^ (b < 0) ? (a - b / 2) / b : (a + b / 2) / b;
