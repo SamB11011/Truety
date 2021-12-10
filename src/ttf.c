@@ -292,19 +292,31 @@ static TTF_uint16 ttf__get_upem  (TTF* font);
 /* ---------------------- */
 /* Fixed-point operations */
 /* ---------------------- */
-static TTF_int64   ttf__rounded_div     (TTF_int64 a, TTF_int64 b);
-static TTF_int32   ttf__rounded_div_pow2(TTF_int64 a, TTF_int64 b);
-static TTF_int32   ttf__fix_mul         (TTF_int32 a, TTF_int32 b, TTF_uint8 shift);
-static TTF_int32   ttf__fix_div         (TTF_int32 a, TTF_int32 b, TTF_uint8 shift);
-static void        ttf__fix_v2_add      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result);
-static void        ttf__fix_v2_sub      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result);
-static void        ttf__fix_v2_mul      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 shift);
-static void        ttf__fix_v2_div      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 shift);
-static TTF_int32   ttf__fix_v2_dot      (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_uint8 shift);
-static TTF_int32   ttf__fix_v2_sub_dot  (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* c, TTF_uint8 shift);
-static void        ttf__fix_v2_scale    (TTF_Fix_V2* v, TTF_int32 scale, TTF_uint8 shift);
-static TTF_F26Dot6 ttf__f26dot6_ceil    (TTF_F26Dot6 val);
-static TTF_F26Dot6 ttf__f26dot6_floor   (TTF_F26Dot6 val);
+
+/* 
+ * The proof:
+ *     round(x/y) = floor(x/y + 0.5) = floor((x + y/2)/y) = shift-of-n(x + 2^(n-1))
+ *
+ *     https://en.wikipedia.org/wiki/Fixed-point_arithmetic
+ */
+#define TTF_ROUNDED_DIV_POW2(a, shift) \
+    (((a) + (1l << (shift - 1))) >> shift)
+
+/* The result has a scale factor of 1 << (shift(a) + shift(b) - shift) */
+#define TTF_FIX_MUL(a, b, shift)\
+    TTF_ROUNDED_DIV_POW2((TTF_uint64)(a) * (TTF_uint64)(b), shift)
+
+static TTF_int64   ttf__rounded_div   (TTF_int64 a, TTF_int64 b);
+static TTF_int32   ttf__fix_div       (TTF_int32 a, TTF_int32 b, TTF_uint8 shift);
+static void        ttf__fix_v2_add    (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result);
+static void        ttf__fix_v2_sub    (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result);
+static void        ttf__fix_v2_mul    (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 shift);
+static void        ttf__fix_v2_div    (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 shift);
+static TTF_int32   ttf__fix_v2_dot    (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_uint8 shift);
+static TTF_int32   ttf__fix_v2_sub_dot(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* c, TTF_uint8 shift);
+static void        ttf__fix_v2_scale  (TTF_Fix_V2* v, TTF_int32 scale, TTF_uint8 shift);
+static TTF_F26Dot6 ttf__f26dot6_ceil  (TTF_F26Dot6 val);
+static TTF_F26Dot6 ttf__f26dot6_floor (TTF_F26Dot6 val);
 
 
 #define TTF_DEBUG
@@ -397,7 +409,7 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
 
         for (TTF_uint32 off = 0; off < font->cvt.size; off += 2) {
             TTF_int32 funits = ttf__get_int16(cvt + off);
-            instance->cvt[idx++] = ttf__fix_mul(funits << 6, instance->scale, 22);
+            instance->cvt[idx++] = TTF_FIX_MUL(funits << 6, instance->scale, 22);
         }
     }
     else {
@@ -569,15 +581,15 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uin
 
             TTF_Active_Edge* activeEdge    = activeEdgeList.headEdge;
             TTF_int32        windingNumber = 0;
-            TTF_F26Dot6      weightedAlpha = ttf__fix_mul(0x3FC0, TTF_PIXELS_PER_SCANLINE, 6);
+            TTF_F26Dot6      weightedAlpha = TTF_FIX_MUL(0x3FC0, TTF_PIXELS_PER_SCANLINE, 6);
             TTF_F26Dot6      x             = ttf__f26dot6_ceil(activeEdge->xIntersection);
             TTF_uint32       rowOff        = (yCur >> 6) * image->stride;
 
             while (TTF_TRUE) {
                 TTF_F26Dot6 alpha = 
                     windingNumber == 0 ?
-                    ttf__fix_mul(weightedAlpha, x - activeEdge->xIntersection, 6) :
-                    ttf__fix_mul(weightedAlpha, activeEdge->xIntersection - x + 0x40, 6);
+                    TTF_FIX_MUL(weightedAlpha, x - activeEdge->xIntersection, 6) :
+                    TTF_FIX_MUL(weightedAlpha, activeEdge->xIntersection - x + 0x40, 6);
 
                 image->pixels[(x >> 6) + rowOff] += (alpha >> 6);
 
@@ -964,8 +976,8 @@ static TTF_Edge* ttf__subdivide_curves_into_edges(TTF* font, TTF_Curve* curves, 
 
 static void ttf__subdivide_curve_into_edges(TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p1, TTF_F26Dot6_V2* p2, TTF_int8 dir, TTF_Edge* edges, TTF_uint32* numEdges) {
     #define TTF_DIVIDE(a, b)                        \
-        { ttf__fix_mul(((a)->x + (b)->x), 0x20, 6), \
-          ttf__fix_mul(((a)->y + (b)->y), 0x20, 6) }
+        { TTF_FIX_MUL(((a)->x + (b)->x), 0x20, 6), \
+          TTF_FIX_MUL(((a)->y + (b)->y), 0x20, 6) }
 
     TTF_F26Dot6_V2 mid0 = TTF_DIVIDE(p0, p1);
     TTF_F26Dot6_V2 mid1 = TTF_DIVIDE(p1, p2);
@@ -976,7 +988,7 @@ static void ttf__subdivide_curve_into_edges(TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* 
         d.x -= mid2.x;
         d.y -= mid2.y;
 
-        TTF_F26Dot6 sqrdError = ttf__fix_mul(d.x, d.x, 6) + ttf__fix_mul(d.y, d.y, 6);
+        TTF_F26Dot6 sqrdError = TTF_FIX_MUL(d.x, d.x, 6) + TTF_FIX_MUL(d.y, d.y, 6);
         if (sqrdError <= TTF_SUBDIVIDE_SQRD_ERROR) {
             if (edges != NULL) {
                 ttf__edge_init(edges + *numEdges, p0, p2, dir);
@@ -1017,7 +1029,7 @@ static int ttf__compare_edges(const void* edge0, const void* edge1) {
 }
 
 static TTF_F26Dot6 ttf__get_edge_scanline_x_intersection(TTF_Edge* edge, TTF_F26Dot6 scanline) {
-    return ttf__fix_mul(scanline - edge->p0.y, edge->invSlope, 16) + edge->p0.x;
+    return TTF_FIX_MUL(scanline - edge->p0.y, edge->invSlope, 16) + edge->p0.x;
 }
 
 static TTF_bool ttf__active_edge_list_init(TTF_Active_Edge_List* list) {
@@ -1304,8 +1316,8 @@ static TTF_bool ttf__extract_glyph_points(TTF* font) {
 
     if (!font->hasHinting) {
         for (TTF_uint32 i = 0; i < font->glyph.numPoints; i++) {
-            points[i].x = ttf__fix_mul(points[i].x << 6, font->instance->scale, 22);
-            points[i].y = ttf__fix_mul(points[i].y << 6, font->instance->scale, 22);
+            points[i].x = TTF_FIX_MUL(points[i].x << 6, font->instance->scale, 22);
+            points[i].y = TTF_FIX_MUL(points[i].y << 6, font->instance->scale, 22);
         }
         return TTF_TRUE;
     }
@@ -1381,10 +1393,10 @@ static TTF_bool ttf__extract_glyph_points(TTF* font) {
     // Set the scaled points
     for (TTF_uint32 i = 0; i < font->glyph.zones[1].count; i++) {
         font->glyph.zones[1].orgScaled[i].x = 
-            ttf__fix_mul(points[i].x << 6, font->instance->scale, 22);
+            TTF_FIX_MUL(points[i].x << 6, font->instance->scale, 22);
 
         font->glyph.zones[1].orgScaled[i].y = 
-            ttf__fix_mul(points[i].y << 6, font->instance->scale, 22);
+            TTF_FIX_MUL(points[i].y << 6, font->instance->scale, 22);
     }
 
 
@@ -1939,7 +1951,7 @@ static void ttf__IP(TTF* font) {
         //
         // This ensures D(p,rp1)/D(p',rp1') = D(p,rp2)/D(p',rp2') holds true.
         TTF_F26Dot6 distNew = 
-            ttf__fix_div(ttf__fix_mul(distOrg, totalDistCur, 6), totalDistOrg, 6);
+            ttf__fix_div(TTF_FIX_MUL(distOrg, totalDistCur, 6), totalDistOrg, 6);
 
         ttf__move_point(font, pointIdx, distNew - distCur);
 
@@ -2075,7 +2087,7 @@ static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
     TTF_F26Dot6 distOrg = ttf__fix_v2_sub_dot(pointOrg, rp0Org, &font->gState.dualProjVec, 14);
 
     if (!isTwilightZone) {
-        distOrg = ttf__fix_mul(distOrg, font->instance->scale, 22);
+        distOrg = TTF_FIX_MUL(distOrg, font->instance->scale, 22);
     }
 
     distOrg = ttf__apply_single_width_cut_in(font, distOrg);
@@ -2132,8 +2144,8 @@ static void ttf__MIRP(TTF* font, TTF_uint8 ins) {
 
     if (font->gState.zp1 == &font->glyph.zones[0]) {
         // Madness
-        pointOrg->x  = rp0Org->x + ttf__fix_mul(cvtVal, font->gState.freedomVec.x, 14);
-        pointOrg->y  = rp0Org->y + ttf__fix_mul(cvtVal, font->gState.freedomVec.y, 14);
+        pointOrg->x  = rp0Org->x + TTF_FIX_MUL(cvtVal, font->gState.freedomVec.x, 14);
+        pointOrg->y  = rp0Org->y + TTF_FIX_MUL(cvtVal, font->gState.freedomVec.y, 14);
         *pointCur    = *pointOrg;
     }
 
@@ -2187,7 +2199,7 @@ static void ttf__MUL(TTF* font) {
     TTF_PRINT_INS();
     TTF_F26Dot6 n1 = ttf__stack_pop_F26Dot6(font);
     TTF_F26Dot6 n2 = ttf__stack_pop_F26Dot6(font);
-    ttf__stack_push_F26Dot6(font, ttf__fix_mul(n1, n2, 6));
+    ttf__stack_push_F26Dot6(font, TTF_FIX_MUL(n1, n2, 6));
 }
 
 static void ttf__NPUSHB(TTF* font, TTF_Ins_Stream* stream) {
@@ -2380,7 +2392,7 @@ static void ttf__WCVTF(TTF* font) {
     TTF_uint32 cvtIdx = ttf__stack_pop_uint32(font);
     assert(cvtIdx < font->cvt.size / sizeof(TTF_FWORD));
 
-    font->instance->cvt[cvtIdx] = ttf__fix_mul(funits << 6, font->instance->scale, 22);
+    font->instance->cvt[cvtIdx] = TTF_FIX_MUL(funits << 6, font->instance->scale, 22);
 }
 
 static void ttf__WCVTP(TTF* font) {
@@ -2508,8 +2520,8 @@ static TTF_F26Dot6 ttf__round(TTF* font, TTF_F26Dot6 val) {
 }
 
 static void ttf__move_point(TTF* font, TTF_uint32 idx, TTF_F26Dot6 amount) {
-    font->glyph.zones[1].cur[idx].x         += ttf__fix_mul(amount, font->gState.freedomVec.x, 14);
-    font->glyph.zones[1].cur[idx].y         += ttf__fix_mul(amount, font->gState.freedomVec.y, 14);
+    font->glyph.zones[1].cur[idx].x         += TTF_FIX_MUL(amount, font->gState.freedomVec.x, 14);
+    font->glyph.zones[1].cur[idx].y         += TTF_FIX_MUL(amount, font->gState.freedomVec.y, 14);
     font->glyph.zones[1].curTouchFlags[idx] |= font->gState.touchFlags;
 }
 
@@ -2541,7 +2553,7 @@ static void ttf__IUP_interpolate_or_shift(TTF_Zone* zone1, TTF_Touch_Flag touchF
         TTF_int32   orgDist      = zone1->org[i].coord      - zone1->org[touch0].coord;        \
                                                                                                \
         TTF_F10Dot22 scale     = ttf__rounded_div((TTF_int64)totalDistCur << 16, totalDistOrg);\
-        TTF_F26Dot6  newDist   = ttf__fix_mul(orgDist << 6, scale, 22);                        \
+        TTF_F26Dot6  newDist   = TTF_FIX_MUL(orgDist << 6, scale, 22);                         \
         zone1->cur[i].coord = zone1->cur[touch0].coord + newDist;                              \
                                                                                                \
         printf("\tInterp %3d: %5d\n", i, zone1->cur[i].coord);
@@ -2646,32 +2658,19 @@ static TTF_uint16 ttf__get_upem(TTF* font) {
     return ttf__get_uint16(font->data + font->head.off + 18);
 }
 
-
 /* ---------------------- */
 /* Fixed-point operations */
 /* ---------------------- */
 static TTF_int64 ttf__rounded_div(TTF_int64 a, TTF_int64 b) {
     // https://stackoverflow.com/a/18067292
-    return ((a < 0) ^ (b < 0) ? (a - b / 2) / b : (a + b / 2) / b);
-}
-
-static TTF_int32 ttf__rounded_div_pow2(TTF_int64 a, TTF_int64 shift) {
-    // The proof:
-    // round(x/y) = floor(x/y + 0.5) = floor((x + y/2)/y) = shift-of-n(x + 2^(n-1)) 
-    //
-    // https://en.wikipedia.org/wiki/Fixed-point_arithmetic
-    return (a + (1l << (shift - 1))) >> shift;
-}
-
-/* The result has a scale factor of 1 << (shift(a) + shift(b) - shift) */
-static TTF_int32 ttf__fix_mul(TTF_int32 a, TTF_int32 b, TTF_uint8 shift) {
-    return ttf__rounded_div_pow2((TTF_uint64)a * (TTF_uint64)b, shift);
+    return (a < 0) ^ (b < 0) ? (a - b / 2) / b : (a + b / 2) / b;
 }
 
 /* The result has a scale factor of 1 << (shift(a) - shift(b) + shift) */
 static TTF_int32 ttf__fix_div(TTF_int32 a, TTF_int32 b, TTF_uint8 shift) {
     TTF_int64 q = ttf__rounded_div((TTF_int64)a << 32, b);
-    return ttf__rounded_div_pow2(q, 32 - shift);
+    shift = 32 - shift;
+    return TTF_ROUNDED_DIV_POW2(q, shift);
 }
 
 /* a and b must have the same scale factor */
@@ -2687,8 +2686,8 @@ static void ttf__fix_v2_sub(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result) {
 }
 
 static void ttf__fix_v2_mul(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 shift) {
-    result->x = ttf__fix_mul(a->x, b->x, shift);
-    result->y = ttf__fix_mul(a->y, b->y, shift);
+    result->x = TTF_FIX_MUL(a->x, b->x, shift);
+    result->y = TTF_FIX_MUL(a->y, b->y, shift);
 }
 
 static void ttf__fix_v2_div(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TTF_uint8 shift) {
@@ -2697,7 +2696,7 @@ static void ttf__fix_v2_div(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result, TT
 }
 
 static TTF_int32 ttf__fix_v2_dot(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_uint8 shift) {
-    return ttf__fix_mul(a->x, b->x, shift) + ttf__fix_mul(a->y, b->y, shift);
+    return TTF_FIX_MUL(a->x, b->x, shift) + TTF_FIX_MUL(a->y, b->y, shift);
 }
 
 /* dot(a - b, c) */
@@ -2708,8 +2707,8 @@ static TTF_int32 ttf__fix_v2_sub_dot(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* c
 }
 
 static void ttf__fix_v2_scale(TTF_Fix_V2* v, TTF_int32 scale, TTF_uint8 shift) {
-    v->x = ttf__fix_mul(v->x, scale, shift);
-    v->y = ttf__fix_mul(v->y, scale, shift);
+    v->x = TTF_FIX_MUL(v->x, scale, shift);
+    v->y = TTF_FIX_MUL(v->y, scale, shift);
 }
 
 static TTF_F26Dot6 ttf__f26dot6_ceil(TTF_F26Dot6 val) {
