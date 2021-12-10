@@ -461,11 +461,11 @@ TTF_bool ttf_render_glyph(TTF* font, TTF_Image* image, TTF_uint32 cp) {
     return TTF_FALSE;
 }
 
-TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uint32 cp, TTF_uint32 x, TTF_uint32 FOOBAR) {
+TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uint32 cp, TTF_uint32 x, TTF_uint32 y) {
     assert(font->instance != NULL);
 
     // TODO: support other positions
-    assert(x == 0 && FOOBAR == 0); // TODO: change FOOBAR back to y
+    assert(x == 0 && y == 0);
 
     font->glyph.idx         = ttf__get_glyph_index(font, cp);
     font->glyph.glyfBlock   = ttf__get_glyf_data_block(font);
@@ -570,63 +570,52 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uin
             TTF_Active_Edge* activeEdge    = activeEdgeList.headEdge;
             TTF_int32        windingNumber = 0;
             TTF_F26Dot6      weightedAlpha = ttf__fix_mul(0x3FC0, TTF_PIXELS_PER_SCANLINE, 6);
-            
-            TTF_F26Dot6 x      = ttf__f26dot6_ceil(activeEdge->xIntersection);
-            TTF_uint32  rowOff = (yCur >> 6) * image->stride;
+            TTF_F26Dot6      x             = ttf__f26dot6_ceil(activeEdge->xIntersection);
+            TTF_uint32       rowOff        = (yCur >> 6) * image->stride;
 
             while (TTF_TRUE) {
-                TTF_F26Dot6 alpha;
-                if (windingNumber == 0) {
-                    // Coming into the shape
-                    alpha = ttf__fix_mul(weightedAlpha, x - activeEdge->xIntersection, 6);
-                }
-                else {
-                    // Going out of the shape
-                    alpha = ttf__fix_mul(weightedAlpha, activeEdge->xIntersection - (x - 0x40), 6);
-                }
+                TTF_F26Dot6 alpha = 
+                    windingNumber == 0 ?
+                    ttf__fix_mul(weightedAlpha, x - activeEdge->xIntersection, 6) :
+                    ttf__fix_mul(weightedAlpha, activeEdge->xIntersection - x + 0x40, 6);
 
-                assert(alpha <= weightedAlpha);
-                assert(alpha >= 0);
-                assert(image->pixels[(x >> 6) + rowOff] + (alpha >> 6) <= 255);
                 image->pixels[(x >> 6) + rowOff] += (alpha >> 6);
 
-            top:
+            set_next_active_edge:
                 if (activeEdge->next == NULL) {
                     break;
                 }
 
-                // progress the intersection
-                TTF_F26Dot6 xIntersection = activeEdge->xIntersection;
-                activeEdge = activeEdge->next;
+                TTF_bool repeat = 
+                    x >= activeEdge->next->xIntersection ||
+                    activeEdge->next->xIntersection == activeEdge->xIntersection;
+
                 windingNumber += activeEdge->edge->dir;
-                if (activeEdge->xIntersection == xIntersection) {
-                    goto top;
-                }
-                else if (x >= activeEdge->xIntersection) {
-                    goto top;
+                activeEdge     = activeEdge->next;
+
+                if (repeat) {
+                    goto set_next_active_edge;
                 }
 
-                // Figure out what to do when x is not less than the next inersection
+                x += 0x40;
+
                 if (x < activeEdge->xIntersection) {
-                    // if (windingNumber == 0) x = ttf__f26dot6_ceil(activeEdge->xIntersection);
-                    x += 0x40;
-                    while (x < activeEdge->xIntersection) {
-                        if (windingNumber != 0) {
-                            if (image->pixels[(x >> 6) + rowOff] + (weightedAlpha >> 6) > 255) {
-                                printf("%d\n", (x >> 6) + rowOff);
-                                assert(0);
-                            }
-                            image->pixels[(x >> 6) + rowOff] += (weightedAlpha >> 6);
-                        }
-                        // printf("%d\n", (x >> 6) + rowOff);
-                        x += 0x40;
+                    if (windingNumber == 0) {
+                        x = ttf__f26dot6_ceil(activeEdge->xIntersection);
+                    }
+                    else {
+                        alpha = weightedAlpha >> 6;
+
+                        do {
+                            image->pixels[(x >> 6) + rowOff] += alpha;
+                            x += 0x40;
+                        } while (x < activeEdge->xIntersection);
                     }
                 }
             }
         }
 
         yCur += TTF_PIXELS_PER_SCANLINE;
-        // printf("\n");
     }
 
 
