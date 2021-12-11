@@ -171,6 +171,8 @@ enum {
     TTF_MDAP_MAX  = 0x2F,
     TTF_MDRP      = 0xC0,
     TTF_MDRP_MAX  = 0xDF,
+    TTF_MIAP      = 0x3E,
+    TTF_MIAP_MAX  = 0x3F,
     TTF_MINDEX    = 0x26,
     TTF_MIRP      = 0xE0,
     TTF_MIRP_MAX  = 0xFF,
@@ -238,6 +240,7 @@ static void ttf__LOOPCALL(TTF* font);
 static void ttf__LT      (TTF* font);
 static void ttf__MDAP    (TTF* font, TTF_uint8 ins);
 static void ttf__MDRP    (TTF* font, TTF_uint8 ins);
+static void ttf__MIAP    (TTF* font, TTF_uint8 ins);
 static void ttf__MINDEX  (TTF* font);
 static void ttf__MIRP    (TTF* font, TTF_uint8 ins);
 static void ttf__MPPEM   (TTF* font);
@@ -268,7 +271,7 @@ static void        ttf__reset_graphics_state     (TTF* font);
 static void        ttf__call_func                (TTF* font, TTF_uint32 funcId, TTF_uint32 times);
 static TTF_uint8   ttf__jump_to_else_or_eif      (TTF_Ins_Stream* stream);
 static TTF_F26Dot6 ttf__round                    (TTF* font, TTF_F26Dot6 val);
-static void        ttf__move_point               (TTF* font, TTF_uint32 idx, TTF_F26Dot6 amount);
+static void        ttf__move_point               (TTF* font, TTF_Zone* zone, TTF_uint32 idx, TTF_F26Dot6 amount);
 static TTF_F26Dot6 ttf__apply_single_width_cut_in(TTF* font, TTF_F26Dot6 value);
 static TTF_F26Dot6 ttf__apply_min_dist           (TTF* font, TTF_F26Dot6 value);
 static void        ttf__IUP_interpolate_or_shift (TTF_Zone* zone1, TTF_Touch_Flag touchFlag, TTF_uint16 startPointIdx, TTF_uint16 endPointIdx, TTF_uint16 touch0, TTF_uint16 touch1);
@@ -1715,6 +1718,10 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         ttf__MDRP(font, ins);
         return;
     }
+    else if (ins >= TTF_MIAP && ins <= TTF_MIAP_MAX) {
+        ttf__MIAP(font, ins);
+        return;
+    }
     else if (ins >= TTF_MIRP && ins <= TTF_MIRP_MAX) {
         ttf__MIRP(font, ins);
         return;
@@ -1945,7 +1952,6 @@ static void ttf__IP(TTF* font) {
         TTF_uint32 pointIdx = ttf__stack_pop_uint32(font);
         assert(pointIdx < font->gState.zp2->count);
 
-        // This ain't set up for twilight
         TTF_F26Dot6_V2* pointCur = font->gState.zp2->cur + pointIdx;
         TTF_F26Dot6_V2* pointOrg = 
             (isTwilightZone ? font->gState.zp2->orgScaled : font->gState.zp2->org) + pointIdx;
@@ -1960,7 +1966,7 @@ static void ttf__IP(TTF* font) {
         TTF_F26Dot6 distNew = 
             ttf__fix_div(TTF_FIX_MUL(distOrg, totalDistCur, 6), totalDistOrg, 6);
 
-        ttf__move_point(font, pointIdx, distNew - distCur);
+        ttf__move_point(font, font->gState.zp2, pointIdx, distNew - distCur);
 
         printf("\t(%d, %d)\n", pointCur->x, pointCur->y);
     }
@@ -2049,7 +2055,7 @@ static void ttf__MDAP(TTF* font, TTF_uint8 ins) {
         // Move the point to its rounded position
         TTF_F26Dot6 curDist     = ttf__fix_v2_dot(point, &font->gState.projVec, 14);
         TTF_F26Dot6 roundedDist = ttf__round(font, curDist);
-        ttf__move_point(font, pointIdx, roundedDist - curDist);
+        ttf__move_point(font, font->gState.zp0, pointIdx, roundedDist - curDist);
     }
     else {
         // Don't move the point, just mark it as touched
@@ -2095,7 +2101,8 @@ static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
 
     if (!isTwilightZone) {
         // Remember, distOrg isn't a fixed-point value yet
-        distOrg = TTF_FIX_MUL(distOrg << 6, font->instance->scale, 22);
+        // distOrg = TTF_FIX_MUL(distOrg << 6, font->instance->scale, 22);
+        distOrg = ((TTF_int64)distOrg * font->instance->scale) >> 16;
     }
 
     distOrg = ttf__apply_single_width_cut_in(font, distOrg);
@@ -2112,9 +2119,39 @@ static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
         font->gState.rp0 = pointIdx;
     }
 
-    ttf__move_point(font, pointIdx, distOrg - distCur);
+    ttf__move_point(font, font->gState.zp1, pointIdx, distOrg - distCur);
 
     printf("\t(%d, %d)\n", pointCur->x, pointCur->y);
+}
+
+static void ttf__MIAP(TTF* font, TTF_uint8 ins) {
+    TTF_PRINT_INS();
+
+    TTF_uint32 cvtIdx   = ttf__stack_pop_uint32(font);
+    TTF_uint32 pointIdx = ttf__stack_pop_uint32(font);
+
+    assert(cvtIdx < font->cvt.size / sizeof(TTF_FWORD));
+    assert(pointIdx < font->gState.zp0->count);
+
+    if (font->gState.zp0 == font->glyph.zones) {
+        assert(0);
+    }
+
+    TTF_F26Dot6 curDist = 
+        ttf__fix_v2_dot(font->gState.zp0->cur + pointIdx, &font->gState.projVec, 14);
+
+    TTF_F26Dot6 newDist = font->instance->cvt[cvtIdx];
+    
+    if (ins & 0x1) {
+        if (labs(newDist - curDist) > font->gState.controlValueCutIn) {
+            newDist = curDist;
+        }
+        newDist = ttf__round(font, newDist);
+    }
+
+    ttf__move_point(font, font->gState.zp0, pointIdx, newDist - curDist);
+
+    printf("\t(%d, %d)\n", font->gState.zp0->cur[pointIdx].x, font->gState.zp0->cur[pointIdx].y);
 }
 
 static void ttf__MINDEX(TTF* font) {
@@ -2148,7 +2185,7 @@ static void ttf__MIRP(TTF* font, TTF_uint8 ins) {
     TTF_F26Dot6_V2* rp0Cur = font->gState.zp0->cur       + font->gState.rp0;
 
     TTF_F26Dot6_V2* pointOrg = font->gState.zp1->orgScaled + pointIdx;
-    TTF_F26Dot6_V2* pointCur = font->gState.zp1->cur + pointIdx;
+    TTF_F26Dot6_V2* pointCur = font->gState.zp1->cur       + pointIdx;
 
     if (font->gState.zp1 == &font->glyph.zones[0]) {
         // Madness
@@ -2185,7 +2222,7 @@ static void ttf__MIRP(TTF* font, TTF_uint8 ins) {
         distNew = ttf__apply_min_dist(font, distNew);
     }
 
-    ttf__move_point(font, pointIdx, distNew - distCur);
+    ttf__move_point(font, font->gState.zp1, pointIdx, distNew - distCur);
 
     font->gState.rp1 = font->gState.rp0;
     font->gState.rp2 = pointIdx;
@@ -2527,10 +2564,10 @@ static TTF_F26Dot6 ttf__round(TTF* font, TTF_F26Dot6 val) {
     return 0;
 }
 
-static void ttf__move_point(TTF* font, TTF_uint32 idx, TTF_F26Dot6 amount) {
-    font->glyph.zones[1].cur[idx].x         += TTF_FIX_MUL(amount, font->gState.freedomVec.x, 14);
-    font->glyph.zones[1].cur[idx].y         += TTF_FIX_MUL(amount, font->gState.freedomVec.y, 14);
-    font->glyph.zones[1].curTouchFlags[idx] |= font->gState.touchFlags;
+static void ttf__move_point(TTF* font, TTF_Zone* zone, TTF_uint32 idx, TTF_F26Dot6 amount) {
+    zone->cur[idx].x         += TTF_FIX_MUL(amount, font->gState.freedomVec.x, 14);
+    zone->cur[idx].y         += TTF_FIX_MUL(amount, font->gState.freedomVec.y, 14);
+    zone->curTouchFlags[idx] |= font->gState.touchFlags;
 }
 
 static TTF_F26Dot6 ttf__apply_single_width_cut_in(TTF* font, TTF_F26Dot6 value) {
