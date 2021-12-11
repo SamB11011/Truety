@@ -34,6 +34,7 @@ typedef struct {
     TTF_F26Dot6_V2 p1;
     TTF_F26Dot6    yMin;
     TTF_F26Dot6    yMax;
+    TTF_F26Dot6    xMin;
     TTF_F16Dot16   invSlope; /* TODO: Should this 26.6? */
     TTF_int8       dir;
 } TTF_Edge;
@@ -368,7 +369,7 @@ TTF_bool ttf_init(TTF* font, const char* path) {
         goto init_failure;
     }
 
-    font->hasHinting = TTF_FALSE; // TODO: remove
+    // font->hasHinting = TTF_FALSE; // TODO: remove
 
     if (font->hasHinting) {
         if (!ttf__alloc_mem_for_ins_processing(font)) {
@@ -550,8 +551,13 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uin
                 TTF_Active_Edge* prevActiveEdge = NULL;
                 
                 while (activeEdge != NULL) {
-                    if (xIntersection <= activeEdge->xIntersection) {
+                    if (xIntersection < activeEdge->xIntersection) {
                         break;
+                    }
+                    else if (xIntersection == activeEdge->xIntersection) {
+                        if (edges[edgeIdx].xMin < activeEdge->edge->xMin) {
+                            break;
+                        }
                     }
                     prevActiveEdge = activeEdge;
                     activeEdge     = activeEdge->next;
@@ -1009,6 +1015,7 @@ static void ttf__edge_init(TTF_Edge* edge, TTF_F26Dot6_V2* p0, TTF_F26Dot6_V2* p
     edge->p1       = *p1;
     edge->invSlope = ttf__get_inv_slope(p0, p1);
     edge->dir      = dir;
+    edge->xMin     = ttf__min(p0->x, p1->x);
     ttf__max_min(p0->y, p1->y, &edge->yMax, &edge->yMin);
 }
 
@@ -2087,7 +2094,8 @@ static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
     TTF_F26Dot6 distOrg = ttf__fix_v2_sub_dot(pointOrg, rp0Org, &font->gState.dualProjVec, 14);
 
     if (!isTwilightZone) {
-        distOrg = TTF_FIX_MUL(distOrg, font->instance->scale, 22);
+        // Remember, distOrg isn't a fixed-point value yet
+        distOrg = TTF_FIX_MUL(distOrg << 6, font->instance->scale, 22);
     }
 
     distOrg = ttf__apply_single_width_cut_in(font, distOrg);
