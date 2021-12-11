@@ -14,25 +14,26 @@ int main() {
     }
 
     TTF_Instance instance;
-    if (!ttf_instance_init(&font, &instance, 60)) {
+    if (!ttf_instance_init(&font, &instance, 15)) {
         fprintf(stderr, "Failed to create TTF_Instance.\n");
         return 1;
     }
 
-    ttf_set_current_instance(&font, &instance);
-
     TTF_Image image;
-    if (!ttf_image_init(&image, NULL, 100, 100, 100)) {
+    if (!ttf_image_init(&image, NULL, 100, 100)) {
         fprintf(stderr, "Failed to create TTF_Image.\n");
         return 1;
     }
 
-    if (!ttf_render_glyph_to_existing_image(&font, &image, 'A', 0, 0)) {
+    TTF_Glyph glyph;
+    ttf_glyph_init(&font, &glyph, ttf_get_glyph_index(&font, 'g'));
+
+    if (!ttf_render_glyph_to_existing_image(&font, &instance, &image, &glyph, 0, 0)) {
         fprintf(stderr, "Failed to render glyph.\n");
         return 1;
     }
 
-    // stbi_write_png("./output.png", image.w, image.h, 1, image.pixels, image.stride);
+    stbi_write_png("./resources/output.png", image.w, image.h, 1, image.pixels, image.stride);
 
     ttf_free_image(&image);
     ttf_free_instance(&font, &instance);

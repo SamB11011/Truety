@@ -117,23 +117,10 @@ typedef struct {
     TTF_uint8*      mem;
     TTF_V2*         points;
     TTF_Point_Type* pointTypes;
-} TTF_Unhinted_Points;
-
-typedef struct {
-    union {
-        TTF_Zone            zones[2];
-        TTF_Unhinted_Points unhinted;
-    };
-
-    TTF_uint32 idx;
-    TTF_uint16 numContours;
-    TTF_uint32 numPoints;
-    TTF_uint8* glyfBlock;
-} TTF_Current_Glyph;
+} TTF_Unhinted;
 
 typedef struct {
     TTF_F26Dot6* cvt;
-    TTF_bool     cvtIsOutdated;
     TTF_bool     isRotated;
     TTF_bool     isStretched;
     TTF_uint32   ppem;
@@ -148,6 +135,29 @@ typedef struct {
     TTF_uint16 h;
     TTF_uint16 stride;
 } TTF_Image;
+
+typedef struct {
+    TTF_uint32 idx;
+    TTF_uint16 xAdvance;
+    TTF_int16  leftSideBearing;
+    TTF_int32  yAdvance;
+    TTF_int32  topSideBearing;
+    TTF_V2     bitmapPos;
+    TTF_V2     offset;
+} TTF_Glyph;
+
+typedef struct {
+    union {
+        TTF_Zone     zones[2];
+        TTF_Unhinted unhinted;
+    };
+
+    TTF_Instance* instance;
+    TTF_Glyph*    glyph;
+    TTF_uint16    numContours;
+    TTF_uint32    numPoints;
+    TTF_uint8*    glyfBlock;
+} TTF_Current;
 
 typedef struct {
     TTF_uint8*         data;
@@ -170,21 +180,20 @@ typedef struct {
     TTF_Stack          stack;
     TTF_Func_Array     funcArray;
     TTF_Graphics_State gState;
-    TTF_Current_Glyph  glyph;
-    TTF_Instance*      instance;
+    TTF_Current        cur;
 } TTF;
 
 TTF_bool ttf_init         (TTF* font, const char* path);
 TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem);
-TTF_bool ttf_image_init   (TTF_Image* image, TTF_uint8* pixels, TTF_uint32 w, TTF_uint32 h, TTF_uint32 stride);
+TTF_bool ttf_image_init   (TTF_Image* image, TTF_uint8* pixels, TTF_uint32 w, TTF_uint32 h);
+void     ttf_glyph_init   (TTF* font, TTF_Glyph* glyph, TTF_uint32 glyphIdx);
 
 void ttf_free         (TTF* font);
 void ttf_free_instance(TTF* font, TTF_Instance* instance);
 void ttf_free_image   (TTF_Image* image);
 
-void ttf_set_current_instance(TTF* font, TTF_Instance* instance);
-
-TTF_bool ttf_render_glyph                  (TTF* font, TTF_Image* image, TTF_uint32 cp);
-TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uint32 cp, TTF_uint32 x, TTF_uint32 y);
+TTF_uint32 ttf_get_glyph_index               (TTF* font, TTF_uint32 cp);
+TTF_bool   ttf_render_glyph                  (TTF* font, TTF_Image* image, TTF_uint32 cp);
+TTF_bool   ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, TTF_Image* image, TTF_Glyph* glyph, TTF_uint32 x, TTF_uint32 y);
 
 #endif

@@ -14,6 +14,8 @@ static TTF_bool ttf__extract_info_from_table_directory(TTF* font);
 static TTF_bool ttf__extract_char_encoding            (TTF* font);
 static TTF_bool ttf__format_is_supported              (TTF_uint16 format);
 static TTF_bool ttf__alloc_mem_for_ins_processing     (TTF* font);
+static void     ttf__get_glyph_hmetrics               (TTF* font, TTF_uint32 glyphIdx, TTF_uint16* aw, TTF_int16* lsb);
+static void     ttf__get_glyph_vmetrics               (TTF* font, TTF_uint32 glyphIdx, TTF_int32* ah, TTF_int32* tsb);
 
 
 /* -------------------- */
@@ -78,7 +80,6 @@ static void             ttf__remove_active_edge       (TTF_Active_Edge_List* lis
 /* ------------------- */
 /* Glyph Index Mapping */
 /* ------------------- */
-static TTF_uint32 ttf__get_glyph_index         (TTF* font, TTF_uint32 cp);
 static TTF_uint16 ttf__get_glyph_index_format_4(TTF_uint8* subtable, TTF_uint32 cp);
 
 
@@ -96,7 +97,7 @@ enum {
     TTF_GLYF_RESERVED       = 0x80,
 };
 
-static TTF_uint8* ttf__get_glyf_data_block   (TTF* font);
+static TTF_uint8* ttf__get_glyf_data_block   (TTF* font, TTF_uint32 glyphIdx);
 static TTF_int16  ttf__get_num_glyph_contours(TTF* font);
 static TTF_int32  ttf__get_num_glyph_points  (TTF* font);
 static TTF_bool   ttf__extract_glyph_points  (TTF* font);
@@ -379,7 +380,6 @@ TTF_bool ttf_init(TTF* font, const char* path) {
             goto init_failure;
         }
 
-        ttf__reset_graphics_state(font);
         ttf__execute_font_program(font);
     }
 
@@ -394,9 +394,8 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
     // Scale is 10.22 since upem already has a scale factor of 1
     instance->scale         = ttf__rounded_div((TTF_int64)ppem << 22, ttf__get_upem(font));
     instance->ppem          = ppem;
-    instance->isRotated       = TTF_FALSE;
-    instance->isStretched     = TTF_FALSE;
-    instance->cvtIsOutdated = TTF_TRUE;
+    instance->isRotated     = TTF_FALSE;
+    instance->isStretched   = TTF_FALSE;
 
     if (font->hasHinting) {
         size_t cvtSize = font->cvt.size / sizeof(TTF_FWORD) * sizeof(TTF_F26Dot6);
@@ -415,6 +414,9 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
             TTF_int32 funits = ttf__get_int16(cvt + off);
             instance->cvt[idx++] = TTF_FIX_MUL(funits << 6, instance->scale, 22);
         }
+
+        font->cur.instance = instance;
+        ttf__execute_cv_program(font);
     }
     else {
         instance->cvt = NULL;
@@ -423,9 +425,9 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
     return TTF_TRUE;
 }
 
-TTF_bool ttf_image_init(TTF_Image* image, TTF_uint8* pixels, TTF_uint32 w, TTF_uint32 h, TTF_uint32 stride) {
+TTF_bool ttf_image_init(TTF_Image* image, TTF_uint8* pixels, TTF_uint32 w, TTF_uint32 h) {
     if (pixels == NULL) {
-        pixels = calloc(stride * h, 1);
+        pixels = calloc(w * h, 1);
         if (pixels == NULL) {
             return TTF_FALSE;
         }
@@ -434,8 +436,17 @@ TTF_bool ttf_image_init(TTF_Image* image, TTF_uint8* pixels, TTF_uint32 w, TTF_u
     image->pixels = pixels;
     image->w      = w;
     image->h      = h;
-    image->stride = stride;
     return TTF_TRUE;
+}
+
+void ttf_glyph_init(TTF* font, TTF_Glyph* glyph, TTF_uint32 glyphIdx) {
+    glyph->idx         = glyphIdx;
+    glyph->bitmapPos.x = 0;
+    glyph->bitmapPos.y = 0;
+    glyph->offset.x    = 0;
+    glyph->offset.y    = 0;
+    ttf__get_glyph_hmetrics(font, glyphIdx, &glyph->xAdvance, &glyph->leftSideBearing);
+    ttf__get_glyph_vmetrics(font, glyphIdx, &glyph->yAdvance, &glyph->topSideBearing);
 }
 
 void ttf_free(TTF* font) {
@@ -447,9 +458,6 @@ void ttf_free(TTF* font) {
 
 void ttf_free_instance(TTF* font, TTF_Instance* instance) {
     if (instance) {
-        if (font->instance == instance) {
-            font->instance = NULL;
-        }
         free(instance->cvt);
     }
 }
@@ -460,15 +468,34 @@ void ttf_free_image(TTF_Image* image) {
     }
 }
 
-void ttf_set_current_instance(TTF* font, TTF_Instance* instance) {
-    font->instance = instance;
+TTF_uint32 ttf_get_glyph_index(TTF* font, TTF_uint32 cp) {
+    TTF_uint8* subtable = font->data + font->cmap.off + font->encoding.off;
 
-    if (font->hasHinting) {
-        if (instance->cvtIsOutdated) {
-            ttf__execute_cv_program(font);
-            font->instance->cvtIsOutdated = TTF_FALSE;
-        }
+    switch (ttf__get_uint16(subtable)) {
+        case 4:
+            return ttf__get_glyph_index_format_4(subtable, cp);
+        case 6:
+            // TODO
+            return 0;
+        case 8:
+            // TODO
+            return 0;
+        case 10:
+            // TODO
+            return 0;
+        case 12:
+            // TODO
+            return 0;
+        case 13:
+            // TODO
+            return 0;
+        case 14:
+            // TODO
+            return 0;
     }
+
+    assert(0);
+    return 0;
 }
 
 TTF_bool ttf_render_glyph(TTF* font, TTF_Image* image, TTF_uint32 cp) {
@@ -477,16 +504,15 @@ TTF_bool ttf_render_glyph(TTF* font, TTF_Image* image, TTF_uint32 cp) {
     return TTF_FALSE;
 }
 
-TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uint32 cp, TTF_uint32 x, TTF_uint32 y) {
-    assert(font->instance != NULL);
-
+TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, TTF_Image* image, TTF_Glyph* glyph, TTF_uint32 x, TTF_uint32 y) {
     // TODO: support other positions
     assert(x == 0 && y == 0);
 
-    font->glyph.idx         = ttf__get_glyph_index(font, cp);
-    font->glyph.glyfBlock   = ttf__get_glyf_data_block(font);
-    font->glyph.numContours = ttf__get_num_glyph_contours(font);
-    font->glyph.numPoints   = ttf__get_num_glyph_points(font);
+    font->cur.instance    = instance;
+    font->cur.glyph       = glyph;
+    font->cur.glyfBlock   = ttf__get_glyf_data_block(font, glyph->idx);
+    font->cur.numContours = ttf__get_num_glyph_contours(font);
+    font->cur.numPoints   = ttf__get_num_glyph_points(font);
 
 
     TTF_uint32 numEdges;
@@ -504,7 +530,6 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uin
         free(edges);
         return TTF_FALSE;
     }
-
 
     TTF_F26Dot6 yCur    = edges->yMin;
     TTF_F26Dot6 yEnd    = ttf__min(edges[numEdges - 1].yMax, image->h << 6);
@@ -592,7 +617,7 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Image* image, TTF_uin
             TTF_int32        windingNumber = 0;
             TTF_F26Dot6      weightedAlpha = TTF_FIX_MUL(0x3FC0, TTF_PIXELS_PER_SCANLINE, 6);
             TTF_F26Dot6      x             = ttf__f26dot6_ceil(activeEdge->xIntersection);
-            TTF_uint32       rowOff        = (yCur >> 6) * image->stride;
+            TTF_uint32       rowOff        = (yCur >> 6) * image->w;
 
             while (TTF_TRUE) {
                 TTF_F26Dot6 alpha = 
@@ -803,6 +828,91 @@ static TTF_bool ttf__alloc_mem_for_ins_processing(TTF* font) {
     return TTF_TRUE;
 }
 
+static void ttf__get_glyph_hmetrics(TTF* font, TTF_uint32 glyphIdx, TTF_uint16* aw, TTF_int16* lsb) {
+    TTF_uint8* hmtxData    = font->data + font->hmtx.off;
+    TTF_uint16 numHMetrics = ttf__get_uint16(font->data + font->hhea.off + 48);
+
+    if (glyphIdx < numHMetrics) {
+        TTF_uint8* hMetricData = hmtxData + 4 * glyphIdx;
+        *aw  = ttf__get_uint16(hMetricData);
+        *lsb = ttf__get_int16(hMetricData + 2);
+    }
+    else {
+        *aw  = 0;
+        *lsb = ttf__get_int16(hmtxData + 4 * numHMetrics + 2 * (numHMetrics - glyphIdx));
+    }
+}
+
+static void ttf__get_glyph_vmetrics(TTF* font, TTF_uint32 glyphIdx, TTF_int32* ah, TTF_int32* tsb) {
+    if (font->vmtx.exists) {
+        // TODO: Get vertical phantom points from vmtx
+        assert(0);
+    }
+    else  {
+        TTF_uint8* glyfBlock = ttf__get_glyf_data_block(font, glyphIdx);
+        TTF_int16  yMax      = ttf__get_int16(glyfBlock + 8);
+        
+        TTF_int16 defaultAscender, defaultDescender;
+
+        if (font->OS2.exists) {
+            defaultAscender  = ttf__get_int16(font->data + font->OS2.off + 68);
+            defaultDescender = ttf__get_int16(font->data + font->OS2.off + 70);
+        }
+        else {
+            // TODO: Get defaultAscender and defaultDescender from hhea
+            assert(0);
+        }
+
+        *ah  = defaultAscender - defaultDescender;
+        *tsb = defaultAscender - yMax;
+    }
+}
+
+
+/* ------------------- */
+/* Glyph Index Mapping */
+/* ------------------- */
+static TTF_uint16 ttf__get_glyph_index_format_4(TTF_uint8* subtable, TTF_uint32 cp) {
+    #define TTF_GET_END_CODE(index) ttf__get_uint16(subtable + 14 + 2 * (index))
+    
+    TTF_uint16 segCount = ttf__get_uint16(subtable + 6) >> 1;
+    TTF_uint16 left     = 0;
+    TTF_uint16 right    = segCount - 1;
+
+    while (left <= right) {
+        TTF_uint16 mid     = (left + right) / 2;
+        TTF_uint16 endCode = TTF_GET_END_CODE(mid);
+
+        if (endCode >= cp) {
+            if (mid == 0 || TTF_GET_END_CODE(mid - 1) < cp) {
+                TTF_uint32 off            = 16 + 2 * mid;
+                TTF_uint8* idRangeOffsets = subtable + 6 * segCount + off;
+                TTF_uint16 idRangeOffset  = ttf__get_uint16(idRangeOffsets);
+                TTF_uint16 startCode      = ttf__get_uint16(subtable + 2 * segCount + off);
+
+                if (startCode > cp) {
+                    return 0;
+                }
+                
+                if (idRangeOffset == 0) {
+                    TTF_uint16 idDelta = ttf__get_int16(subtable + 4 * segCount + off);
+                    return cp + idDelta;
+                }
+
+                return ttf__get_uint16(idRangeOffset + 2 * (cp - startCode) + idRangeOffsets);
+            }
+            right = mid - 1;
+        }
+        else {
+            left = mid + 1;
+        }
+    }
+
+    return 0;
+
+    #undef TTF_GET_END_CODE
+}
+
 
 /* -------------------- */
 /* Rendering Operations */
@@ -815,7 +925,7 @@ static void ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* point
     TTF_F26Dot6 yMin = points[0].y;
     TTF_F26Dot6 yMax = points[0].y;
 
-    for (TTF_uint32 i = 1; i < font->glyph.numPoints; i++) {
+    for (TTF_uint32 i = 1; i < font->cur.numPoints; i++) {
         if (points[i].x < xMin) {
             xMin = points[i].x;
         }
@@ -829,7 +939,7 @@ static void ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* point
 
     TTF_F26Dot6 height = labs(yMin) + labs(yMax);
 
-    for (TTF_uint32 i = 0; i < font->glyph.numPoints; i++) {
+    for (TTF_uint32 i = 0; i < font->cur.numPoints; i++) {
         points[i].x -= xMin;
         points[i].y  = height - (points[i].y - yMin);
     }
@@ -844,15 +954,15 @@ static TTF_Edge* ttf__get_glyph_edges(TTF* font, TTF_uint32* numEdges) {
         if (!ttf__execute_glyph_program(font)) {
             return NULL;
         }
-        points     = font->glyph.zones[1].cur;
-        pointTypes = font->glyph.zones[1].pointTypes;
+        points     = font->cur.zones[1].cur;
+        pointTypes = font->cur.zones[1].pointTypes;
     }
     else {
         if (!ttf__extract_glyph_points(font)) {
             return NULL;
         }
-        points     = font->glyph.unhinted.points;
-        pointTypes = font->glyph.unhinted.pointTypes;
+        points     = font->cur.unhinted.points;
+        pointTypes = font->cur.unhinted.pointTypes;
     }
 
     ttf__convert_points_to_bitmap_space(font, points);
@@ -863,10 +973,10 @@ static TTF_Edge* ttf__get_glyph_edges(TTF* font, TTF_uint32* numEdges) {
     TTF_Curve* curves = ttf__convert_points_into_curves(font, points, pointTypes, &numCurves);
 
     if (font->hasHinting) {
-        ttf__zone_free(font->glyph.zones + 1);
+        ttf__zone_free(font->cur.zones + 1);
     }
     else {
-        free(font->glyph.unhinted.mem);
+        free(font->cur.unhinted.mem);
     }
 
     if (curves == NULL) {
@@ -891,7 +1001,7 @@ static TTF_Edge* ttf__get_glyph_edges(TTF* font, TTF_uint32* numEdges) {
 }
 
 static TTF_Curve* ttf__convert_points_into_curves(TTF* font, TTF_F26Dot6_V2* points, TTF_Point_Type* pointTypes, TTF_uint32* numCurves) {
-    TTF_Curve* curves = malloc(font->glyph.numPoints * sizeof(TTF_Curve));
+    TTF_Curve* curves = malloc(font->cur.numPoints * sizeof(TTF_Curve));
     if (curves == NULL) {
         return NULL;
     }
@@ -899,8 +1009,8 @@ static TTF_Curve* ttf__convert_points_into_curves(TTF* font, TTF_F26Dot6_V2* poi
     TTF_uint32 startPointIdx = 0;
     *numCurves = 0;
 
-    for (TTF_uint32 i = 0; i < font->glyph.numContours; i++) {
-        TTF_uint16 endPointIdx   = ttf__get_uint16(font->glyph.glyfBlock + 10 + 2 * i);
+    for (TTF_uint32 i = 0; i < font->cur.numContours; i++) {
+        TTF_uint16 endPointIdx   = ttf__get_uint16(font->cur.glyfBlock + 10 + 2 * i);
         TTF_bool   addFinalCurve = TTF_TRUE;
 
         TTF_F26Dot6_V2* startPoint = points + startPointIdx;
@@ -1120,101 +1230,26 @@ static void ttf__remove_active_edge(TTF_Active_Edge_List* list, TTF_Active_Edge*
 }
 
 
-/* ------------------- */
-/* Glyph Index Mapping */
-/* ------------------- */
-static TTF_uint32 ttf__get_glyph_index(TTF* font, TTF_uint32 cp) {
-    TTF_uint8* subtable = font->data + font->cmap.off + font->encoding.off;
-
-    switch (ttf__get_uint16(subtable)) {
-        case 4:
-            return ttf__get_glyph_index_format_4(subtable, cp);
-        case 6:
-            // TODO
-            return 0;
-        case 8:
-            // TODO
-            return 0;
-        case 10:
-            // TODO
-            return 0;
-        case 12:
-            // TODO
-            return 0;
-        case 13:
-            // TODO
-            return 0;
-        case 14:
-            // TODO
-            return 0;
-    }
-
-    assert(0);
-    return 0;
-}
-
-static TTF_uint16 ttf__get_glyph_index_format_4(TTF_uint8* subtable, TTF_uint32 cp) {
-    #define TTF_GET_END_CODE(index) ttf__get_uint16(subtable + 14 + 2 * (index))
-    
-    TTF_uint16 segCount = ttf__get_uint16(subtable + 6) >> 1;
-    TTF_uint16 left     = 0;
-    TTF_uint16 right    = segCount - 1;
-
-    while (left <= right) {
-        TTF_uint16 mid     = (left + right) / 2;
-        TTF_uint16 endCode = TTF_GET_END_CODE(mid);
-
-        if (endCode >= cp) {
-            if (mid == 0 || TTF_GET_END_CODE(mid - 1) < cp) {
-                TTF_uint32 off            = 16 + 2 * mid;
-                TTF_uint8* idRangeOffsets = subtable + 6 * segCount + off;
-                TTF_uint16 idRangeOffset  = ttf__get_uint16(idRangeOffsets);
-                TTF_uint16 startCode      = ttf__get_uint16(subtable + 2 * segCount + off);
-
-                if (startCode > cp) {
-                    return 0;
-                }
-                
-                if (idRangeOffset == 0) {
-                    TTF_uint16 idDelta = ttf__get_int16(subtable + 4 * segCount + off);
-                    return cp + idDelta;
-                }
-
-                return ttf__get_uint16(idRangeOffset + 2 * (cp - startCode) + idRangeOffsets);
-            }
-            right = mid - 1;
-        }
-        else {
-            left = mid + 1;
-        }
-    }
-
-    return 0;
-
-    #undef TTF_GET_END_CODE
-}
-
-
 /* --------------------- */
 /* glyf Table Operations */
 /* --------------------- */
-static TTF_uint8* ttf__get_glyf_data_block(TTF* font) {
+static TTF_uint8* ttf__get_glyf_data_block(TTF* font, TTF_uint32 glyphIdx) {
     TTF_int16 version = ttf__get_int16(font->data + font->head.off + 50);
-        
+    
     TTF_Offset32 blockOff  = 
         version == 0 ? 
-        ttf__get_Offset16(font->data + font->loca.off + (2 * font->glyph.idx)) * 2 :
-        ttf__get_Offset32(font->data + font->loca.off + (4 * font->glyph.idx));
+        ttf__get_Offset16(font->data + font->loca.off + (2 * glyphIdx)) * 2 :
+        ttf__get_Offset32(font->data + font->loca.off + (4 * glyphIdx));
     
     return font->data + font->glyf.off + blockOff;
 }
 
 static TTF_int16 ttf__get_num_glyph_contours(TTF* font) {
-    return ttf__get_int16(font->glyph.glyfBlock);
+    return ttf__get_int16(font->cur.glyfBlock);
 }
 
 static TTF_int32 ttf__get_num_glyph_points(TTF* font) {
-    return 1 + ttf__get_uint16(font->glyph.glyfBlock + 8 + 2 * font->glyph.numContours);
+    return 1 + ttf__get_uint16(font->cur.glyfBlock + 8 + 2 * font->cur.numContours);
 }
 
 static TTF_bool ttf__extract_glyph_points(TTF* font) {
@@ -1224,27 +1259,27 @@ static TTF_bool ttf__extract_glyph_points(TTF* font) {
 
     if (font->hasHinting) {
         // Add 4 to the number of points because there are 4 "phantom points"
-        if (!ttf__zone_init(font->glyph.zones + 1, font->glyph.numPoints + 4)) {
+        if (!ttf__zone_init(font->cur.zones + 1, font->cur.numPoints + 4)) {
             return TTF_FALSE;
         }
         
-        points     = font->glyph.zones[1].org;
-        pointTypes = font->glyph.zones[1].pointTypes;
+        points     = font->cur.zones[1].org;
+        pointTypes = font->cur.zones[1].pointTypes;
     }
     else {
-        size_t pointsSize     = sizeof(TTF_F26Dot6_V2) * font->glyph.numPoints;
-        size_t pointTypesSize = sizeof(TTF_Point_Type) * font->glyph.numPoints;
+        size_t pointsSize     = sizeof(TTF_F26Dot6_V2) * font->cur.numPoints;
+        size_t pointTypesSize = sizeof(TTF_Point_Type) * font->cur.numPoints;
 
-        font->glyph.unhinted.mem = malloc(pointsSize + pointTypesSize);
-        if (font->glyph.unhinted.mem == NULL) {
+        font->cur.unhinted.mem = malloc(pointsSize + pointTypesSize);
+        if (font->cur.unhinted.mem == NULL) {
             return TTF_FALSE;
         }
 
-        font->glyph.unhinted.points     = (TTF_F26Dot6_V2*)(font->glyph.unhinted.mem);
-        font->glyph.unhinted.pointTypes = (TTF_Point_Type*)(font->glyph.unhinted.mem + pointsSize);
+        font->cur.unhinted.points     = (TTF_F26Dot6_V2*)(font->cur.unhinted.mem);
+        font->cur.unhinted.pointTypes = (TTF_Point_Type*)(font->cur.unhinted.mem + pointsSize);
 
-        points     = font->glyph.unhinted.points;
-        pointTypes = font->glyph.unhinted.pointTypes;
+        points     = font->cur.unhinted.points;
+        pointTypes = font->cur.unhinted.pointTypes;
     }
 
 
@@ -1256,10 +1291,10 @@ static TTF_bool ttf__extract_glyph_points(TTF* font) {
 
         TTF_uint8* flagData, *xData, *yData;
 
-        flagData  = font->glyph.glyfBlock + (10 + 2 * font->glyph.numContours);
+        flagData  = font->cur.glyfBlock + (10 + 2 * font->cur.numContours);
         flagData += 2 + ttf__get_uint16(flagData);
         
-        for (TTF_uint32 i = 0; i < font->glyph.numPoints;) {
+        for (TTF_uint32 i = 0; i < font->cur.numPoints;) {
             TTF_uint8 flags = flagData[flagsSize];
             
             TTF_uint8 xSize = 
@@ -1286,7 +1321,7 @@ static TTF_bool ttf__extract_glyph_points(TTF* font) {
         xData = flagData + flagsSize;
         yData = xData    + xDataSize;
 
-        while (pointIdx < font->glyph.numPoints) {
+        while (pointIdx < font->cur.numPoints) {
             TTF_uint8 flags = *flagData;
 
             TTF_uint8 flagsReps;
@@ -1325,9 +1360,9 @@ static TTF_bool ttf__extract_glyph_points(TTF* font) {
 
 
     if (!font->hasHinting) {
-        for (TTF_uint32 i = 0; i < font->glyph.numPoints; i++) {
-            points[i].x = TTF_FIX_MUL(points[i].x << 6, font->instance->scale, 22);
-            points[i].y = TTF_FIX_MUL(points[i].y << 6, font->instance->scale, 22);
+        for (TTF_uint32 i = 0; i < font->cur.numPoints; i++) {
+            points[i].x = TTF_FIX_MUL(points[i].x << 6, font->cur.instance->scale, 22);
+            points[i].y = TTF_FIX_MUL(points[i].y << 6, font->cur.instance->scale, 22);
         }
         return TTF_TRUE;
     }
@@ -1335,98 +1370,56 @@ static TTF_bool ttf__extract_glyph_points(TTF* font) {
 
     // Get the phantom points
     {
-        TTF_int16  xMin        = ttf__get_int16(font->glyph.glyfBlock + 2);
-        TTF_int16  yMax        = ttf__get_int16(font->glyph.glyfBlock + 8);
-        TTF_uint16 numHMetrics = ttf__get_uint16(font->data + font->hhea.off + 48);
+        TTF_int16  xMin = ttf__get_int16(font->cur.glyfBlock + 2);
+        TTF_int16  yMax = ttf__get_int16(font->cur.glyfBlock + 8);
 
-        TTF_uint16 advanceWidth;
-        TTF_int32  advanceHeight; 
-        TTF_int16  leftSideBearing;
-        TTF_int32  topSideBearing;
-
-        if (font->glyph.idx < numHMetrics) {
-            TTF_uint8* hMetricData = font->data + font->hmtx.off + 4 * font->glyph.idx;
-            advanceWidth    = ttf__get_uint16(hMetricData);
-            leftSideBearing = ttf__get_int16(hMetricData + 2);
-        }
-        else {
-            // TODO: Test this
-            assert(0);
-
-            TTF_uint32 off         = 4 * numHMetrics + 2 * (numHMetrics - font->glyph.idx);
-            TTF_uint8* hMetricData = font->data + font->hmtx.off + off;
-
-            advanceWidth    = 0;
-            leftSideBearing = ttf__get_int16(hMetricData);
-        }
-
-        if (font->vmtx.exists) {
-            // TODO: Get vertical phantom points from vmtx
-            assert(0);
-        }
-        else  {
-            TTF_int16 defaultAscender, defaultDescender;
-
-            if (font->OS2.exists) {
-                defaultAscender  = ttf__get_int16(font->data + font->OS2.off + 68);
-                defaultDescender = ttf__get_int16(font->data + font->OS2.off + 70);
-            }
-            else {
-                // TODO: Get defaultAscender and defaultDescender from hhea
-                assert(0);
-            }
-
-            advanceHeight  = defaultAscender - defaultDescender;
-            topSideBearing = defaultAscender - yMax;
-        }
-
-        points[pointIdx].x = xMin - leftSideBearing;
+        points[pointIdx].x = xMin - font->cur.glyph->leftSideBearing;
         points[pointIdx].y = 0;
 
         pointIdx++;
-        points[pointIdx].x = points[pointIdx - 1].x + advanceWidth;
+        points[pointIdx].x = points[pointIdx - 1].x + font->cur.glyph->xAdvance;
         points[pointIdx].y = 0;
 
         pointIdx++;
-        points[pointIdx].y = yMax + topSideBearing;
+        points[pointIdx].y = yMax + font->cur.glyph->topSideBearing;
         points[pointIdx].x = 0;
 
         pointIdx++;
-        points[pointIdx].y = points[pointIdx - 1].y - advanceHeight;
+        points[pointIdx].y = points[pointIdx - 1].y - font->cur.glyph->yAdvance;
         points[pointIdx].x = 0;
 
-        font->glyph.zones[1].count = pointIdx + 1;
-        assert(font->glyph.zones[1].count == font->glyph.zones[1].cap);
+        font->cur.zones[1].count = pointIdx + 1;
+        assert(font->cur.zones[1].count == font->cur.zones[1].cap);
     }
 
 
     // Set the scaled points
-    for (TTF_uint32 i = 0; i < font->glyph.zones[1].count; i++) {
-        font->glyph.zones[1].orgScaled[i].x = 
-            TTF_FIX_MUL(points[i].x << 6, font->instance->scale, 22);
+    for (TTF_uint32 i = 0; i < font->cur.zones[1].count; i++) {
+        font->cur.zones[1].orgScaled[i].x = 
+            TTF_FIX_MUL(points[i].x << 6, font->cur.instance->scale, 22);
 
-        font->glyph.zones[1].orgScaled[i].y = 
-            TTF_FIX_MUL(points[i].y << 6, font->instance->scale, 22);
+        font->cur.zones[1].orgScaled[i].y = 
+            TTF_FIX_MUL(points[i].y << 6, font->cur.instance->scale, 22);
     }
 
 
     // Set the current points, phantom points are rounded
-    for (TTF_uint32 i = 0; i < font->glyph.zones[1].count; i++) {
-        font->glyph.zones[1].cur[i]           = font->glyph.zones[1].orgScaled[i];
-        font->glyph.zones[1].curTouchFlags[i] = TTF_UNTOUCHED;
+    for (TTF_uint32 i = 0; i < font->cur.zones[1].count; i++) {
+        font->cur.zones[1].cur[i]           = font->cur.zones[1].orgScaled[i];
+        font->cur.zones[1].curTouchFlags[i] = TTF_UNTOUCHED;
     }
 
-    font->glyph.zones[1].cur[font->glyph.numPoints].x =
-        ttf__round(font, font->glyph.zones[1].cur[font->glyph.numPoints].x);
+    font->cur.zones[1].cur[font->cur.numPoints].x =
+        ttf__round(font, font->cur.zones[1].cur[font->cur.numPoints].x);
 
-    font->glyph.zones[1].cur[font->glyph.numPoints + 1].x = 
-        ttf__round(font, font->glyph.zones[1].cur[font->glyph.numPoints + 1].x);
+    font->cur.zones[1].cur[font->cur.numPoints + 1].x = 
+        ttf__round(font, font->cur.zones[1].cur[font->cur.numPoints + 1].x);
 
-    font->glyph.zones[1].cur[font->glyph.numPoints + 2].y = 
-        ttf__round(font, font->glyph.zones[1].cur[font->glyph.numPoints + 2].y);
+    font->cur.zones[1].cur[font->cur.numPoints + 2].y = 
+        ttf__round(font, font->cur.zones[1].cur[font->cur.numPoints + 2].y);
 
-    font->glyph.zones[1].cur[font->glyph.numPoints + 3].y = 
-        ttf__round(font, font->glyph.zones[1].cur[font->glyph.numPoints + 3].y);
+    font->cur.zones[1].cur[font->cur.numPoints + 3].y = 
+        ttf__round(font, font->cur.zones[1].cur[font->cur.numPoints + 3].y);
 
     return TTF_TRUE;
 }
@@ -1550,6 +1543,9 @@ static void ttf__execute_cv_program(TTF* font) {
 
     TTF_Ins_Stream stream;
     ttf__ins_stream_init(&stream, font->data + font->prep.off);
+
+    ttf__reset_graphics_state(font);
+    ttf__stack_clear(font);
     
     while (stream.off < font->prep.size) {
         TTF_uint8 ins = ttf__ins_stream_next(&stream);
@@ -1564,21 +1560,21 @@ static TTF_bool ttf__execute_glyph_program(TTF* font) {
     ttf__stack_clear(font);
 
     // TODO: handle composite glyphs
-    assert(font->glyph.numContours >= 0);
+    assert(font->cur.numContours >= 0);
 
     TTF_uint16 maxTwilightPoints = ttf__get_uint16(font->data + font->maxp.off + 16);
-    TTF_uint32 insOff            = 10 + font->glyph.numContours * 2;
-    TTF_uint16 numIns            = ttf__get_int16(font->glyph.glyfBlock + insOff);
+    TTF_uint32 insOff            = 10 + font->cur.numContours * 2;
+    TTF_uint16 numIns            = ttf__get_int16(font->cur.glyfBlock + insOff);
 
     TTF_Ins_Stream stream;
-    ttf__ins_stream_init(&stream, font->glyph.glyfBlock + insOff + 2);
+    ttf__ins_stream_init(&stream, font->cur.glyfBlock + insOff + 2);
 
-    if (!ttf__zone_init(font->glyph.zones, maxTwilightPoints)) {
+    if (!ttf__zone_init(font->cur.zones, maxTwilightPoints)) {
         return TTF_FALSE;
     }
     
     if (!ttf__extract_glyph_points(font)) {
-        ttf__zone_free(font->glyph.zones);
+        ttf__zone_free(font->cur.zones);
         return TTF_FALSE;
     }
 
@@ -1587,7 +1583,7 @@ static TTF_bool ttf__execute_glyph_program(TTF* font) {
         ttf__execute_ins(font, &stream, ins);
     }
 
-    free(font->glyph.zones[0].mem);
+    free(font->cur.zones[0].mem);
     return TTF_TRUE;
 }
 
@@ -1790,7 +1786,7 @@ static void ttf__DELTAC(TTF* font, TTF_uint8 range) {
         TTF_uint32 exc    = ttf__stack_pop_uint32(font);
         TTF_uint32 ppem   = ((exc & 0xF0) >> 4) + font->gState.deltaBase + range;
 
-        if (font->instance->ppem == ppem) {
+        if (font->cur.instance->ppem == ppem) {
             TTF_int8 numSteps = (exc & 0xF) - 8;
             if (numSteps > 0) {
                 numSteps++;
@@ -1800,7 +1796,7 @@ static void ttf__DELTAC(TTF* font, TTF_uint8 range) {
             // factor of 1
 
             TTF_int32 stepVal = 1l << (6 - font->gState.deltaShift);
-            font->instance->cvt[cvtIdx] += numSteps * stepVal;
+            font->cur.instance->cvt[cvtIdx] += numSteps * stepVal;
             printf("\tEqual\n");
         }
         else {
@@ -1857,12 +1853,12 @@ static void ttf__GETINFO(TTF* font) {
         result = TTF_SCALAR_VERSION;
     }
     if (selector & TTF_GLYPH_ROTATED) {
-        if (font->instance->isRotated) {
+        if (font->cur.instance->isRotated) {
             result |= 0x100;
         }
     }
     if (selector & TTF_GLYPH_STRETCHED) {
-        if (font->instance->isStretched) {
+        if (font->cur.instance->isStretched) {
             result |= 0x200;
         }
     }
@@ -1921,16 +1917,16 @@ static void ttf__IF(TTF* font, TTF_Ins_Stream* stream) {
 
 static void ttf__IP(TTF* font) {
     TTF_PRINT_INS();
-    assert(font->gState.rp1 < font->glyph.zones[1].count);
-    assert(font->gState.rp2 < font->glyph.zones[1].count);
+    assert(font->gState.rp1 < font->cur.zones[1].count);
+    assert(font->gState.rp2 < font->cur.zones[1].count);
 
     TTF_F26Dot6_V2* rp1Cur = font->gState.zp0->cur + font->gState.rp1;
     TTF_F26Dot6_V2* rp2Cur = font->gState.zp1->cur + font->gState.rp2;
 
     TTF_bool isTwilightZone = 
-        (font->gState.zp0 == &font->glyph.zones[0]) ||
-        (font->gState.zp1 == &font->glyph.zones[0]) ||
-        (font->gState.zp2 == &font->glyph.zones[0]);
+        (font->gState.zp0 == &font->cur.zones[0]) ||
+        (font->gState.zp1 == &font->cur.zones[0]) ||
+        (font->gState.zp2 == &font->cur.zones[0]);
 
     TTF_F26Dot6_V2* rp1Org, *rp2Org;
 
@@ -1975,22 +1971,22 @@ static void ttf__IP(TTF* font) {
 static void ttf__IUP(TTF* font, TTF_uint8 ins) {
     // Applying IUP to zone0 is an error
     // TODO: How are composite glyphs handled?
-    assert(font->gState.zp2 == &font->glyph.zones[1]);
-    assert(font->glyph.numContours >= 0);
+    assert(font->gState.zp2 == &font->cur.zones[1]);
+    assert(font->cur.numContours >= 0);
 
     TTF_PRINT_INS();
 
-    if (font->glyph.numContours == 0) {
+    if (font->cur.numContours == 0) {
         return;
     }
 
     TTF_Touch_Flag  touchFlag = ins & 0x1 ? TTF_TOUCH_X : TTF_TOUCH_Y;
-    TTF_Touch_Flag* touchFlags = font->glyph.zones[1].curTouchFlags;
+    TTF_Touch_Flag* touchFlags = font->cur.zones[1].curTouchFlags;
     TTF_uint32      pointIdx  = 0;
 
-    for (TTF_uint16 i = 0; i < font->glyph.numContours; i++) {
+    for (TTF_uint16 i = 0; i < font->cur.numContours; i++) {
         TTF_uint16 startPointIdx = pointIdx;
-        TTF_uint16 endPointIdx   = ttf__get_uint16(font->glyph.glyfBlock + 10 + 2 * i);
+        TTF_uint16 endPointIdx   = ttf__get_uint16(font->cur.glyfBlock + 10 + 2 * i);
         TTF_uint16 touch0        = 0;
         TTF_bool   findingTouch1 = TTF_FALSE;
 
@@ -1998,7 +1994,7 @@ static void ttf__IUP(TTF* font, TTF_uint8 ins) {
             if (touchFlags[pointIdx] & touchFlag) {
                 if (findingTouch1) {
                     ttf__IUP_interpolate_or_shift(
-                        &font->glyph.zones[1], touchFlag, startPointIdx, endPointIdx, touch0, 
+                        &font->cur.zones[1], touchFlag, startPointIdx, endPointIdx, touch0, 
                         pointIdx);
 
                     if (pointIdx == endPointIdx || (touchFlags[pointIdx + 1] & touchFlag)) {
@@ -2023,7 +2019,7 @@ static void ttf__IUP(TTF* font, TTF_uint8 ins) {
             for (TTF_uint32 i = startPointIdx; i <= touch0; i++) {
                 if (touchFlags[i] & touchFlag) {
                     ttf__IUP_interpolate_or_shift(
-                        &font->glyph.zones[1], touchFlag, startPointIdx, endPointIdx, touch0, i);
+                        &font->cur.zones[1], touchFlag, startPointIdx, endPointIdx, touch0, i);
                     break;
                 }
             }
@@ -2080,8 +2076,8 @@ static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
     TTF_F26Dot6_V2* pointCur = font->gState.zp1->cur + pointIdx;
 
     TTF_bool isTwilightZone = 
-        (font->gState.zp0 == &font->glyph.zones[0]) || 
-        (font->gState.zp1 == &font->glyph.zones[0]);
+        (font->gState.zp0 == &font->cur.zones[0]) || 
+        (font->gState.zp1 == &font->cur.zones[0]);
 
     TTF_F26Dot6_V2* rp0Org, *pointOrg;
 
@@ -2101,8 +2097,8 @@ static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
 
     if (!isTwilightZone) {
         // Remember, distOrg isn't a fixed-point value yet
-        // distOrg = TTF_FIX_MUL(distOrg << 6, font->instance->scale, 22);
-        distOrg = ((TTF_int64)distOrg * font->instance->scale) >> 16;
+        // distOrg = TTF_FIX_MUL(distOrg << 6, font->cur.instance->scale, 22);
+        distOrg = ((TTF_int64)distOrg * font->cur.instance->scale) >> 16;
     }
 
     distOrg = ttf__apply_single_width_cut_in(font, distOrg);
@@ -2136,9 +2132,9 @@ static void ttf__MIAP(TTF* font, TTF_uint8 ins) {
     TTF_F26Dot6 curDist = 
         ttf__fix_v2_dot(font->gState.zp0->cur + pointIdx, &font->gState.projVec, 14);
 
-    TTF_F26Dot6 newDist = font->instance->cvt[cvtIdx];
+    TTF_F26Dot6 newDist = font->cur.instance->cvt[cvtIdx];
 
-    if (font->gState.zp0 == font->glyph.zones) {
+    if (font->gState.zp0 == font->cur.zones) {
         font->gState.zp0->org[pointIdx].x = TTF_FIX_MUL(newDist, font->gState.freedomVec.x, 14);
         font->gState.zp0->org[pointIdx].y = TTF_FIX_MUL(newDist, font->gState.freedomVec.y, 14);
         font->gState.zp0->cur[pointIdx]   = font->gState.zp0->org[pointIdx];
@@ -2180,7 +2176,7 @@ static void ttf__MIRP(TTF* font, TTF_uint8 ins) {
     assert(cvtIdx   < font->cvt.size / sizeof(TTF_FWORD));
     assert(pointIdx < font->gState.zp1->count);
 
-    TTF_F26Dot6 cvtVal = font->instance->cvt[cvtIdx];
+    TTF_F26Dot6 cvtVal = font->cur.instance->cvt[cvtIdx];
     cvtVal = ttf__apply_single_width_cut_in(font, cvtVal);
 
     TTF_F26Dot6_V2* rp0Org = font->gState.zp0->orgScaled + font->gState.rp0;
@@ -2189,7 +2185,7 @@ static void ttf__MIRP(TTF* font, TTF_uint8 ins) {
     TTF_F26Dot6_V2* pointOrg = font->gState.zp1->orgScaled + pointIdx;
     TTF_F26Dot6_V2* pointCur = font->gState.zp1->cur       + pointIdx;
 
-    if (font->gState.zp1 == &font->glyph.zones[0]) {
+    if (font->gState.zp1 == &font->cur.zones[0]) {
         // Madness
         pointOrg->x  = rp0Org->x + TTF_FIX_MUL(cvtVal, font->gState.freedomVec.x, 14);
         pointOrg->y  = rp0Org->y + TTF_FIX_MUL(cvtVal, font->gState.freedomVec.y, 14);
@@ -2238,8 +2234,8 @@ static void ttf__MIRP(TTF* font, TTF_uint8 ins) {
 
 static void ttf__MPPEM(TTF* font) {
     TTF_PRINT_INS();
-    ttf__stack_push_uint32(font, font->instance->ppem);
-    printf("\t%d\n", font->instance->ppem);
+    ttf__stack_push_uint32(font, font->cur.instance->ppem);
+    printf("\t%d\n", font->cur.instance->ppem);
 }
 
 static void ttf__MUL(TTF* font) {
@@ -2294,7 +2290,7 @@ static void ttf__RCVT(TTF* font) {
     TTF_uint32 cvtIdx = ttf__stack_pop_uint32(font);
     assert(cvtIdx < font->cvt.size / sizeof(TTF_FWORD));
 
-    ttf__stack_push_F26Dot6(font, font->instance->cvt[cvtIdx]);
+    ttf__stack_push_F26Dot6(font, font->cur.instance->cvt[cvtIdx]);
 }
 
 static void ttf__RDTG(TTF* font) {
@@ -2339,37 +2335,37 @@ static void ttf__SCANCTRL(TTF* font) {
     }
     else {
         if (flags & 0x100) {
-            if (font->instance->ppem <= thresh) {
+            if (font->cur.instance->ppem <= thresh) {
                 font->gState.scanControl = TTF_TRUE;
             }
         }
 
         if (flags & 0x200) {
-            if (font->instance->isRotated) {
+            if (font->cur.instance->isRotated) {
                 font->gState.scanControl = TTF_TRUE;
             }
         }
 
         if (flags & 0x400) {
-            if (font->instance->isStretched) {
+            if (font->cur.instance->isStretched) {
                 font->gState.scanControl = TTF_TRUE;
             }
         }
 
         if (flags & 0x800) {
-            if (thresh > font->instance->ppem) {
+            if (thresh > font->cur.instance->ppem) {
                 font->gState.scanControl = TTF_FALSE;
             }
         }
 
         if (flags & 0x1000) {
-            if (!font->instance->isRotated) {
+            if (!font->cur.instance->isRotated) {
                 font->gState.scanControl = TTF_FALSE;
             }
         }
 
         if (flags & 0x2000) {
-            if (!font->instance->isStretched) {
+            if (!font->cur.instance->isStretched) {
                 font->gState.scanControl = TTF_FALSE;
             }
         }
@@ -2439,7 +2435,7 @@ static void ttf__WCVTF(TTF* font) {
     TTF_uint32 cvtIdx = ttf__stack_pop_uint32(font);
     assert(cvtIdx < font->cvt.size / sizeof(TTF_FWORD));
 
-    font->instance->cvt[cvtIdx] = TTF_FIX_MUL(funits << 6, font->instance->scale, 22);
+    font->cur.instance->cvt[cvtIdx] = TTF_FIX_MUL(funits << 6, font->cur.instance->scale, 22);
 }
 
 static void ttf__WCVTP(TTF* font) {
@@ -2450,7 +2446,7 @@ static void ttf__WCVTP(TTF* font) {
     TTF_uint32 cvtIdx = ttf__stack_pop_uint32(font);
     assert(cvtIdx < font->cvt.size / sizeof(TTF_FWORD));
 
-    font->instance->cvt[cvtIdx] = pixels;
+    font->cur.instance->cvt[cvtIdx] = pixels;
 }
 
 static void ttf__reset_graphics_state(TTF* font) {
@@ -2474,9 +2470,9 @@ static void ttf__reset_graphics_state(TTF* font) {
     font->gState.singleWidthCutIn  = 0;
     font->gState.singleWidthValue  = 0;
     font->gState.touchFlags        = TTF_TOUCH_X;
-    font->gState.zp0               = font->glyph.zones + 1;
-    font->gState.zp1               = font->glyph.zones + 1;
-    font->gState.zp2               = font->glyph.zones + 1;
+    font->gState.zp0               = font->cur.zones + 1;
+    font->gState.zp1               = font->cur.zones + 1;
+    font->gState.zp2               = font->cur.zones + 1;
 }
 
 static void ttf__call_func(TTF* font, TTF_uint32 funcId, TTF_uint32 times) {
