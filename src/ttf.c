@@ -2133,14 +2133,16 @@ static void ttf__MIAP(TTF* font, TTF_uint8 ins) {
     assert(cvtIdx < font->cvt.size / sizeof(TTF_FWORD));
     assert(pointIdx < font->gState.zp0->count);
 
-    if (font->gState.zp0 == font->glyph.zones) {
-        assert(0);
-    }
-
     TTF_F26Dot6 curDist = 
         ttf__fix_v2_dot(font->gState.zp0->cur + pointIdx, &font->gState.projVec, 14);
 
     TTF_F26Dot6 newDist = font->instance->cvt[cvtIdx];
+
+    if (font->gState.zp0 == font->glyph.zones) {
+        font->gState.zp0->org[pointIdx].x = TTF_FIX_MUL(newDist, font->gState.freedomVec.x, 14);
+        font->gState.zp0->org[pointIdx].y = TTF_FIX_MUL(newDist, font->gState.freedomVec.y, 14);
+        font->gState.zp0->cur[pointIdx]   = font->gState.zp0->org[pointIdx];
+    }
     
     if (ins & 0x1) {
         if (labs(newDist - curDist) > font->gState.controlValueCutIn) {
