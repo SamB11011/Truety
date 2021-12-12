@@ -291,15 +291,16 @@ static void        ttf__IUP_interpolate_or_shift (TTF_Zone* zone1, TTF_Touch_Fla
 #define ttf__get_Offset32(data)       ttf__get_uint32(data)
 #define ttf__get_Version16Dot16(data) ttf__get_uint32(data)
 
-static TTF_uint16 ttf__get_uint16        (TTF_uint8* data);
-static TTF_uint32 ttf__get_uint32        (TTF_uint8* data);
-static TTF_int16  ttf__get_int16         (TTF_uint8* data);
-static void       ttf__max_min           (TTF_int32 a, TTF_int32 b, TTF_int32* max, TTF_int32* min);
-static TTF_int32  ttf__min               (TTF_int32 a, TTF_int32 b);
-static TTF_int32  ttf__max               (TTF_int32 a, TTF_int32 b);
-static TTF_uint16 ttf__get_upem          (TTF* font);
-static void       ttf__get_glyph_hmetrics(TTF* font, TTF_uint32 glyphIdx, TTF_uint16* aw, TTF_int16* lsb);
-static void       ttf__get_glyph_vmetrics(TTF* font, TTF_uint8* glyfBlock, TTF_int32* ah, TTF_int32* tsb);
+static TTF_uint16 ttf__get_uint16                 (TTF_uint8* data);
+static TTF_uint32 ttf__get_uint32                 (TTF_uint8* data);
+static TTF_int16  ttf__get_int16                  (TTF_uint8* data);
+static void       ttf__max_min                    (TTF_int32 a, TTF_int32 b, TTF_int32* max, TTF_int32* min);
+static TTF_int32  ttf__min                        (TTF_int32 a, TTF_int32 b);
+static TTF_int32  ttf__max                        (TTF_int32 a, TTF_int32 b);
+static TTF_uint16 ttf__get_upem                   (TTF* font);
+static TTF_uint16 ttf__get_glyph_x_advance        (TTF* font, TTF_uint32 glyphIdx);
+static TTF_int16  ttf__get_glyph_left_side_bearing(TTF* font, TTF_uint32 glyphIdx);
+static void       ttf__get_glyph_vmetrics         (TTF* font, TTF_uint8* glyfBlock, TTF_int32* ah, TTF_int32* tsb);
 
 
 /* ---------------- */
@@ -453,9 +454,7 @@ void ttf_glyph_init(TTF* font, TTF_Glyph* glyph, TTF_uint32 glyphIdx) {
     glyph->bitmapPos.y = 0;
     glyph->offset.x    = 0;
     glyph->offset.y    = 0;
-
-    TTF_int16 lsb;
-    ttf__get_glyph_hmetrics(font, glyphIdx, &glyph->xAdvance, &lsb);
+    glyph->xAdvance    = ttf__get_glyph_x_advance(font, glyphIdx);
 }
 
 void ttf_free(TTF* font) {
@@ -1391,12 +1390,9 @@ static TTF_bool ttf__extract_glyph_points(TTF* font) {
 
     // Get the phantom points
     {
-        TTF_int16 xMin = ttf__get_int16(font->cur.glyfBlock + 2);
-        TTF_int16 yMax = ttf__get_int16(font->cur.glyfBlock + 8);
-
-        TTF_uint16 xAdvance;
-        TTF_int16  leftSideBearing;
-        ttf__get_glyph_hmetrics(font, font->cur.glyph->idx, &xAdvance, &leftSideBearing);
+        TTF_int16 xMin            = ttf__get_int16(font->cur.glyfBlock + 2);
+        TTF_int16 yMax            = ttf__get_int16(font->cur.glyfBlock + 8);
+        TTF_int16 leftSideBearing = ttf__get_glyph_left_side_bearing(font, font->cur.glyph->idx);
 
         TTF_int32 yAdvance, topSideBearing;
         ttf__get_glyph_vmetrics(font, font->cur.glyfBlock, &yAdvance, &topSideBearing);
@@ -1405,7 +1401,7 @@ static TTF_bool ttf__extract_glyph_points(TTF* font) {
         points[pointIdx].y = 0;
 
         pointIdx++;
-        points[pointIdx].x = points[pointIdx - 1].x + xAdvance;
+        points[pointIdx].x = points[pointIdx - 1].x + font->cur.glyph->xAdvance;
         points[pointIdx].y = 0;
 
         pointIdx++;
@@ -2797,19 +2793,22 @@ static TTF_uint16 ttf__get_upem(TTF* font) {
     return ttf__get_uint16(font->data + font->head.off + 18);
 }
 
-static void ttf__get_glyph_hmetrics(TTF* font, TTF_uint32 glyphIdx, TTF_uint16* aw, TTF_int16* lsb) {
+static TTF_uint16 ttf__get_glyph_x_advance(TTF* font, TTF_uint32 glyphIdx) {
     TTF_uint8* hmtxData    = font->data + font->hmtx.off;
     TTF_uint16 numHMetrics = ttf__get_uint16(font->data + font->hhea.off + 48);
-
     if (glyphIdx < numHMetrics) {
-        TTF_uint8* hMetricData = hmtxData + 4 * glyphIdx;
-        *aw  = ttf__get_uint16(hMetricData);
-        *lsb = ttf__get_int16(hMetricData + 2);
+        return ttf__get_uint16(hmtxData + 4 * glyphIdx);
     }
-    else {
-        *aw  = 0;
-        *lsb = ttf__get_int16(hmtxData + 4 * numHMetrics + 2 * (numHMetrics - glyphIdx));
+    return 0;
+}
+
+static TTF_int16 ttf__get_glyph_left_side_bearing(TTF* font, TTF_uint32 glyphIdx) {
+    TTF_uint8* hmtxData    = font->data + font->hmtx.off;
+    TTF_uint16 numHMetrics = ttf__get_uint16(font->data + font->hhea.off + 48);
+    if (glyphIdx < numHMetrics) {
+        return ttf__get_int16(hmtxData + 4 * glyphIdx + 2);
     }
+    return ttf__get_int16(hmtxData + 4 * numHMetrics + 2 * (numHMetrics - glyphIdx));
 }
 
 static void ttf__get_glyph_vmetrics(TTF* font, TTF_uint8* glyfBlock, TTF_int32* ah, TTF_int32* tsb) {
