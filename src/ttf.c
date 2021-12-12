@@ -505,9 +505,6 @@ TTF_bool ttf_render_glyph(TTF* font, TTF_Image* image, TTF_uint32 cp) {
 }
 
 TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, TTF_Image* image, TTF_Glyph* glyph, TTF_uint32 x, TTF_uint32 y) {
-    // TODO: support other positions
-    assert(x == 0 && y == 0);
-
     font->cur.instance    = instance;
     font->cur.glyph       = glyph;
     font->cur.glyfBlock   = ttf__get_glyf_data_block(font, glyph->idx);
@@ -531,11 +528,12 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
         return TTF_FALSE;
     }
 
-    TTF_F26Dot6 yCur    = edges->yMin;
-    TTF_F26Dot6 yEnd    = ttf__min(edges[numEdges - 1].yMax, image->h << 6);
+    TTF_F26Dot6 yRel    = 0;
+    TTF_F26Dot6 yAbs    = y << 6;
+    TTF_F26Dot6 yEndAbs = ttf__min(edges[numEdges - 1].yMax + (y << 6), (image->h - 1) << 6);
     TTF_uint32  edgeIdx = 0;
 
-    while (yCur <= yEnd) {
+    while (yAbs <= yEndAbs) {
         {
             // If an edge is no longer active, remove it from the list, else
             // update its x-intersection with the current scanline
@@ -548,12 +546,12 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
             while (activeEdge != NULL) {
                 TTF_Active_Edge* next = activeEdge->next;
                 
-                if (activeEdge->edge->yMax <= yCur) {
+                if (activeEdge->edge->yMax <= yRel) {
                     ttf__remove_active_edge(&activeEdgeList, prevActiveEdge, activeEdge);
                 }
                 else {
                     activeEdge->xIntersection = 
-                        ttf__get_edge_scanline_x_intersection(activeEdge->edge, yCur);
+                        ttf__get_edge_scanline_x_intersection(activeEdge->edge, yRel);
                     
                     prevActiveEdge = activeEdge;
                 }
@@ -566,14 +564,14 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
         // Find any edges that intersect the current scanline and insert them
         // into the active edge list
         while (edgeIdx < numEdges) {
-            if (edges[edgeIdx].yMin > yCur) {
+            if (edges[edgeIdx].yMin > yRel) {
                 // All further edges start below the scanline
                 break;
             }
             
-            if (edges[edgeIdx].yMax > yCur) {
+            if (edges[edgeIdx].yMax > yRel) {
                 TTF_F26Dot6 xIntersection = 
-                    ttf__get_edge_scanline_x_intersection(edges + edgeIdx, yCur);
+                    ttf__get_edge_scanline_x_intersection(edges + edgeIdx, yRel);
                 
                 TTF_Active_Edge* activeEdge     = activeEdgeList.headEdge;
                 TTF_Active_Edge* prevActiveEdge = NULL;
@@ -616,16 +614,24 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
             TTF_Active_Edge* activeEdge    = activeEdgeList.headEdge;
             TTF_int32        windingNumber = 0;
             TTF_F26Dot6      weightedAlpha = TTF_FIX_MUL(0x3FC0, TTF_PIXELS_PER_SCANLINE, 6);
-            TTF_F26Dot6      x             = ttf__f26dot6_ceil(activeEdge->xIntersection);
-            TTF_uint32       rowOff        = (yCur >> 6) * image->w;
+            TTF_F26Dot6      xRel          = ttf__f26dot6_ceil(activeEdge->xIntersection);
+            TTF_uint32       rowOff        = (yAbs >> 6) * image->w;
 
             while (TTF_TRUE) {
-                TTF_F26Dot6 alpha = 
-                    windingNumber == 0 ?
-                    TTF_FIX_MUL(weightedAlpha, x - activeEdge->xIntersection, 6) :
-                    TTF_FIX_MUL(weightedAlpha, activeEdge->xIntersection - x + 0x40, 6);
+                {
+                    TTF_uint32 xIdx = (xRel >> 6) + x;
+                    if (xIdx >= image->w) {
+                        break;
+                    }
 
-                image->pixels[(x >> 6) + rowOff] += (alpha >> 6);
+                    TTF_F26Dot6 coverage =
+                        windingNumber == 0 ?
+                        xRel - activeEdge->xIntersection :
+                        activeEdge->xIntersection - xRel + 0x40;
+
+                    TTF_uint8 alpha = TTF_FIX_MUL(weightedAlpha, coverage, 6) >> 6;
+                    image->pixels[xIdx + rowOff] += alpha;
+                }
 
             set_next_active_edge:
                 if (activeEdge->next == NULL) {
@@ -633,7 +639,7 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
                 }
 
                 TTF_bool repeat = 
-                    x >= activeEdge->next->xIntersection ||
+                    xRel >= activeEdge->next->xIntersection ||
                     activeEdge->next->xIntersection == activeEdge->xIntersection;
 
                 windingNumber += activeEdge->edge->dir;
@@ -643,25 +649,31 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
                     goto set_next_active_edge;
                 }
 
-                x += 0x40;
+                xRel += 0x40;
 
-                if (x < activeEdge->xIntersection) {
+                if (xRel < activeEdge->xIntersection) {
                     if (windingNumber == 0) {
-                        x = ttf__f26dot6_ceil(activeEdge->xIntersection);
+                        xRel = ttf__f26dot6_ceil(activeEdge->xIntersection);
                     }
                     else {
-                        alpha = weightedAlpha >> 6;
+                        TTF_uint8 alpha = weightedAlpha >> 6;
 
                         do {
-                            image->pixels[(x >> 6) + rowOff] += alpha;
-                            x += 0x40;
-                        } while (x < activeEdge->xIntersection);
+                            TTF_uint32 xIdx = (xRel >> 6) + x;
+                            if (xIdx >= image->w) {
+                                break;
+                            }
+
+                            image->pixels[xIdx + rowOff] += alpha;
+                            xRel += 0x40;
+                        } while (xRel < activeEdge->xIntersection);
                     }
                 }
             }
         }
 
-        yCur += TTF_PIXELS_PER_SCANLINE;
+        yAbs += TTF_PIXELS_PER_SCANLINE;
+        yRel += TTF_PIXELS_PER_SCANLINE;
     }
 
 

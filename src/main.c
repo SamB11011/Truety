@@ -26,9 +26,9 @@ int main() {
     }
 
     TTF_Glyph glyph;
-    ttf_glyph_init(&font, &glyph, ttf_get_glyph_index(&font, 'g'));
+    ttf_glyph_init(&font, &glyph, ttf_get_glyph_index(&font, 'B'));
 
-    if (!ttf_render_glyph_to_existing_image(&font, &instance, &image, &glyph, 0, 0)) {
+    if (!ttf_render_glyph_to_existing_image(&font, &instance, &image, &glyph, 50, 50)) {
         fprintf(stderr, "Failed to render glyph.\n");
         return 1;
     }
