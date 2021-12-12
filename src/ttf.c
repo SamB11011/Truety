@@ -329,6 +329,7 @@ static void        ttf__fix_v2_div    (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2*
 static TTF_int32   ttf__fix_v2_dot    (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_uint8 shift);
 static TTF_int32   ttf__fix_v2_sub_dot(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* c, TTF_uint8 shift);
 static void        ttf__fix_v2_scale  (TTF_Fix_V2* v, TTF_int32 scale, TTF_uint8 shift);
+static TTF_F26Dot6 ttf__f26dot6_round (TTF_F26Dot6 val);
 static TTF_F26Dot6 ttf__f26dot6_ceil  (TTF_F26Dot6 val);
 static TTF_F26Dot6 ttf__f26dot6_floor (TTF_F26Dot6 val);
 
@@ -382,7 +383,14 @@ TTF_bool ttf_init(TTF* font, const char* path) {
         goto init_failure;
     }
 
-    // font->hasHinting = TTF_FALSE; // TODO: remove
+    if (font->OS2.exists) {
+        font->ascender  = ttf__get_int16(font->data + font->OS2.off + 68);
+        font->descender = ttf__get_int16(font->data + font->OS2.off + 70);
+    }
+    else {
+        // TODO: Get defaultAscender and defaultDescender from hhea
+        assert(0);
+    }
 
     if (font->hasHinting) {
         if (!ttf__alloc_mem_for_ins_processing(font)) {
@@ -454,6 +462,8 @@ void ttf_glyph_init(TTF* font, TTF_Glyph* glyph, TTF_uint32 glyphIdx) {
     glyph->bitmapPos.y = 0;
     glyph->offset.x    = 0;
     glyph->offset.y    = 0;
+    glyph->size.x      = 0;
+    glyph->size.y      = 0;
     glyph->xAdvance    = ttf__get_glyph_x_advance(font, glyphIdx);
 }
 
@@ -700,8 +710,8 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
     return TTF_TRUE;
 }
 
-TTF_int32 ttf_apply_scale(TTF_Instance* instance, TTF_int32 value) {
-    return TTF_FIX_MUL(value << 6, instance->scale, 22) >> 6;
+TTF_int32 ttf_scale(TTF_Instance* instance, TTF_int32 value) {
+    return ttf__f26dot6_round(TTF_FIX_MUL(value << 6, instance->scale, 22)) >> 6;
 }
 
 
@@ -792,6 +802,7 @@ static TTF_bool ttf__extract_info_from_table_directory(TTF* font) {
         font->head.exists && 
         font->maxp.exists && 
         font->loca.exists &&
+        font->hhea.exists &&
         font->hmtx.exists;
 }
 
@@ -915,6 +926,7 @@ static void ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* point
     // This function ensures that the x and y minimums are 0 and inverts the 
     // y-axis so that y values increase downwards.
 
+    TTF_F26Dot6 xMax = points[0].x;
     TTF_F26Dot6 xMin = points[0].x;
     TTF_F26Dot6 yMin = points[0].y;
     TTF_F26Dot6 yMax = points[0].y;
@@ -923,6 +935,10 @@ static void ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* point
         if (points[i].x < xMin) {
             xMin = points[i].x;
         }
+        else if (points[i].x > xMax) {
+            xMax = points[i].x;
+        }
+
         if (points[i].y < yMin) {
             yMin = points[i].y;
         }
@@ -931,15 +947,16 @@ static void ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* point
         }
     }
 
-    TTF_F26Dot6 height = labs(yMin) + labs(yMax);
+    font->cur.glyph->size.x = labs(xMin) + labs(xMax);
+    font->cur.glyph->size.y = labs(yMin) + labs(yMax);
 
     for (TTF_uint32 i = 0; i < font->cur.numPoints; i++) {
         points[i].x -= xMin;
-        points[i].y  = height - (points[i].y - yMin);
+        points[i].y  = font->cur.glyph->size.y - (points[i].y - yMin);
     }
 
-    font->cur.glyph->offset.x =  ttf_apply_scale(font->cur.instance, xMin);
-    font->cur.glyph->offset.y = -ttf_apply_scale(font->cur.instance, yMin);
+    font->cur.glyph->offset.x =  ttf__f26dot6_floor(xMin) >> 6;
+    font->cur.glyph->offset.y = -ttf__f26dot6_floor(yMax) >> 6;
 }
 
 static TTF_Edge* ttf__get_glyph_edges(TTF* font, TTF_uint32* numEdges) {
@@ -2620,7 +2637,7 @@ static TTF_F26Dot6 ttf__round(TTF* font, TTF_F26Dot6 val) {
             assert(0);
             break;
         case TTF_ROUND_TO_GRID:
-            return ((val & 0x20) << 1) + (val & 0xFFFFFFC0);
+            return ttf__f26dot6_round(val);
         case TTF_ROUND_TO_DOUBLE_GRID:
             // TODO
             assert(0);
@@ -2818,20 +2835,8 @@ static void ttf__get_glyph_vmetrics(TTF* font, TTF_uint8* glyfBlock, TTF_int32* 
     }
     else  {
         TTF_int16 yMax = ttf__get_int16(glyfBlock + 8);
-
-        TTF_int16 defaultAscender, defaultDescender;
-
-        if (font->OS2.exists) {
-            defaultAscender  = ttf__get_int16(font->data + font->OS2.off + 68);
-            defaultDescender = ttf__get_int16(font->data + font->OS2.off + 70);
-        }
-        else {
-            // TODO: Get defaultAscender and defaultDescender from hhea
-            assert(0);
-        }
-
-        *ah  = defaultAscender - defaultDescender;
-        *tsb = defaultAscender - yMax;
+        *ah  = font->ascender - font->descender;
+        *tsb = font->ascender - yMax;
     }
 }
 
@@ -2890,6 +2895,10 @@ static TTF_int32 ttf__fix_v2_sub_dot(TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* c
 static void ttf__fix_v2_scale(TTF_Fix_V2* v, TTF_int32 scale, TTF_uint8 shift) {
     v->x = TTF_FIX_MUL(v->x, scale, shift);
     v->y = TTF_FIX_MUL(v->y, scale, shift);
+}
+
+static TTF_F26Dot6 ttf__f26dot6_round(TTF_F26Dot6 val) {
+    return ((val & 0x20) << 1) + (val & 0xFFFFFFC0);
 }
 
 static TTF_F26Dot6 ttf__f26dot6_ceil(TTF_F26Dot6 val) {

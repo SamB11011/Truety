@@ -140,6 +140,7 @@ typedef struct {
     TTF_uint16 xAdvance;
     TTF_V2     bitmapPos;
     TTF_V2     offset;
+    TTF_V2     size;
 } TTF_Glyph;
 
 typedef struct {
@@ -173,6 +174,8 @@ typedef struct {
     TTF_Table          prep;
     TTF_Table          vmtx;
     TTF_Encoding       encoding;
+    TTF_int16          ascender;
+    TTF_int16          descender;
     TTF_Stack          stack;
     TTF_Func_Array     funcArray;
     TTF_Graphics_State gState;
@@ -192,6 +195,6 @@ TTF_uint32 ttf_get_glyph_index               (TTF* font, TTF_uint32 cp);
 TTF_uint16 ttf__get_num_glyphs               (TTF* font);
 TTF_bool   ttf_render_glyph                  (TTF* font, TTF_Image* image, TTF_uint32 cp);
 TTF_bool   ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, TTF_Image* image, TTF_Glyph* glyph, TTF_uint32 x, TTF_uint32 y);
-TTF_int32  ttf_apply_scale                   (TTF_Instance* instance, TTF_int32 value);
+TTF_int32  ttf_scale                         (TTF_Instance* instance, TTF_int32 value);
 
 #endif
