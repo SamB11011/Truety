@@ -124,7 +124,7 @@ static void        ttf__stack_push_int32    (TTF* font, TTF_int32  val);
 static TTF_uint32  ttf__stack_pop_uint32    (TTF* font);
 static TTF_int32   ttf__stack_pop_int32     (TTF* font);
 static void        ttf__stack_clear         (TTF* font);
-static TTF_uint32  ttf__get_num_vals_to_push(TTF_uint8 ins); /* For PUSHB and PUSHW */
+static TTF_uint8   ttf__get_num_vals_to_push(TTF_uint8 ins); /* For PUSHB and PUSHW */
 
 
 /* ----------------------------- */
@@ -1524,7 +1524,7 @@ static void ttf__stack_clear(TTF* font) {
     font->stack.count = 0;
 }
 
-static TTF_uint32 ttf__get_num_vals_to_push(TTF_uint8 ins) {
+static TTF_uint8 ttf__get_num_vals_to_push(TTF_uint8 ins) {
     return 1 + (ins & 0x7);
 }
 
@@ -2308,13 +2308,27 @@ static void ttf__MUL(TTF* font) {
 }
 
 static void ttf__NPUSHB(TTF* font, TTF_Ins_Stream* stream) {
-    // TODO
-    assert(0);
+    TTF_PRINT_INS();
+
+    TTF_uint8 count = ttf__ins_stream_next(stream);
+
+    do {
+        TTF_uint8 byte = ttf__ins_stream_next(stream);
+        ttf__stack_push_uint32(font, byte);
+    } while (--count);
 }
 
 static void ttf__NPUSHW(TTF* font, TTF_Ins_Stream* stream) {
-    // TODO
-    assert(0);
+    TTF_PRINT_INS();
+
+    TTF_uint8 count = ttf__ins_stream_next(stream);
+
+    do {
+        TTF_uint8 ms  = ttf__ins_stream_next(stream);
+        TTF_uint8 ls  = ttf__ins_stream_next(stream);
+        TTF_int32 val = (ms << 8) | ls;
+        ttf__stack_push_int32(font, val);
+    } while (--count);
 }
 
 static void ttf__POP(TTF* font) {
@@ -2325,25 +2339,25 @@ static void ttf__POP(TTF* font) {
 static void ttf__PUSHB(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
     TTF_PRINT_INS();
 
-    TTF_uint8 n = ttf__get_num_vals_to_push(ins);
+    TTF_uint8 count = ttf__get_num_vals_to_push(ins);
 
     do {
         TTF_uint8 byte = ttf__ins_stream_next(stream);
         ttf__stack_push_uint32(font, byte);
-    } while (--n);
+    } while (--count);
 }
 
 static void ttf__PUSHW(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
     TTF_PRINT_INS();
 
-    TTF_uint32 n = ttf__get_num_vals_to_push(ins);
+    TTF_uint8 count = ttf__get_num_vals_to_push(ins);
 
     do {
         TTF_uint8 ms  = ttf__ins_stream_next(stream);
         TTF_uint8 ls  = ttf__ins_stream_next(stream);
         TTF_int32 val = (ms << 8) | ls;
         ttf__stack_push_int32(font, val);
-    } while (--n);
+    } while (--count);
 }
 
 static void ttf__RCVT(TTF* font) {
