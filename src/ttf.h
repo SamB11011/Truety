@@ -138,9 +138,6 @@ typedef struct {
 typedef struct {
     TTF_uint32 idx;
     TTF_uint16 xAdvance;
-    TTF_int16  leftSideBearing;
-    TTF_int32  yAdvance;
-    TTF_int32  topSideBearing;
     TTF_V2     bitmapPos;
     TTF_V2     offset;
 } TTF_Glyph;
@@ -192,6 +189,7 @@ void ttf_free_instance(TTF* font, TTF_Instance* instance);
 void ttf_free_image   (TTF_Image* image);
 
 TTF_uint32 ttf_get_glyph_index               (TTF* font, TTF_uint32 cp);
+TTF_uint16 ttf__get_num_glyphs               (TTF* font);
 TTF_bool   ttf_render_glyph                  (TTF* font, TTF_Image* image, TTF_uint32 cp);
 TTF_bool   ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, TTF_Image* image, TTF_Glyph* glyph, TTF_uint32 x, TTF_uint32 y);
 TTF_int32  ttf_apply_scale                   (TTF_Instance* instance, TTF_int32 value);

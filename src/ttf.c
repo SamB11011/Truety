@@ -14,8 +14,6 @@ static TTF_bool ttf__extract_info_from_table_directory(TTF* font);
 static TTF_bool ttf__extract_char_encoding            (TTF* font);
 static TTF_bool ttf__format_is_supported              (TTF_uint16 format);
 static TTF_bool ttf__alloc_mem_for_ins_processing     (TTF* font);
-static void     ttf__get_glyph_hmetrics               (TTF* font, TTF_uint32 glyphIdx, TTF_uint16* aw, TTF_int16* lsb);
-static void     ttf__get_glyph_vmetrics               (TTF* font, TTF_uint32 glyphIdx, TTF_int32* ah, TTF_int32* tsb);
 
 
 /* -------------------- */
@@ -97,11 +95,11 @@ enum {
     TTF_GLYF_RESERVED       = 0x80,
 };
 
-static TTF_uint8* ttf__get_glyf_data_block   (TTF* font, TTF_uint32 glyphIdx);
-static TTF_int16  ttf__get_num_glyph_contours(TTF* font);
-static TTF_int32  ttf__get_num_glyph_points  (TTF* font);
-static TTF_bool   ttf__extract_glyph_points  (TTF* font);
-static TTF_int32  ttf__get_next_coord_off    (TTF_uint8** data, TTF_uint8 dualFlag, TTF_uint8 shortFlag, TTF_uint8 flags);
+static TTF_bool  ttf__get_glyf_data_block   (TTF* font, TTF_uint8** block, TTF_uint32 glyphIdx);
+static TTF_int16 ttf__get_num_glyph_contours(TTF* font);
+static TTF_int32 ttf__get_num_glyph_points  (TTF* font);
+static TTF_bool  ttf__extract_glyph_points  (TTF* font);
+static TTF_int32 ttf__get_next_coord_off    (TTF_uint8** data, TTF_uint8 dualFlag, TTF_uint8 shortFlag, TTF_uint8 flags);
 
 
 /* --------------- */
@@ -293,13 +291,15 @@ static void        ttf__IUP_interpolate_or_shift (TTF_Zone* zone1, TTF_Touch_Fla
 #define ttf__get_Offset32(data)       ttf__get_uint32(data)
 #define ttf__get_Version16Dot16(data) ttf__get_uint32(data)
 
-static TTF_uint16 ttf__get_uint16(TTF_uint8* data);
-static TTF_uint32 ttf__get_uint32(TTF_uint8* data);
-static TTF_int16  ttf__get_int16 (TTF_uint8* data);
-static void       ttf__max_min   (TTF_int32 a, TTF_int32 b, TTF_int32* max, TTF_int32* min);
-static TTF_int32  ttf__min       (TTF_int32 a, TTF_int32 b);
-static TTF_int32  ttf__max       (TTF_int32 a, TTF_int32 b);
-static TTF_uint16 ttf__get_upem  (TTF* font);
+static TTF_uint16 ttf__get_uint16        (TTF_uint8* data);
+static TTF_uint32 ttf__get_uint32        (TTF_uint8* data);
+static TTF_int16  ttf__get_int16         (TTF_uint8* data);
+static void       ttf__max_min           (TTF_int32 a, TTF_int32 b, TTF_int32* max, TTF_int32* min);
+static TTF_int32  ttf__min               (TTF_int32 a, TTF_int32 b);
+static TTF_int32  ttf__max               (TTF_int32 a, TTF_int32 b);
+static TTF_uint16 ttf__get_upem          (TTF* font);
+static void       ttf__get_glyph_hmetrics(TTF* font, TTF_uint32 glyphIdx, TTF_uint16* aw, TTF_int16* lsb);
+static void       ttf__get_glyph_vmetrics(TTF* font, TTF_uint8* glyfBlock, TTF_int32* ah, TTF_int32* tsb);
 
 
 /* ---------------- */
@@ -453,8 +453,9 @@ void ttf_glyph_init(TTF* font, TTF_Glyph* glyph, TTF_uint32 glyphIdx) {
     glyph->bitmapPos.y = 0;
     glyph->offset.x    = 0;
     glyph->offset.y    = 0;
-    ttf__get_glyph_hmetrics(font, glyphIdx, &glyph->xAdvance, &glyph->leftSideBearing);
-    ttf__get_glyph_vmetrics(font, glyphIdx, &glyph->yAdvance, &glyph->topSideBearing);
+
+    TTF_int16 lsb;
+    ttf__get_glyph_hmetrics(font, glyphIdx, &glyph->xAdvance, &lsb);
 }
 
 void ttf_free(TTF* font) {
@@ -506,6 +507,10 @@ TTF_uint32 ttf_get_glyph_index(TTF* font, TTF_uint32 cp) {
     return 0;
 }
 
+TTF_uint16 ttf__get_num_glyphs(TTF* font) {
+    return ttf__get_uint16(font->data + font->maxp.off + 4);
+}
+
 TTF_bool ttf_render_glyph(TTF* font, TTF_Image* image, TTF_uint32 cp) {
     // TODO
     assert(0);
@@ -513,9 +518,13 @@ TTF_bool ttf_render_glyph(TTF* font, TTF_Image* image, TTF_uint32 cp) {
 }
 
 TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, TTF_Image* image, TTF_Glyph* glyph, TTF_uint32 x, TTF_uint32 y) {
+    if (!ttf__get_glyf_data_block(font, &font->cur.glyfBlock, glyph->idx)) {
+        // The glyph doesn't have any outlines (' ' for example)
+        return TTF_TRUE;
+    }
+
     font->cur.instance    = instance;
     font->cur.glyph       = glyph;
-    font->cur.glyfBlock   = ttf__get_glyf_data_block(font, glyph->idx);
     font->cur.numContours = ttf__get_num_glyph_contours(font);
     font->cur.numPoints   = ttf__get_num_glyph_points(font);
 
@@ -852,46 +861,6 @@ static TTF_bool ttf__alloc_mem_for_ins_processing(TTF* font) {
     font->stack.frames    = (TTF_Stack_Frame*)(font->insMem);
     font->funcArray.funcs = (TTF_Func*)       (font->insMem + stackSize);
     return TTF_TRUE;
-}
-
-static void ttf__get_glyph_hmetrics(TTF* font, TTF_uint32 glyphIdx, TTF_uint16* aw, TTF_int16* lsb) {
-    TTF_uint8* hmtxData    = font->data + font->hmtx.off;
-    TTF_uint16 numHMetrics = ttf__get_uint16(font->data + font->hhea.off + 48);
-
-    if (glyphIdx < numHMetrics) {
-        TTF_uint8* hMetricData = hmtxData + 4 * glyphIdx;
-        *aw  = ttf__get_uint16(hMetricData);
-        *lsb = ttf__get_int16(hMetricData + 2);
-    }
-    else {
-        *aw  = 0;
-        *lsb = ttf__get_int16(hmtxData + 4 * numHMetrics + 2 * (numHMetrics - glyphIdx));
-    }
-}
-
-static void ttf__get_glyph_vmetrics(TTF* font, TTF_uint32 glyphIdx, TTF_int32* ah, TTF_int32* tsb) {
-    if (font->vmtx.exists) {
-        // TODO: Get vertical phantom points from vmtx
-        assert(0);
-    }
-    else  {
-        TTF_uint8* glyfBlock = ttf__get_glyf_data_block(font, glyphIdx);
-        TTF_int16  yMax      = ttf__get_int16(glyfBlock + 8);
-        
-        TTF_int16 defaultAscender, defaultDescender;
-
-        if (font->OS2.exists) {
-            defaultAscender  = ttf__get_int16(font->data + font->OS2.off + 68);
-            defaultDescender = ttf__get_int16(font->data + font->OS2.off + 70);
-        }
-        else {
-            // TODO: Get defaultAscender and defaultDescender from hhea
-            assert(0);
-        }
-
-        *ah  = defaultAscender - defaultDescender;
-        *tsb = defaultAscender - yMax;
-    }
 }
 
 
@@ -1257,15 +1226,43 @@ static void ttf__remove_active_edge(TTF_Active_Edge_List* list, TTF_Active_Edge*
 /* --------------------- */
 /* glyf Table Operations */
 /* --------------------- */
-static TTF_uint8* ttf__get_glyf_data_block(TTF* font, TTF_uint32 glyphIdx) {
-    TTF_int16 version = ttf__get_int16(font->data + font->head.off + 50);
+static TTF_bool ttf__get_glyf_data_block(TTF* font, TTF_uint8** block, TTF_uint32 glyphIdx) {
+    #define TTF_GET_OFF_16(idx)\
+        (ttf__get_Offset16(font->data + font->loca.off + (2 * (idx))) * 2)
+
+    #define TTF_GET_OFF_32(idx)\
+        ttf__get_Offset32(font->data + font->loca.off + (4 * (idx)))
+
+    TTF_int16  version   = ttf__get_int16(font->data + font->head.off + 50);
+    TTF_uint16 numGlyphs = ttf__get_num_glyphs(font);
+
+    TTF_Offset32 blockOff, nextBlockOff;
+
+    if (glyphIdx == numGlyphs - 1) {
+        blockOff = version == 0 ? TTF_GET_OFF_16(glyphIdx) : TTF_GET_OFF_32(glyphIdx);
+        *block   = font->data + font->glyf.off + blockOff;
+        return TTF_TRUE;
+    }
+
+    if (version == 0) {
+        blockOff     = TTF_GET_OFF_16(glyphIdx);
+        nextBlockOff = TTF_GET_OFF_16(glyphIdx + 1);
+    }
+    else {
+        blockOff     = TTF_GET_OFF_32(glyphIdx);
+        nextBlockOff = TTF_GET_OFF_32(glyphIdx + 1);
+    }
     
-    TTF_Offset32 blockOff  = 
-        version == 0 ? 
-        ttf__get_Offset16(font->data + font->loca.off + (2 * glyphIdx)) * 2 :
-        ttf__get_Offset32(font->data + font->loca.off + (4 * glyphIdx));
+    if (blockOff == nextBlockOff) {
+        // "If a glyph has no outline, then loca[n] = loca [n+1]"
+        return TTF_FALSE;
+    }
+
+    *block = font->data + font->glyf.off + blockOff;
+    return TTF_TRUE;
     
-    return font->data + font->glyf.off + blockOff;
+    #undef TTF_GET_OFF_16
+    #undef TTF_GET_OFF_32
 }
 
 static TTF_int16 ttf__get_num_glyph_contours(TTF* font) {
@@ -1394,22 +1391,29 @@ static TTF_bool ttf__extract_glyph_points(TTF* font) {
 
     // Get the phantom points
     {
-        TTF_int16  xMin = ttf__get_int16(font->cur.glyfBlock + 2);
-        TTF_int16  yMax = ttf__get_int16(font->cur.glyfBlock + 8);
+        TTF_int16 xMin = ttf__get_int16(font->cur.glyfBlock + 2);
+        TTF_int16 yMax = ttf__get_int16(font->cur.glyfBlock + 8);
 
-        points[pointIdx].x = xMin - font->cur.glyph->leftSideBearing;
+        TTF_uint16 xAdvance;
+        TTF_int16  leftSideBearing;
+        ttf__get_glyph_hmetrics(font, font->cur.glyph->idx, &xAdvance, &leftSideBearing);
+
+        TTF_int32 yAdvance, topSideBearing;
+        ttf__get_glyph_vmetrics(font, font->cur.glyfBlock, &yAdvance, &topSideBearing);
+
+        points[pointIdx].x = xMin - leftSideBearing;
         points[pointIdx].y = 0;
 
         pointIdx++;
-        points[pointIdx].x = points[pointIdx - 1].x + font->cur.glyph->xAdvance;
+        points[pointIdx].x = points[pointIdx - 1].x + xAdvance;
         points[pointIdx].y = 0;
 
         pointIdx++;
-        points[pointIdx].y = yMax + font->cur.glyph->topSideBearing;
+        points[pointIdx].y = yMax + topSideBearing;
         points[pointIdx].x = 0;
 
         pointIdx++;
-        points[pointIdx].y = points[pointIdx - 1].y - font->cur.glyph->yAdvance;
+        points[pointIdx].y = points[pointIdx - 1].y - yAdvance;
         points[pointIdx].x = 0;
 
         font->cur.zones[1].count = pointIdx + 1;
@@ -2791,6 +2795,45 @@ static TTF_int32 ttf__max(TTF_int32 a, TTF_int32 b) {
 
 static TTF_uint16 ttf__get_upem(TTF* font) {
     return ttf__get_uint16(font->data + font->head.off + 18);
+}
+
+static void ttf__get_glyph_hmetrics(TTF* font, TTF_uint32 glyphIdx, TTF_uint16* aw, TTF_int16* lsb) {
+    TTF_uint8* hmtxData    = font->data + font->hmtx.off;
+    TTF_uint16 numHMetrics = ttf__get_uint16(font->data + font->hhea.off + 48);
+
+    if (glyphIdx < numHMetrics) {
+        TTF_uint8* hMetricData = hmtxData + 4 * glyphIdx;
+        *aw  = ttf__get_uint16(hMetricData);
+        *lsb = ttf__get_int16(hMetricData + 2);
+    }
+    else {
+        *aw  = 0;
+        *lsb = ttf__get_int16(hmtxData + 4 * numHMetrics + 2 * (numHMetrics - glyphIdx));
+    }
+}
+
+static void ttf__get_glyph_vmetrics(TTF* font, TTF_uint8* glyfBlock, TTF_int32* ah, TTF_int32* tsb) {
+    if (font->vmtx.exists) {
+        // TODO: Get vertical phantom points from vmtx
+        assert(0);
+    }
+    else  {
+        TTF_int16 yMax = ttf__get_int16(glyfBlock + 8);
+
+        TTF_int16 defaultAscender, defaultDescender;
+
+        if (font->OS2.exists) {
+            defaultAscender  = ttf__get_int16(font->data + font->OS2.off + 68);
+            defaultDescender = ttf__get_int16(font->data + font->OS2.off + 70);
+        }
+        else {
+            // TODO: Get defaultAscender and defaultDescender from hhea
+            assert(0);
+        }
+
+        *ah  = defaultAscender - defaultDescender;
+        *tsb = defaultAscender - yMax;
+    }
 }
 
 
