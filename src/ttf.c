@@ -955,8 +955,11 @@ static void ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* point
         points[i].y  = font->cur.glyph->size.y - (points[i].y - yMin);
     }
 
-    font->cur.glyph->offset.x =  ttf__f26dot6_floor(xMin) >> 6;
-    font->cur.glyph->offset.y = -ttf__f26dot6_floor(yMax) >> 6;
+    font->cur.glyph->offset.x =  xMin >> 6;
+    font->cur.glyph->offset.y = -yMin >> 6;
+
+    font->cur.glyph->size.x = ttf__f26dot6_ceil(font->cur.glyph->size.x) >> 6;
+    font->cur.glyph->size.y = ttf__f26dot6_ceil(font->cur.glyph->size.y) >> 6;
 }
 
 static TTF_Edge* ttf__get_glyph_edges(TTF* font, TTF_uint32* numEdges) {
@@ -2266,9 +2269,9 @@ static void ttf__MIRP(TTF* font, TTF_uint8 ins) {
 
     if (font->gState.zp1 == &font->cur.zones[0]) {
         // Madness
-        pointOrg->x  = rp0Org->x + TTF_FIX_MUL(cvtVal, font->gState.freedomVec.x, 14);
-        pointOrg->y  = rp0Org->y + TTF_FIX_MUL(cvtVal, font->gState.freedomVec.y, 14);
-        *pointCur    = *pointOrg;
+        pointOrg->x = rp0Org->x + TTF_FIX_MUL(cvtVal, font->gState.freedomVec.x, 14);
+        pointOrg->y = rp0Org->y + TTF_FIX_MUL(cvtVal, font->gState.freedomVec.y, 14);
+        *pointCur   = *pointOrg;
     }
 
     TTF_int32 distOrg = ttf__fix_v2_sub_dot(pointOrg, rp0Org, &font->gState.dualProjVec, 14);
