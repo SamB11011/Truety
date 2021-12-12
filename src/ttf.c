@@ -2799,6 +2799,9 @@ static TTF_uint16 ttf__get_upem(TTF* font) {
 /* ---------------- */
 static TTF_int64 ttf__rounded_div(TTF_int64 a, TTF_int64 b) {
     // https://stackoverflow.com/a/18067292
+    if (b == 0) {
+        return 0;
+    }
     return (a < 0) ^ (b < 0) ? (a - b / 2) / b : (a + b / 2) / b;
 }
 
