@@ -133,7 +133,6 @@ typedef struct {
     TTF_uint8* pixels;
     TTF_uint16 w;
     TTF_uint16 h;
-    TTF_uint16 stride;
 } TTF_Image;
 
 typedef struct {
@@ -195,5 +194,6 @@ void ttf_free_image   (TTF_Image* image);
 TTF_uint32 ttf_get_glyph_index               (TTF* font, TTF_uint32 cp);
 TTF_bool   ttf_render_glyph                  (TTF* font, TTF_Image* image, TTF_uint32 cp);
 TTF_bool   ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, TTF_Image* image, TTF_Glyph* glyph, TTF_uint32 x, TTF_uint32 y);
+TTF_int32  ttf_apply_scale                   (TTF_Instance* instance, TTF_int32 value);
 
 #endif

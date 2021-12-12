@@ -14,7 +14,7 @@ int main() {
     }
 
     TTF_Instance instance;
-    if (!ttf_instance_init(&font, &instance, 15)) {
+    if (!ttf_instance_init(&font, &instance, 11)) {
         fprintf(stderr, "Failed to create TTF_Instance.\n");
         return 1;
     }
@@ -25,15 +25,19 @@ int main() {
         return 1;
     }
 
-    TTF_Glyph glyph;
-    ttf_glyph_init(&font, &glyph, ttf_get_glyph_index(&font, 'B'));
+    for (int cp = 'A'; cp <= 'Z'; cp++) {
+        TTF_Glyph glyph;
+        ttf_glyph_init(&font, &glyph, ttf_get_glyph_index(&font, cp));
 
-    if (!ttf_render_glyph_to_existing_image(&font, &instance, &image, &glyph, 50, 50)) {
-        fprintf(stderr, "Failed to render glyph.\n");
-        return 1;
+        if (!ttf_render_glyph_to_existing_image(&font, &instance, &image, &glyph, 30, 30)) {
+            fprintf(stderr, "Failed to render glyph.\n");
+            return 1;
+        }
+
+        memset(image.pixels, 0, image.w * image.h);
     }
 
-    stbi_write_png("./resources/output.png", image.w, image.h, 1, image.pixels, image.stride);
+    // stbi_write_png("./resources/output.png", image.w, image.h, 1, image.pixels, image.w);
 
     ttf_free_image(&image);
     ttf_free_instance(&font, &instance);

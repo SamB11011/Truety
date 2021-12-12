@@ -634,19 +634,21 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
                 }
 
             set_next_active_edge:
-                if (activeEdge->next == NULL) {
-                    break;
-                }
+                {
+                    if (activeEdge->next == NULL) {
+                        break;
+                    }
 
-                TTF_bool repeat = 
-                    xRel >= activeEdge->next->xIntersection ||
-                    activeEdge->next->xIntersection == activeEdge->xIntersection;
+                    TTF_bool repeat = 
+                        xRel >= activeEdge->next->xIntersection ||
+                        activeEdge->next->xIntersection == activeEdge->xIntersection;
 
-                windingNumber += activeEdge->edge->dir;
-                activeEdge     = activeEdge->next;
+                    windingNumber += activeEdge->edge->dir;
+                    activeEdge     = activeEdge->next;
 
-                if (repeat) {
-                    goto set_next_active_edge;
+                    if (repeat) {
+                        goto set_next_active_edge;
+                    }
                 }
 
                 xRel += 0x40;
@@ -680,6 +682,10 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
     ttf__active_edge_list_free(&activeEdgeList);
     free(edges);
     return TTF_TRUE;
+}
+
+TTF_int32 ttf_apply_scale(TTF_Instance* instance, TTF_int32 value) {
+    return TTF_FIX_MUL(value << 6, instance->scale, 22) >> 6;
 }
 
 
@@ -955,6 +961,9 @@ static void ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* point
         points[i].x -= xMin;
         points[i].y  = height - (points[i].y - yMin);
     }
+
+    font->cur.glyph->offset.x =  ttf_apply_scale(font->cur.instance, xMin);
+    font->cur.glyph->offset.y = -ttf_apply_scale(font->cur.instance, yMin);
 }
 
 static TTF_Edge* ttf__get_glyph_edges(TTF* font, TTF_uint32* numEdges) {
@@ -1203,11 +1212,6 @@ static TTF_Active_Edge* ttf__get_available_active_edge(TTF_Active_Edge_List* lis
     }
 
     TTF_Active_Edge* edge = list->headChunk->edges + list->headChunk->numEdges;
-    
-    // TODO: remove assertions
-    assert(edge->next == NULL);
-    assert(edge->edge == NULL);
-
     list->headChunk->numEdges++;
     return edge;
 }
@@ -1929,8 +1933,9 @@ static void ttf__IF(TTF* font, TTF_Ins_Stream* stream) {
 
 static void ttf__IP(TTF* font) {
     TTF_PRINT_INS();
-    assert(font->gState.rp1 < font->cur.zones[1].count);
-    assert(font->gState.rp2 < font->cur.zones[1].count);
+
+    assert(font->gState.rp1 < font->gState.zp0->count);
+    assert(font->gState.rp2 < font->gState.zp1->count);
 
     TTF_F26Dot6_V2* rp1Cur = font->gState.zp0->cur + font->gState.rp1;
     TTF_F26Dot6_V2* rp2Cur = font->gState.zp1->cur + font->gState.rp2;
@@ -2036,6 +2041,10 @@ static void ttf__IUP(TTF* font, TTF_uint8 ins) {
                 }
             }
         }
+    }
+
+    for (int i = 0; i < font->cur.numPoints; i++) {
+        printf("%d) (%d, %d)\n", i, font->cur.zones[1].cur[i].x, font->cur.zones[1].cur[i].y);
     }
 }
 
