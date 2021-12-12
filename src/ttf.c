@@ -152,6 +152,9 @@ enum {
     TTF_DELTAC1   = 0x73,
     TTF_DELTAC2   = 0x74,
     TTF_DELTAC3   = 0x75,
+    TTF_DELTAP1   = 0x5D,
+    TTF_DELTAP2   = 0x71,
+    TTF_DELTAP3   = 0x72,
     TTF_DUP       = 0x20,
     TTF_EIF       = 0x59,
     TTF_ELSE      = 0x1B,
@@ -222,11 +225,15 @@ static void     ttf__execute_ins          (TTF* font, TTF_Ins_Stream* stream, TT
 
 static void ttf__ADD     (TTF* font);
 static void ttf__CALL    (TTF* font);
+static void ttf__CINDEX  (TTF* font);
 static void ttf__DELTAC1 (TTF* font);
 static void ttf__DELTAC2 (TTF* font);
 static void ttf__DELTAC3 (TTF* font);
 static void ttf__DELTAC  (TTF* font, TTF_uint8 range);
-static void ttf__CINDEX  (TTF* font);
+static void ttf__DELTAP1 (TTF* font);
+static void ttf__DELTAP2 (TTF* font);
+static void ttf__DELTAP3 (TTF* font);
+static void ttf__DELTAP  (TTF* font, TTF_uint8 range);
 static void ttf__DUP     (TTF* font);
 static void ttf__EQ      (TTF* font);
 static void ttf__FDEF    (TTF* font, TTF_Ins_Stream* stream);
@@ -275,6 +282,7 @@ static TTF_F26Dot6 ttf__round                    (TTF* font, TTF_F26Dot6 val);
 static void        ttf__move_point               (TTF* font, TTF_Zone* zone, TTF_uint32 idx, TTF_F26Dot6 amount);
 static TTF_F26Dot6 ttf__apply_single_width_cut_in(TTF* font, TTF_F26Dot6 value);
 static TTF_F26Dot6 ttf__apply_min_dist           (TTF* font, TTF_F26Dot6 value);
+static TTF_bool    ttf__get_delta_value          (TTF* font, TTF_uint32 exc, TTF_uint8 range, TTF_F26Dot6* deltaVal);
 static void        ttf__IUP_interpolate_or_shift (TTF_Zone* zone1, TTF_Touch_Flag touchFlag, TTF_uint16 startPointIdx, TTF_uint16 endPointIdx, TTF_uint16 touch0, TTF_uint16 touch1);
 
 
@@ -1623,6 +1631,15 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_DELTAC3:
             ttf__DELTAC3(font);
             return;
+        case TTF_DELTAP1:
+            ttf__DELTAP1(font);
+            return;
+        case TTF_DELTAP2:
+            ttf__DELTAP2(font);
+            return;
+        case TTF_DELTAP3:
+            ttf__DELTAP3(font);
+            return;
         case TTF_DUP:
             ttf__DUP(font);
             return;
@@ -1793,33 +1810,57 @@ static void ttf__DELTAC3(TTF* font) {
 }
 
 static void ttf__DELTAC(TTF* font, TTF_uint8 range) {
-    TTF_PRINT_INS();
+    TTF_uint32 count = ttf__stack_pop_uint32(font);
 
-    TTF_uint32 n = ttf__stack_pop_uint32(font);
-
-    while (n > 0) {
+    while (count > 0) {
         TTF_uint32 cvtIdx = ttf__stack_pop_uint32(font);
         TTF_uint32 exc    = ttf__stack_pop_uint32(font);
-        TTF_uint32 ppem   = ((exc & 0xF0) >> 4) + font->gState.deltaBase + range;
 
-        if (font->cur.instance->ppem == ppem) {
-            TTF_int8 numSteps = (exc & 0xF) - 8;
-            if (numSteps > 0) {
-                numSteps++;
-            }
-            
-            // numSteps * stepVal is 26.6 since numSteps already has a scale
-            // factor of 1
-
-            TTF_int32 stepVal = 1l << (6 - font->gState.deltaShift);
-            font->cur.instance->cvt[cvtIdx] += numSteps * stepVal;
-            printf("\tEqual\n");
+        TTF_F26Dot6 deltaVal;
+        if (ttf__get_delta_value(font, exc, range, &deltaVal)) {
+            font->cur.instance->cvt[cvtIdx] += deltaVal;
+            printf("\t%d\n", deltaVal);
         }
         else {
             printf("\tNot equal\n");
         }
 
-        n--;
+        count--;
+    }
+}
+
+static void ttf__DELTAP1(TTF* font) {
+    TTF_PRINT_INS();
+    ttf__DELTAP(font, 0);
+}
+
+static void ttf__DELTAP2(TTF* font) {
+    TTF_PRINT_INS();
+    ttf__DELTAP(font, 16);
+}
+
+static void ttf__DELTAP3(TTF* font) {
+    TTF_PRINT_INS();
+    ttf__DELTAP(font, 32);
+}
+
+static void ttf__DELTAP(TTF* font, TTF_uint8 range) {
+    TTF_uint32 count = ttf__stack_pop_uint32(font);
+
+    while (count > 0) {
+        TTF_uint32 pointIdx = ttf__stack_pop_uint32(font);
+        TTF_uint32 exc      = ttf__stack_pop_uint32(font);
+
+        TTF_F26Dot6 deltaVal;
+        if (ttf__get_delta_value(font, exc, range, &deltaVal)) {
+            ttf__move_point(font, font->gState.zp0, pointIdx, deltaVal);
+            printf("\t%d\n", deltaVal);
+        }
+        else {
+            printf("\tNot equal\n");
+        }
+
+        count--;
     }
 }
 
@@ -2608,6 +2649,23 @@ static TTF_F26Dot6 ttf__apply_min_dist(TTF* font, TTF_F26Dot6 value) {
         return font->gState.minDist;
     }
     return value;
+}
+
+static TTF_bool ttf__get_delta_value(TTF* font, TTF_uint32 exc, TTF_uint8 range, TTF_F26Dot6* deltaVal) {
+    TTF_uint32 ppem = ((exc & 0xF0) >> 4) + font->gState.deltaBase + range;
+
+    if (font->cur.instance->ppem != ppem) {
+        return TTF_FALSE;
+    }
+
+    TTF_int8 numSteps = (exc & 0xF) - 8;
+    if (numSteps > 0) {
+        numSteps++;
+    }
+
+    // The result is 26.6 since numSteps already has a scale factor of 1
+    *deltaVal = numSteps * (1l << (6 - font->gState.deltaShift));
+    return TTF_TRUE;
 }
 
 static void ttf__IUP_interpolate_or_shift(TTF_Zone* zone1, TTF_Touch_Flag touchFlag, TTF_uint16 startPointIdx, TTF_uint16 endPointIdx, TTF_uint16 touch0, TTF_uint16 touch1) {
