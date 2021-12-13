@@ -151,7 +151,7 @@ typedef struct {
 
     TTF_Instance* instance;
     TTF_Glyph*    glyph;
-    TTF_int16     numContours;
+    TTF_uint16    numContours;
     TTF_uint32    numPoints;
     TTF_uint8*    glyfBlock;
 } TTF_Current;
@@ -191,10 +191,12 @@ void ttf_free         (TTF* font);
 void ttf_free_instance(TTF* font, TTF_Instance* instance);
 void ttf_free_image   (TTF_Image* image);
 
-TTF_uint32 ttf_get_glyph_index               (TTF* font, TTF_uint32 cp);
-TTF_uint16 ttf__get_num_glyphs               (TTF* font);
+TTF_uint32 ttf_get_glyph_index  (TTF* font, TTF_uint32 cp);
+TTF_uint16 ttf__get_num_glyphs  (TTF* font);
+TTF_int32  ttf_get_ascender     (TTF* font, TTF_Instance* instance);
+TTF_int32  ttf_get_advance_width(TTF_Instance* instance, TTF_Glyph* glyph);
+
 TTF_bool   ttf_render_glyph                  (TTF* font, TTF_Image* image, TTF_uint32 cp);
 TTF_bool   ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, TTF_Image* image, TTF_Glyph* glyph, TTF_uint32 x, TTF_uint32 y);
-TTF_int32  ttf_scale                         (TTF_Instance* instance, TTF_int32 value);
 
 #endif

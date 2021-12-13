@@ -524,6 +524,14 @@ TTF_uint16 ttf__get_num_glyphs(TTF* font) {
     return ttf__get_uint16(font->data + font->maxp.off + 4);
 }
 
+TTF_int32 ttf_get_ascender(TTF* font, TTF_Instance* instance) {
+    return ttf__f26dot6_ceil(TTF_FIX_MUL(font->ascender << 6, instance->scale, 22)) >> 6;
+}
+
+TTF_int32 ttf_get_advance_width(TTF_Instance* instance, TTF_Glyph* glyph) {
+    return ttf__f26dot6_round(TTF_FIX_MUL(glyph->xAdvance << 6, instance->scale, 22)) >> 6;
+}
+
 TTF_bool ttf_render_glyph(TTF* font, TTF_Image* image, TTF_uint32 cp) {
     // TODO
     assert(0);
@@ -573,9 +581,9 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
 
     TTF_F26Dot6 yRel    = 0;
     TTF_F26Dot6 yAbs    = y << 6;
-    TTF_F26Dot6 yEndAbs = ttf__min(edges[numEdges - 1].yMax + (y << 6), (image->h - 1) << 6);
+    TTF_F26Dot6 yEndAbs = ttf__min(glyph->size.y + y, image->h - 1) << 6;
     TTF_uint32  edgeIdx = 0;
-
+    
     while (yAbs <= yEndAbs) {
         {
             // If an edge is no longer active, remove it from the list, else
@@ -662,7 +670,7 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
 
             while (TTF_TRUE) {
                 {
-                    TTF_uint32 xIdx = xRel >> 6;
+                    TTF_uint32 xIdx = xRel == 0 ? 0 : (xRel >> 6) - 1;
                     assert(xIdx < glyph->size.x);
 
                     TTF_F26Dot6 coverage =
@@ -699,7 +707,7 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
                     }
                     else {
                         do {
-                            TTF_uint32 xIdx = xRel >> 6;
+                            TTF_uint32 xIdx = (xRel >> 6) - 1;
                             assert(xIdx < glyph->size.x);
 
                             pixelRow[xIdx] += weightedAlpha;
@@ -731,10 +739,6 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
     free(edges);
     free(pixelRow);
     return TTF_TRUE;
-}
-
-TTF_int32 ttf_scale(TTF_Instance* instance, TTF_int32 value) {
-    return ttf__f26dot6_round(TTF_FIX_MUL(value << 6, instance->scale, 22)) >> 6;
 }
 
 
@@ -970,13 +974,7 @@ static void ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* point
         }
     }
 
-    // TODO: Add 1 to the width or else some glyphs will extend one pixel 
-    //       passed it. Is this due to x-intersection imprecision and/ or
-    //       imprecision resulting from aproximating curves with edges? Maybe
-    //       it would be better to convert edges into bitmap space instead of 
-    //       points.
-
-    font->cur.glyph->size.x = labs(xMin) + labs(xMax) + 0x40;
+    font->cur.glyph->size.x = labs(xMin) + labs(xMax);
     font->cur.glyph->size.y = labs(yMin) + labs(yMax);
 
     for (TTF_uint32 i = 0; i < font->cur.numPoints; i++) {
@@ -984,8 +982,8 @@ static void ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* point
         points[i].y  = font->cur.glyph->size.y - (points[i].y - yMin);
     }
 
-    font->cur.glyph->offset.x =  xMin >> 6;
-    font->cur.glyph->offset.y = -yMin >> 6;
+    font->cur.glyph->offset.x = xMin >> 6;
+    font->cur.glyph->offset.y = yMax >> 6;
 
     font->cur.glyph->size.x = ttf__f26dot6_ceil(font->cur.glyph->size.x) >> 6;
     font->cur.glyph->size.y = ttf__f26dot6_ceil(font->cur.glyph->size.y) >> 6;
