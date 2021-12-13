@@ -2230,6 +2230,9 @@ static void ttf__MIAP(TTF* font, TTF_uint8 ins) {
     }
 
     ttf__move_point(font, font->gState.zp0, pointIdx, newDist - curDist);
+    
+    font->gState.rp0 = pointIdx;
+    font->gState.rp1 = pointIdx;
 
     printf("\t(%d, %d)\n", font->gState.zp0->cur[pointIdx].x, font->gState.zp0->cur[pointIdx].y);
 }
