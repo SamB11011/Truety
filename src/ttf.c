@@ -35,7 +35,7 @@ typedef struct {
     TTF_F26Dot6    yMin;
     TTF_F26Dot6    yMax;
     TTF_F26Dot6    xMin;
-    TTF_F16Dot16   invSlope; /* TODO: Should this 26.6? */
+    TTF_F16Dot16   invSlope; /* TODO: Should this be 26.6? */
     TTF_int8       dir;
 } TTF_Edge;
 
@@ -553,6 +553,16 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
         free(edges);
         return TTF_FALSE;
     }
+    
+    
+    TTF_uint32   pixelRowLen = glyph->size.x + 1;
+    TTF_F26Dot6* pixelRow    = calloc(pixelRowLen, sizeof(TTF_F26Dot6));
+    if (pixelRow == NULL) {
+        ttf__active_edge_list_free(&activeEdgeList);
+        free(edges);
+        return TTF_FALSE;
+    }
+    
 
     TTF_F26Dot6 yRel    = 0;
     TTF_F26Dot6 yAbs    = y << 6;
@@ -623,6 +633,7 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
                 if (newActiveEdge == NULL) {
                     ttf__active_edge_list_free(&activeEdgeList);
                     free(edges);
+                    free(pixelRow);
                     return TTF_FALSE;
                 }
                 
@@ -641,22 +652,18 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
             TTF_int32        windingNumber = 0;
             TTF_F26Dot6      weightedAlpha = TTF_FIX_MUL(0x3FC0, TTF_PIXELS_PER_SCANLINE, 6);
             TTF_F26Dot6      xRel          = ttf__f26dot6_ceil(activeEdge->xIntersection);
-            TTF_uint32       rowOff        = (yAbs >> 6) * image->w;
 
             while (TTF_TRUE) {
                 {
-                    TTF_uint32 xIdx = (xRel >> 6) + x;
-                    if (xIdx >= image->w) {
-                        break;
-                    }
+                    TTF_uint32 xIdx = xRel >> 6;
+                    assert(xIdx < pixelRowLen);
 
                     TTF_F26Dot6 coverage =
                         windingNumber == 0 ?
                         xRel - activeEdge->xIntersection :
                         activeEdge->xIntersection - xRel + 0x40;
 
-                    TTF_uint8 alpha = TTF_FIX_MUL(weightedAlpha, coverage, 6) >> 6;
-                    image->pixels[xIdx + rowOff] += alpha;
+                    pixelRow[xIdx] += TTF_FIX_MUL(weightedAlpha, coverage, 6);
                 }
 
             set_next_active_edge:
@@ -684,16 +691,12 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
                         xRel = ttf__f26dot6_ceil(activeEdge->xIntersection);
                     }
                     else {
-                        TTF_uint8 alpha = weightedAlpha >> 6;
-
                         do {
-                            TTF_uint32 xIdx = (xRel >> 6) + x;
-                            if (xIdx >= image->w) {
-                                break;
-                            }
+                            TTF_uint32 xIdx = xRel >> 6;
+                            assert(xIdx < pixelRowLen);
 
-                            image->pixels[xIdx + rowOff] += alpha;
-                            xRel += 0x40;
+                            pixelRow[xIdx] += weightedAlpha;
+                            xRel           += 0x40;
                         } while (xRel < activeEdge->xIntersection);
                     }
                 }
@@ -702,11 +705,24 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
 
         yAbs += TTF_PIXELS_PER_SCANLINE;
         yRel += TTF_PIXELS_PER_SCANLINE;
+        
+        if ((yRel & 0x3F) == 0) {
+            // A new pixel has been reached, reset the pixel row.
+            TTF_uint32 rowOff = ((yAbs - 0x40) >> 6) * image->w;
+            
+            for (TTF_uint32 i = 0; i < pixelRowLen; i++) {
+                assert(pixelRow[i] >> 6 <= 255);
+                image->pixels[rowOff + x + i] = pixelRow[i] >> 6;
+            }
+            
+            memset(pixelRow, 0, pixelRowLen * sizeof(TTF_F26Dot6));
+        }
     }
 
-
+    
     ttf__active_edge_list_free(&activeEdgeList);
     free(edges);
+    free(pixelRow);
     return TTF_TRUE;
 }
 
