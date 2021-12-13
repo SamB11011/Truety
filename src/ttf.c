@@ -2214,9 +2214,8 @@ static void ttf__MDRP(TTF* font, TTF_uint8 ins) {
     TTF_F26Dot6 distOrg = ttf__fix_v2_sub_dot(pointOrg, rp0Org, &font->gState.dualProjVec, 14);
 
     if (!isTwilightZone) {
-        // Remember, distOrg isn't a fixed-point value yet
-        // distOrg = TTF_FIX_MUL(distOrg << 6, font->cur.instance->scale, 22);
-        distOrg = ((TTF_int64)distOrg * font->cur.instance->scale) >> 16;
+        // Make distOrg a 26.6 pixel value
+        distOrg = TTF_FIX_MUL(distOrg << 6, font->cur.instance->scale, 22);
     }
 
     distOrg = ttf__apply_single_width_cut_in(font, distOrg);
