@@ -555,8 +555,7 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
     }
     
     
-    TTF_uint32   pixelRowLen = glyph->size.x + 1;
-    TTF_F26Dot6* pixelRow    = calloc(pixelRowLen, sizeof(TTF_F26Dot6));
+    TTF_F26Dot6* pixelRow = calloc(glyph->size.x, sizeof(TTF_F26Dot6));
     if (pixelRow == NULL) {
         ttf__active_edge_list_free(&activeEdgeList);
         free(edges);
@@ -656,7 +655,7 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
             while (TTF_TRUE) {
                 {
                     TTF_uint32 xIdx = xRel >> 6;
-                    assert(xIdx < pixelRowLen);
+                    assert(xIdx < glyph->size.x);
 
                     TTF_F26Dot6 coverage =
                         windingNumber == 0 ?
@@ -693,7 +692,7 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
                     else {
                         do {
                             TTF_uint32 xIdx = xRel >> 6;
-                            assert(xIdx < pixelRowLen);
+                            assert(xIdx < glyph->size.x);
 
                             pixelRow[xIdx] += weightedAlpha;
                             xRel           += 0x40;
@@ -710,12 +709,12 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
             // A new pixel has been reached, reset the pixel row.
             TTF_uint32 rowOff = ((yAbs - 0x40) >> 6) * image->w;
             
-            for (TTF_uint32 i = 0; i < pixelRowLen; i++) {
+            for (TTF_uint32 i = 0; i < glyph->size.x; i++) {
                 assert(pixelRow[i] >> 6 <= 255);
                 image->pixels[rowOff + x + i] = pixelRow[i] >> 6;
             }
             
-            memset(pixelRow, 0, pixelRowLen * sizeof(TTF_F26Dot6));
+            memset(pixelRow, 0, glyph->size.x * sizeof(TTF_F26Dot6));
         }
     }
 
@@ -963,7 +962,13 @@ static void ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* point
         }
     }
 
-    font->cur.glyph->size.x = labs(xMin) + labs(xMax);
+    // TODO: Add 1 to the width or else some glyphs will extend one pixel 
+    //       passed it. Is this due to x-intersection imprecision and/ or
+    //       imprecision resulting from aproximating curves with edges? Maybe
+    //       it would be better to convert edges into bitmap space instead of 
+    //       points.
+
+    font->cur.glyph->size.x = labs(xMin) + labs(xMax) + 0x40;
     font->cur.glyph->size.y = labs(yMin) + labs(yMax);
 
     for (TTF_uint32 i = 0; i < font->cur.numPoints; i++) {
