@@ -193,6 +193,7 @@ enum {
     TTF_ROUND     = 0x68,
     TTF_ROUND_MAX = 0x6B,
     TTF_RTG       = 0x18,
+    TTF_RTHG      = 0x19,
     TTF_RUTG      = 0x7C,
     TTF_SCANCTRL  = 0x85,
     TTF_SCVTCI    = 0x1D,
@@ -262,6 +263,7 @@ static void ttf__RDTG    (TTF* font);
 static void ttf__ROLL    (TTF* font);
 static void ttf__ROUND   (TTF* font, TTF_uint8 ins);
 static void ttf__RTG     (TTF* font);
+static void ttf__RTHG    (TTF* font);
 static void ttf__RUTG    (TTF* font);
 static void ttf__SCANCTRL(TTF* font);
 static void ttf__SCVTCI  (TTF* font);
@@ -1746,6 +1748,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_RTG:
             ttf__RTG(font);
             return;
+        case TTF_RTHG:
+            ttf__RTHG(font);
+            return;
         case TTF_RUTG:
             ttf__RUTG(font);
             return;
@@ -2446,6 +2451,11 @@ static void ttf__RTG(TTF* font) {
     font->gState.roundState = TTF_ROUND_TO_GRID;
 }
 
+static void ttf__RTHG(TTF* font) {
+    TTF_PRINT_INS();
+    font->gState.roundState = TTF_ROUND_TO_HALF_GRID;
+}
+
 static void ttf__RUTG(TTF* font) {
     TTF_PRINT_INS();
     font->gState.roundState = TTF_ROUND_UP_TO_GRID;
@@ -2670,9 +2680,7 @@ static TTF_F26Dot6 ttf__round(TTF* font, TTF_F26Dot6 val) {
 
     switch (font->gState.roundState) {
         case TTF_ROUND_TO_HALF_GRID:
-            // TODO
-            assert(0);
-            break;
+            return (val & 0x3F) | 0x20;
         case TTF_ROUND_TO_GRID:
             return ttf__f26dot6_round(val);
         case TTF_ROUND_TO_DOUBLE_GRID:
