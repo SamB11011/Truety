@@ -2094,9 +2094,9 @@ static void ttf__IUP(TTF* font, TTF_uint8 ins) {
         return;
     }
 
-    TTF_Touch_Flag  touchFlag = ins & 0x1 ? TTF_TOUCH_X : TTF_TOUCH_Y;
+    TTF_Touch_Flag  touchFlag  = ins & 0x1 ? TTF_TOUCH_X : TTF_TOUCH_Y;
     TTF_Touch_Flag* touchFlags = font->cur.zones[1].curTouchFlags;
-    TTF_uint32      pointIdx  = 0;
+    TTF_uint32      pointIdx   = 0;
 
     for (TTF_uint16 i = 0; i < font->cur.numContours; i++) {
         TTF_uint16 startPointIdx = pointIdx;
@@ -2111,10 +2111,10 @@ static void ttf__IUP(TTF* font, TTF_uint8 ins) {
                         &font->cur.zones[1], touchFlag, startPointIdx, endPointIdx, touch0, 
                         pointIdx);
 
-                    if (pointIdx == endPointIdx || (touchFlags[pointIdx + 1] & touchFlag)) {
-                        findingTouch1 = TTF_FALSE;
-                    }
-                    else {
+                    findingTouch1 = 
+                        pointIdx != endPointIdx || (touchFlags[pointIdx + 1] & touchFlag) == 0;
+
+                    if (findingTouch1) {
                         touch0 = pointIdx;
                     }
                 }
