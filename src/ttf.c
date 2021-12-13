@@ -193,6 +193,7 @@ enum {
     TTF_ROUND     = 0x68,
     TTF_ROUND_MAX = 0x6B,
     TTF_RTG       = 0x18,
+    TTF_RUTG      = 0x7C,
     TTF_SCANCTRL  = 0x85,
     TTF_SCVTCI    = 0x1D,
     TTF_SDB       = 0x5E,
@@ -261,6 +262,7 @@ static void ttf__RDTG    (TTF* font);
 static void ttf__ROLL    (TTF* font);
 static void ttf__ROUND   (TTF* font, TTF_uint8 ins);
 static void ttf__RTG     (TTF* font);
+static void ttf__RUTG    (TTF* font);
 static void ttf__SCANCTRL(TTF* font);
 static void ttf__SCVTCI  (TTF* font);
 static void ttf__SDB     (TTF* font);
@@ -1744,6 +1746,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_RTG:
             ttf__RTG(font);
             return;
+        case TTF_RUTG:
+            ttf__RUTG(font);
+            return;
         case TTF_SCANCTRL:
             ttf__SCANCTRL(font);
             return;
@@ -2439,6 +2444,11 @@ static void ttf__ROUND(TTF* font, TTF_uint8 ins) {
 static void ttf__RTG(TTF* font) {
     TTF_PRINT_INS();
     font->gState.roundState = TTF_ROUND_TO_GRID;
+}
+
+static void ttf__RUTG(TTF* font) {
+    TTF_PRINT_INS();
+    font->gState.roundState = TTF_ROUND_UP_TO_GRID;
 }
 
 static void ttf__SCANCTRL(TTF* font) {
