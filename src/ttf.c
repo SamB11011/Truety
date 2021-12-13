@@ -538,7 +538,11 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
 
     font->cur.instance    = instance;
     font->cur.glyph       = glyph;
+    
+    // TODO: handle composite glyphs
     font->cur.numContours = ttf__get_num_glyph_contours(font);
+    assert(font->cur.numContours > 0);
+
     font->cur.numPoints   = ttf__get_num_glyph_points(font);
 
 
@@ -1375,6 +1379,7 @@ static TTF_bool ttf__extract_glyph_points(TTF* font) {
                 flagsReps = 1;
                 flagsSize++;
             }
+
             i += flagsReps;
 
             while (flagsReps > 0) {

@@ -151,7 +151,7 @@ typedef struct {
 
     TTF_Instance* instance;
     TTF_Glyph*    glyph;
-    TTF_uint16    numContours;
+    TTF_int16     numContours;
     TTF_uint32    numPoints;
     TTF_uint8*    glyfBlock;
 } TTF_Current;
