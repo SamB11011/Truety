@@ -599,8 +599,6 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
         {
             // If an edge is no longer active, remove it from the list, else
             // update its x-intersection with the current scanline
-            //
-            // TODO: Resort edges based on new-xintersection?
 
             TTF_Active_Edge* activeEdge     = activeEdgeList.headEdge;
             TTF_Active_Edge* prevActiveEdge = NULL;
@@ -623,8 +621,8 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
         }
 
         {
-            // Make sure that the new x-intersections are still sorted from 
-            // least to greatest
+            // Make sure that the active edges are still sorted from smallest 
+            // to largest x-intersection
 
             TTF_Active_Edge* activeEdge     = activeEdgeList.headEdge;
             TTF_Active_Edge* prevActiveEdge = NULL;
@@ -1306,8 +1304,12 @@ static void ttf__remove_active_edge(TTF_Active_Edge_List* list, TTF_Active_Edge*
 
 static void ttf__swap_active_edge_with_next(TTF_Active_Edge_List* list, TTF_Active_Edge* prev, TTF_Active_Edge* edge) {
     assert(edge->next != NULL);
+    
+    if (prev != NULL) {
+        prev->next = edge->next;
+    }
+
     TTF_Active_Edge* temp = edge->next->next;
-    prev->next       = edge->next;
     edge->next->next = edge;
     edge->next       = temp;
 }
