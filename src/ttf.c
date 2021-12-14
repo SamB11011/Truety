@@ -67,12 +67,13 @@ static TTF_F10Dot22 ttf__get_inv_slope                   (TTF_F26Dot6_V2* p0, TT
 static int          ttf__compare_edges                   (const void* edge0, const void* edge1);
 static TTF_F26Dot6  ttf__get_edge_scanline_x_intersection(TTF_Edge* edge, TTF_F26Dot6 scanline);
 
-static TTF_bool         ttf__active_edge_list_init    (TTF_Active_Edge_List* list);
-static void             ttf__active_edge_list_free    (TTF_Active_Edge_List* list);
-static TTF_Active_Edge* ttf__get_available_active_edge(TTF_Active_Edge_List* list);
-static TTF_Active_Edge* ttf__insert_active_edge_first (TTF_Active_Edge_List* list);
-static TTF_Active_Edge* ttf__insert_active_edge_after (TTF_Active_Edge_List* list, TTF_Active_Edge* after);
-static void             ttf__remove_active_edge       (TTF_Active_Edge_List* list, TTF_Active_Edge* prev, TTF_Active_Edge* remove);
+static TTF_bool         ttf__active_edge_list_init     (TTF_Active_Edge_List* list);
+static void             ttf__active_edge_list_free     (TTF_Active_Edge_List* list);
+static TTF_Active_Edge* ttf__get_available_active_edge (TTF_Active_Edge_List* list);
+static TTF_Active_Edge* ttf__insert_active_edge_first  (TTF_Active_Edge_List* list);
+static TTF_Active_Edge* ttf__insert_active_edge_after  (TTF_Active_Edge_List* list, TTF_Active_Edge* after);
+static void             ttf__remove_active_edge        (TTF_Active_Edge_List* list, TTF_Active_Edge* prev, TTF_Active_Edge* remove);
+static void             ttf__swap_active_edge_with_next(TTF_Active_Edge_List* list, TTF_Active_Edge* prev, TTF_Active_Edge* edge);
 
 
 /* ------------------- */
@@ -560,6 +561,16 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
         return TTF_FALSE;
     }
 
+    for (int i = 0; i < numEdges; i++) {
+        printf("%d) (%f, %f) => (%f, %f) (%d)\n",
+               i, 
+               ttf__fix_to_float(edges[i].p0.x, 6),
+               ttf__fix_to_float(edges[i].p0.y, 6),
+               ttf__fix_to_float(edges[i].p1.x, 6),
+               ttf__fix_to_float(edges[i].p1.y, 6),
+               edges[i].dir);
+    }
+
     // Sort edges from topmost to bottom most (smallest to largest y)
     qsort(edges, numEdges, sizeof(TTF_Edge), ttf__compare_edges);
 
@@ -608,6 +619,31 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
                 }
                 
                 activeEdge = next;
+            }
+        }
+
+        {
+            // Make sure that the new x-intersections are still sorted from 
+            // least to greatest
+
+            TTF_Active_Edge* activeEdge     = activeEdgeList.headEdge;
+            TTF_Active_Edge* prevActiveEdge = NULL;
+            
+            while (activeEdge != NULL) {
+                TTF_Active_Edge* current = activeEdge;
+
+                while (TTF_TRUE) {
+                    if (current->next != NULL) {
+                        if (current->xIntersection > current->next->xIntersection) {
+                            ttf__swap_active_edge_with_next(&activeEdgeList, prevActiveEdge, current);
+                            continue;
+                        }
+                    }
+                    break;
+                }
+
+                prevActiveEdge = activeEdge;
+                activeEdge     = activeEdge->next;
             }
         }
 
@@ -1266,6 +1302,14 @@ static void ttf__remove_active_edge(TTF_Active_Edge_List* list, TTF_Active_Edge*
     remove->xIntersection = 0;
     remove->next          = list->reusableEdges;
     list->reusableEdges   = remove;
+}
+
+static void ttf__swap_active_edge_with_next(TTF_Active_Edge_List* list, TTF_Active_Edge* prev, TTF_Active_Edge* edge) {
+    assert(edge->next != NULL);
+    TTF_Active_Edge* temp = edge->next->next;
+    prev->next       = edge->next;
+    edge->next->next = edge;
+    edge->next       = temp;
 }
 
 
