@@ -120,7 +120,9 @@ typedef struct {
 } TTF_Unhinted;
 
 typedef struct {
+    TTF_uint8*   mem;
     TTF_F26Dot6* cvt;
+    TTF_int32*   storageArea;
     TTF_bool     isRotated;
     TTF_bool     isStretched;
     TTF_uint32   ppem;
