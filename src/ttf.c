@@ -464,7 +464,8 @@ void ttf_glyph_init(TTF* font, TTF_Glyph* glyph, TTF_uint32 glyphIdx) {
     glyph->idx         = glyphIdx;
     glyph->bitmapPos.x = 0;
     glyph->bitmapPos.y = 0;
-    glyph->descent     = 0;
+    glyph->offset.x    = 0;
+    glyph->offset.y    = 0;
     glyph->size.x      = 0;
     glyph->size.y      = 0;
     glyph->xAdvance    = ttf__get_glyph_x_advance(font, glyphIdx);
@@ -981,9 +982,11 @@ static void ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* point
         points[i].y  = font->cur.glyph->size.y - (points[i].y - yMin);
     }
 
-    font->cur.glyph->descent = yMax >> 6;
-    font->cur.glyph->size.x  = ttf__f26dot6_ceil(font->cur.glyph->size.x) >> 6;
-    font->cur.glyph->size.y  = ttf__f26dot6_ceil(font->cur.glyph->size.y) >> 6;
+    font->cur.glyph->offset.x = ttf__f26dot6_round(xMin) >> 6;
+    font->cur.glyph->offset.y = ttf__f26dot6_round(yMax) >> 6;
+
+    font->cur.glyph->size.x = ttf__f26dot6_ceil(font->cur.glyph->size.x) >> 6;
+    font->cur.glyph->size.y = ttf__f26dot6_ceil(font->cur.glyph->size.y) >> 6;
 }
 
 static TTF_Edge* ttf__get_glyph_edges(TTF* font, TTF_uint32* numEdges) {

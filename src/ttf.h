@@ -138,7 +138,7 @@ typedef struct {
 typedef struct {
     TTF_uint32 idx;
     TTF_uint16 xAdvance;
-    TTF_int32  descent;
+    TTF_V2     offset;
     TTF_V2     bitmapPos;
     TTF_V2     size;
 } TTF_Glyph;
