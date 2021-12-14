@@ -162,6 +162,7 @@ enum {
     TTF_FDEF      = 0x2C,
     TTF_GETINFO   = 0x88,
     TTF_GPV       = 0x0C,
+    TTF_GT        = 0x52,
     TTF_GTEQ      = 0x53,
     TTF_IDEF      = 0x89,
     TTF_IF        = 0x58,
@@ -240,6 +241,7 @@ static void ttf__EQ      (TTF* font);
 static void ttf__FDEF    (TTF* font, TTF_Ins_Stream* stream);
 static void ttf__GETINFO (TTF* font);
 static void ttf__GPV     (TTF* font);
+static void ttf__GT      (TTF* font);
 static void ttf__GTEQ    (TTF* font);
 static void ttf__IDEF    (TTF* font, TTF_Ins_Stream* stream);
 static void ttf__IF      (TTF* font, TTF_Ins_Stream* stream);
@@ -633,7 +635,9 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
                 while (TTF_TRUE) {
                     if (current->next != NULL) {
                         if (current->xIntersection > current->next->xIntersection) {
-                            ttf__swap_active_edge_with_next(&activeEdgeList, prevActiveEdge, current);
+                            ttf__swap_active_edge_with_next(
+                                &activeEdgeList, prevActiveEdge, current);
+
                             continue;
                         }
                     }
@@ -1749,6 +1753,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_GPV:
             ttf__GPV(font);
             return;
+        case TTF_GT:
+            ttf__GT(font);
+            return;
         case TTF_GTEQ:
             ttf__GTEQ(font);
             return;
@@ -2031,6 +2038,13 @@ static void ttf__GPV(TTF* font) {
     // TODO
     TTF_PRINT_INS();
     assert(0);
+}
+
+static void ttf__GT(TTF* font) {
+    TTF_PRINT_INS();
+    TTF_uint32 e2 = ttf__stack_pop_uint32(font);
+    TTF_uint32 e1 = ttf__stack_pop_uint32(font);
+    ttf__stack_push_uint32(font, e1 > e2 ? 1 : 0);
 }
 
 static void ttf__GTEQ(TTF* font) {
