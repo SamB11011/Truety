@@ -973,8 +973,8 @@ static void ttf__convert_points_to_bitmap_space(TTF* font, TTF_F26Dot6_V2* point
         }
     }
 
-    font->cur.glyph->size.x = labs(xMin) + labs(xMax);
-    font->cur.glyph->size.y = labs(yMin) + labs(yMax);
+    font->cur.glyph->size.x = labs(xMax - xMin);
+    font->cur.glyph->size.y = labs(yMax - yMin);
 
     for (TTF_uint32 i = 0; i < font->cur.numPoints; i++) {
         points[i].x -= xMin;
