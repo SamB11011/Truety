@@ -344,10 +344,6 @@ static TTF_uint16 ttf__get_storage_area_size      (TTF* font);
 #define TTF_FIX_MUL(a, b, shift)\
     TTF_ROUNDED_DIV_POW2((TTF_uint64)(a) * (TTF_uint64)(b), shift)
 
-/* The result has a scale factor of 1 << (shift(a) - shift(b) + shift) */
-#define TTF_FIX_DIV_NO_ROUND(a, b, shift)\
-    ((((TTF_int64)(a) << 31) / (b)) >> (31 - (shift)))
-
 static TTF_int64   ttf__rounded_div   (TTF_int64 a, TTF_int64 b);
 static TTF_int32   ttf__fix_div       (TTF_int32 a, TTF_int32 b, TTF_uint8 shift);
 static void        ttf__fix_v2_add    (TTF_Fix_V2* a, TTF_Fix_V2* b, TTF_Fix_V2* result);
@@ -1968,9 +1964,10 @@ static void ttf__CALL(TTF* font) {
 
 static void ttf__CINDEX(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
-    TTF_uint32 idx = ttf__stack_pop_uint32(font);
-    ttf__stack_push_uint32(font, font->stack.frames[idx].uValue);
-    TTF_LOG_VALUE(font->stack.frames[idx].uValue, TTF_LOG_LEVEL_VERBOSE);
+    TTF_uint32 pos = ttf__stack_pop_uint32(font);
+    TTF_uint32 val = font->stack.frames[font->stack.count - pos].uValue;
+    ttf__stack_push_uint32(font, val);
+    TTF_LOG_VALUE(val, TTF_LOG_LEVEL_VERBOSE);
 }
 
 static void ttf__DELTAC1(TTF* font) {
@@ -2042,7 +2039,7 @@ static void ttf__DIV(TTF* font) {
     TTF_F26Dot6 n1 = ttf__stack_pop_F26Dot6(font);
     TTF_F26Dot6 n2 = ttf__stack_pop_F26Dot6(font);
     assert(n1 != 0);
-    TTF_F26Dot6 result = TTF_FIX_DIV_NO_ROUND(n2, n1, 6);
+    TTF_F26Dot6 result = ttf__fix_div(n2, n1, 6);
     ttf__stack_push_F26Dot6(font, result);
     TTF_LOG_VALUE(result, TTF_LOG_LEVEL_MINIMAL);
 }
@@ -2081,7 +2078,7 @@ static void ttf__FLOOR(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_MINIMAL);
     TTF_F26Dot6 val = ttf__stack_pop_F26Dot6(font);
     ttf__stack_push_F26Dot6(font, ttf__f26dot6_floor(val));
-    TTF_LOG_VALUE(val, TTF_LOG_LEVEL_MINIMAL);
+    TTF_LOG_VALUE(ttf__f26dot6_floor(val), TTF_LOG_LEVEL_MINIMAL);
 }
 
 static void ttf__GETINFO(TTF* font) {
@@ -2759,8 +2756,8 @@ static void ttf__SWAP(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
     TTF_uint32 e2 = ttf__stack_pop_uint32(font);
     TTF_uint32 e1 = ttf__stack_pop_uint32(font);
-    ttf__stack_push_uint32(font, e1);
     ttf__stack_push_uint32(font, e2);
+    ttf__stack_push_uint32(font, e1);
 }
 
 static void ttf__WCVTF(TTF* font) {
