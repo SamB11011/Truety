@@ -208,6 +208,7 @@ enum {
     TTF_SCVTCI    = 0x1D,
     TTF_SDB       = 0x5E,
     TTF_SDS       = 0x5F,
+    TTF_SHPIX     = 0x38,
     TTF_SRP0      = 0x10,
     TTF_SRP1      = 0x11,
     TTF_SRP2      = 0x12,
@@ -294,6 +295,7 @@ static void ttf__SCANTYPE(TTF* font);
 static void ttf__SCVTCI  (TTF* font);
 static void ttf__SDB     (TTF* font);
 static void ttf__SDS     (TTF* font);
+static void ttf__SHPIX   (TTF* font);
 static void ttf__SRP0    (TTF* font);
 static void ttf__SRP1    (TTF* font);
 static void ttf__SRP2    (TTF* font);
@@ -480,15 +482,15 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
             size_t touchSize = instance->zone0.cap * sizeof(TTF_Touch_Flag);
             size_t off       = 0;
 
-            instance->zone0.mem = malloc(3 * ptsSize + touchSize);
+            instance->zone0.mem = malloc(2 * ptsSize + touchSize);
             if (instance->zone0.mem == NULL) {
                 return TTF_FALSE;
             }
 
-            instance->zone0.org        = (TTF_F26Dot6_V2*)(instance->zone0.mem);
-            instance->zone0.cur        = (TTF_F26Dot6_V2*)(instance->zone0.mem + (off += ptsSize));
+            instance->zone0.cur        = (TTF_F26Dot6_V2*)(instance->zone0.mem);
             instance->zone0.orgScaled  = (TTF_F26Dot6_V2*)(instance->zone0.mem + (off += ptsSize));
             instance->zone0.touchFlags = (TTF_Touch_Flag*)(instance->zone0.mem + (off += ptsSize));
+            instance->zone0.org        = NULL;
             instance->zone0.pointTypes = NULL;
         }
 
@@ -1720,7 +1722,7 @@ static void ttf__execute_cv_program(TTF* font) {
         // data is initialized to 0s."
         size_t ptsSize   = font->cur.instance->zone0.cap * sizeof(TTF_F26Dot6_V2);
         size_t touchSize = font->cur.instance->zone0.cap * sizeof(TTF_Touch_Flag);
-        memset(font->cur.instance->zone0.mem, 0, 3 * ptsSize + touchSize);
+        memset(font->cur.instance->zone0.mem, 0, 2 * ptsSize + touchSize);
     }
 
     TTF_Ins_Stream stream;
@@ -1903,6 +1905,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
             return;
         case TTF_SDS:
             ttf__SDS(font);
+            return;
+        case TTF_SHPIX:
+            ttf__SHPIX(font);
             return;
         case TTF_SRP0:
             ttf__SRP0(font);
@@ -2528,9 +2533,13 @@ static void ttf__MIAP(TTF* font, TTF_uint8 ins) {
     TTF_F26Dot6 newDist = font->cur.instance->cvt[cvtIdx];
 
     if (font->gState.zp0 == &font->cur.instance->zone0) {
-        font->gState.zp0->org[pointIdx].x = TTF_FIX_MUL(newDist, font->gState.freedomVec.x, 14);
-        font->gState.zp0->org[pointIdx].y = TTF_FIX_MUL(newDist, font->gState.freedomVec.y, 14);
-        font->gState.zp0->cur[pointIdx]   = font->gState.zp0->org[pointIdx];
+        font->gState.zp0->orgScaled[pointIdx].x = 
+            TTF_FIX_MUL(newDist, font->gState.freedomVec.x, 14);
+
+        font->gState.zp0->orgScaled[pointIdx].y = 
+            TTF_FIX_MUL(newDist, font->gState.freedomVec.y, 14);
+
+        font->gState.zp0->cur[pointIdx] = font->gState.zp0->orgScaled[pointIdx];
     }
 
     TTF_F26Dot6 curDist = 
@@ -2821,7 +2830,6 @@ static void ttf__SCANCTRL(TTF* font) {
     TTF_LOG_VALUE(font->gState.scanControl, TTF_LOG_LEVEL_MINIMAL);
 }
 
-// TODO: This is the new default
 static void ttf__SCANTYPE(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
     font->gState.scanType = ttf__stack_pop_uint32(font);
@@ -2844,6 +2852,11 @@ static void ttf__SDS(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
     font->gState.deltaShift = ttf__stack_pop_uint32(font);
     TTF_LOG_VALUE(font->gState.deltaShift, TTF_LOG_LEVEL_VERBOSE);
+}
+
+static void ttf__SHPIX(TTF* font) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_MINIMAL);
+    assert(0);
 }
 
 static void ttf__SRP0(TTF* font) {
