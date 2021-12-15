@@ -84,9 +84,8 @@ typedef struct {
     TTF_V2*         org;
     TTF_F26Dot6_V2* orgScaled;
     TTF_F26Dot6_V2* cur;
-    TTF_Touch_Flag* curTouchFlags;
+    TTF_Touch_Flag* touchFlags;
     TTF_Point_Type* pointTypes;
-    TTF_uint32      count;
     TTF_uint32      cap;
 } TTF_Zone;
 
@@ -121,6 +120,7 @@ typedef struct {
 } TTF_Unhinted;
 
 typedef struct {
+    TTF_Zone           zone0;
     TTF_uint8*         mem;
     TTF_F26Dot6*       cvt;
     TTF_int32*         storageArea;
@@ -147,7 +147,7 @@ typedef struct {
 
 typedef struct {
     union {
-        TTF_Zone     zones[2];
+        TTF_Zone     zone1;
         TTF_Unhinted unhinted;
     };
 
