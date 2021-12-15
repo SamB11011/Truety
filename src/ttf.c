@@ -175,6 +175,8 @@ enum {
     TTF_LOOPCALL  = 0x2A,
     TTF_LT        = 0x50,
     TTF_LTEQ      = 0x51,
+    TTF_MD        = 0x49,
+    TTF_MD_MAX    = 0x4A,
     TTF_MDAP      = 0x2E,
     TTF_MDAP_MAX  = 0x2F,
     TTF_MDRP      = 0xC0,
@@ -262,6 +264,7 @@ static void ttf__IUP     (TTF* font, TTF_uint8 ins);
 static void ttf__LOOPCALL(TTF* font);
 static void ttf__LT      (TTF* font);
 static void ttf__LTEQ    (TTF* font);
+static void ttf__MD      (TTF* font, TTF_uint8 ins);
 static void ttf__MDAP    (TTF* font, TTF_uint8 ins);
 static void ttf__MDRP    (TTF* font, TTF_uint8 ins);
 static void ttf__MIAP    (TTF* font, TTF_uint8 ins);
@@ -1909,6 +1912,10 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         ttf__IUP(font, ins);
         return;
     }
+    else if (ins >= TTF_MD && ins <= TTF_MD_MAX) {
+        ttf__MD(font, ins);
+        return;
+    }
     else if (ins >= TTF_MDAP && ins <= TTF_MDAP_MAX) {
         ttf__MDAP(font, ins);
         return;
@@ -2317,6 +2324,42 @@ static void ttf__LTEQ(TTF* font) {
     TTF_uint32 e1 = ttf__stack_pop_uint32(font);
     ttf__stack_push_uint32(font, e1 <= e2 ? 1 : 0);
     TTF_LOG_VALUE(e1 <= e2, TTF_LOG_LEVEL_VERBOSE);
+}
+
+static void ttf__MD(TTF* font, TTF_uint8 ins) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_MINIMAL);
+    
+    TTF_uint32  pointIdx0 = ttf__stack_pop_uint32(font);
+    TTF_uint32  pointIdx1 = ttf__stack_pop_uint32(font);
+    TTF_F26Dot6 dist;
+
+    if (ins & 0x1) {
+        dist = ttf__fix_v2_sub_dot(
+            font->gState.zp0->orgScaled + pointIdx1, font->gState.zp1->orgScaled + pointIdx0, 
+            &font->gState.dualProjVec, 14);
+    }
+    else {
+        TTF_bool isTwilightZone =
+            font->gState.zp0 == font->cur.zones ||
+            font->gState.zp1 == font->cur.zones;
+
+        if (isTwilightZone) {
+            dist = ttf__fix_v2_sub_dot(
+                font->gState.zp0->cur + pointIdx1, font->gState.zp1->cur + pointIdx0, 
+                &font->gState.projVec, 14);
+        }
+        else {
+            dist = ttf__fix_v2_sub_dot(
+                font->gState.zp0->org + pointIdx1, font->gState.zp1->org + pointIdx0,
+                &font->gState.dualProjVec, 14);
+
+            dist = TTF_FIX_MUL(dist, font->cur.instance->scale, 22);
+        }
+    }
+
+    ttf__stack_push_F26Dot6(font, dist);
+
+    TTF_LOG_VALUE(dist, TTF_LOG_LEVEL_MINIMAL);
 }
 
 static void ttf__MDAP(TTF* font, TTF_uint8 ins) {
