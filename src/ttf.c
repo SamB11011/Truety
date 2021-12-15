@@ -141,6 +141,7 @@ static void      ttf__ins_stream_skip(TTF_Ins_Stream* stream, TTF_uint32 count);
 enum {
     TTF_ABS       = 0x64,
     TTF_ADD       = 0x60,
+    TTF_ALIGNRP   = 0x3C,
     TTF_AND       = 0x5A,
     TTF_CALL      = 0x2B,
     TTF_CINDEX    = 0x25,
@@ -218,6 +219,7 @@ enum {
     TTF_SWAP      = 0x23,
     TTF_SZPS      = 0x16,
     TTF_SZP0      = 0x13,
+    TTF_SZP1      = 0x14,
     TTF_WCVTF     = 0x70,
     TTF_WCVTP     = 0x44,
     TTF_WS        = 0x42,
@@ -239,6 +241,7 @@ static void     ttf__execute_ins          (TTF* font, TTF_Ins_Stream* stream, TT
 
 static void ttf__ABS     (TTF* font);
 static void ttf__ADD     (TTF* font);
+static void ttf__ALIGNRP (TTF* font);
 static void ttf__AND     (TTF* font);
 static void ttf__CALL    (TTF* font);
 static void ttf__CINDEX  (TTF* font);
@@ -304,6 +307,7 @@ static void ttf__SVTCA   (TTF* font, TTF_uint8 ins);
 static void ttf__SWAP    (TTF* font);
 static void ttf__SZPS    (TTF* font);
 static void ttf__SZP0    (TTF* font);
+static void ttf__SZP1    (TTF* font);
 static void ttf__WCVTF   (TTF* font);
 static void ttf__WCVTP   (TTF* font);
 static void ttf__WS      (TTF* font);
@@ -338,6 +342,7 @@ static TTF_int16  ttf__get_glyph_left_side_bearing(TTF* font, TTF_uint32 glyphId
 static void       ttf__get_glyph_vmetrics         (TTF* font, TTF_uint8* glyfBlock, TTF_int32* ah, TTF_int32* tsb);
 static TTF_uint16 ttf__get_cvt_cap                (TTF* font);
 static TTF_uint16 ttf__get_storage_area_cap       (TTF* font);
+static TTF_Zone*  ttf__get_zone_pointer           (TTF* font, TTF_uint32 zone);
 
 
 /* ---------------- */
@@ -1774,6 +1779,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_ADD:
             ttf__ADD(font);
             return;
+        case TTF_ALIGNRP:
+            ttf__ALIGNRP(font);
+            return;
         case TTF_AND:
             ttf__AND(font);
             return;
@@ -1930,6 +1938,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_SZP0:
             ttf__SZP0(font);
             return;
+        case TTF_SZP1:
+            ttf__SZP1(font);
+            return;
         case TTF_WCVTF:
             ttf__WCVTF(font);
             return;
@@ -2003,6 +2014,11 @@ static void ttf__ADD(TTF* font) {
     TTF_F26Dot6 n2 = ttf__stack_pop_F26Dot6(font);
     ttf__stack_push_F26Dot6(font, n1 + n2);
     TTF_LOG_VALUE(n1 + n2, TTF_LOG_LEVEL_VERBOSE);
+}
+
+static void ttf__ALIGNRP(TTF* font) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_MINIMAL);
+    assert(0);
 }
 
 static void ttf__AND(TTF* font) {
@@ -2319,6 +2335,8 @@ static void ttf__IP(TTF* font) {
 
         TTF_LOG_POINT(*pointCur, TTF_LOG_LEVEL_MINIMAL);
     }
+
+    font->gState.loop = 1;
 }
 
 static void ttf__IUP(TTF* font, TTF_uint8 ins) {
@@ -2856,7 +2874,26 @@ static void ttf__SDS(TTF* font) {
 
 static void ttf__SHPIX(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_MINIMAL);
-    assert(0);
+    
+    TTF_F26Dot6_V2 dist;
+    {
+        TTF_F26Dot6 amt = ttf__stack_pop_F26Dot6(font);
+        dist.x = TTF_FIX_MUL(amt, font->gState.freedomVec.x, 14);
+        dist.y = TTF_FIX_MUL(amt, font->gState.freedomVec.y, 14);
+    }
+
+    for (TTF_uint32 i = 0; i < font->gState.loop; i++) {
+        TTF_uint32 pointIdx = ttf__stack_pop_uint32(font);
+        assert(pointIdx <= font->gState.zp2->cap);
+
+        font->gState.zp2->cur[pointIdx].x      += dist.x;
+        font->gState.zp2->cur[pointIdx].y      += dist.y;
+        font->gState.zp2->touchFlags[pointIdx] |= font->gState.touchFlags;
+
+        TTF_LOG_POINT(font->gState.zp2->cur[pointIdx], TTF_LOG_LEVEL_MINIMAL);
+    }
+
+    font->gState.loop = 1;
 }
 
 static void ttf__SRP0(TTF* font) {
@@ -2913,44 +2950,24 @@ static void ttf__SWAP(TTF* font) {
 
 static void ttf__SZPS(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
-    
     TTF_uint32 zone = ttf__stack_pop_uint32(font);
-
-    switch (zone) {
-        case 0:
-            font->gState.zp0 = &font->cur.instance->zone0;
-            break;
-        case 1:
-            font->gState.zp0 = &font->cur.zone1;
-            break;
-        default:
-            assert(0);
-            break;
-    }
-    
+    font->gState.zp0 = ttf__get_zone_pointer(font, zone);
     font->gState.zp1 = font->gState.zp0;
     font->gState.zp2 = font->gState.zp0;
-
     TTF_LOG_VALUE(zone, TTF_LOG_LEVEL_VERBOSE);
 }
 
 static void ttf__SZP0(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
-    
     TTF_uint32 zone = ttf__stack_pop_uint32(font);
+    font->gState.zp0 = ttf__get_zone_pointer(font, zone);
+    TTF_LOG_VALUE(zone, TTF_LOG_LEVEL_VERBOSE);
+}
 
-    switch (zone) {
-        case 0:
-            font->gState.zp0 = &font->cur.instance->zone0;
-            break;
-        case 1:
-            font->gState.zp0 = &font->cur.zone1;
-            break;
-        default:
-            assert(0);
-            break;
-    }
-
+static void ttf__SZP1(TTF* font) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
+    TTF_uint32 zone = ttf__stack_pop_uint32(font);
+    font->gState.zp1 = ttf__get_zone_pointer(font, zone);
     TTF_LOG_VALUE(zone, TTF_LOG_LEVEL_VERBOSE);
 }
 
@@ -3285,6 +3302,17 @@ static TTF_uint16 ttf__get_cvt_cap(TTF* font) {
 static TTF_uint16 ttf__get_storage_area_cap(TTF* font) {
     // TODO: make sure maxp has version 1.0
     return ttf__get_uint16(font->data + font->maxp.off + 18);   
+}
+
+static TTF_Zone* ttf__get_zone_pointer(TTF* font, TTF_uint32 zone) {
+    switch (zone) {
+        case 0:
+            return &font->cur.instance->zone0;
+        case 1:
+            return &font->cur.zone1;
+    }
+    assert(0);
+    return NULL;
 }
 
 
