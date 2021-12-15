@@ -129,7 +129,7 @@ typedef struct {
 
 static void      ttf__ins_stream_init(TTF_Ins_Stream* stream, TTF_uint8* bytes);
 static TTF_uint8 ttf__ins_stream_next(TTF_Ins_Stream* stream);
-static void      ttf__ins_stream_skip(TTF_Ins_Stream* stream, TTF_uint32 count);
+static void      ttf__ins_stream_jump(TTF_Ins_Stream* stream, TTF_int32 count);
 
 
 /* --------------------- */
@@ -171,6 +171,7 @@ enum {
     TTF_IP        = 0x39,
     TTF_IUP       = 0x30,
     TTF_IUP_MAX   = 0x31,
+    TTF_JROT      = 0x78,
     TTF_LOOPCALL  = 0x2A,
     TTF_LT        = 0x50,
     TTF_LTEQ      = 0x51,
@@ -269,6 +270,7 @@ static void ttf__IDEF    (TTF* font, TTF_Ins_Stream* stream);
 static void ttf__IF      (TTF* font, TTF_Ins_Stream* stream);
 static void ttf__IP      (TTF* font);
 static void ttf__IUP     (TTF* font, TTF_uint8 ins);
+static void ttf__JROT    (TTF* font, TTF_Ins_Stream* stream);
 static void ttf__LOOPCALL(TTF* font);
 static void ttf__LT      (TTF* font);
 static void ttf__LTEQ    (TTF* font);
@@ -1700,7 +1702,7 @@ static TTF_uint8 ttf__ins_stream_next(TTF_Ins_Stream* stream) {
     return stream->bytes[stream->off++];
 }
 
-static void ttf__ins_stream_skip(TTF_Ins_Stream* stream, TTF_uint32 count) {
+static void ttf__ins_stream_jump(TTF_Ins_Stream* stream, TTF_int32 count) {
     stream->off += count;
 }
 
@@ -1849,6 +1851,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
             return;
         case TTF_IP:
             ttf__IP(font);
+            return;
+        case TTF_JROT:
+            ttf__JROT(font, stream);
             return;
         case TTF_LOOPCALL:
             ttf__LOOPCALL(font);
@@ -2425,6 +2430,21 @@ static void ttf__IUP(TTF* font, TTF_uint8 ins) {
 
     for (int i = 0; i < font->cur.numPoints; i++) {
         printf("%d) (%d, %d)\n", i, font->cur.zone1.cur[i].x, font->cur.zone1.cur[i].y);
+    }
+}
+
+static void ttf__JROT(TTF* font, TTF_Ins_Stream* stream) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
+    
+    TTF_uint32 val = ttf__stack_pop_uint32(font);
+    TTF_int32  off = ttf__stack_pop_int32(font); 
+
+    if (val != 0) {
+        ttf__ins_stream_jump(stream, off - 1);
+        TTF_LOG_VALUE(val, TTF_LOG_LEVEL_VERBOSE);
+    }
+    else {
+        TTF_LOG_VALUE(0, TTF_LOG_LEVEL_VERBOSE);
     }
 }
 
@@ -3083,16 +3103,16 @@ static TTF_uint8 ttf__jump_to_else_or_eif(TTF_Ins_Stream* stream) {
         TTF_uint8 ins = ttf__ins_stream_next(stream);
 
         if (ins >= TTF_PUSHB && ins <= TTF_PUSHB_MAX) {
-            ttf__ins_stream_skip(stream, ttf__get_num_vals_to_push(ins));
+            ttf__ins_stream_jump(stream, ttf__get_num_vals_to_push(ins));
         }
         else if (ins >= TTF_PUSHW && ins <= TTF_PUSHW_MAX) {
-            ttf__ins_stream_skip(stream, 2 * ttf__get_num_vals_to_push(ins));
+            ttf__ins_stream_jump(stream, 2 * ttf__get_num_vals_to_push(ins));
         }
         else if (ins == TTF_NPUSHB) {
-            ttf__ins_stream_skip(stream, ttf__ins_stream_next(stream));
+            ttf__ins_stream_jump(stream, ttf__ins_stream_next(stream));
         }
         else if (ins == TTF_NPUSHW) {
-            ttf__ins_stream_skip(stream, 2 * ttf__ins_stream_next(stream));
+            ttf__ins_stream_jump(stream, 2 * ttf__ins_stream_next(stream));
         }
         else if (ins == TTF_IF) {
             numNested++;
