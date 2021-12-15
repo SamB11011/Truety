@@ -163,6 +163,8 @@ enum {
     TTF_EQ        = 0x54,
     TTF_FDEF      = 0x2C,
     TTF_FLOOR     = 0x66,
+    TTF_GC        = 0x46,
+    TTF_GC_MAX    = 0x47,
     TTF_GETINFO   = 0x88,
     TTF_GPV       = 0x0C,
     TTF_GT        = 0x52,
@@ -253,6 +255,7 @@ static void ttf__DUP     (TTF* font);
 static void ttf__EQ      (TTF* font);
 static void ttf__FDEF    (TTF* font, TTF_Ins_Stream* stream);
 static void ttf__FLOOR   (TTF* font);
+static void ttf__GC      (TTF* font, TTF_uint8 ins);
 static void ttf__GETINFO (TTF* font);
 static void ttf__GPV     (TTF* font);
 static void ttf__GT      (TTF* font);
@@ -1908,7 +1911,11 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
             return;
     }
 
-    if (ins >= TTF_IUP && ins <= TTF_IUP_MAX) {
+    if (ins >= TTF_GC && ins <= TTF_GC_MAX) {
+        ttf__GC(font, ins);
+        return;
+    }
+    else if (ins >= TTF_IUP && ins <= TTF_IUP_MAX) {
         ttf__IUP(font, ins);
         return;
     }
@@ -2091,6 +2098,22 @@ static void ttf__FLOOR(TTF* font) {
     TTF_F26Dot6 val = ttf__stack_pop_F26Dot6(font);
     ttf__stack_push_F26Dot6(font, ttf__f26dot6_floor(val));
     TTF_LOG_VALUE(ttf__f26dot6_floor(val), TTF_LOG_LEVEL_MINIMAL);
+}
+
+static void ttf__GC(TTF* font, TTF_uint8 ins) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_MINIMAL);
+
+    TTF_uint32  pointIdx = ttf__stack_pop_uint32(font);
+    TTF_F26Dot6 value;
+
+    if (ins & 0x1) {
+        value = ttf__fix_v2_dot(font->gState.zp2->cur + pointIdx, &font->gState.projVec, 14);
+    }
+    else {
+        value = ttf__fix_v2_dot(font->gState.zp2->orgScaled + pointIdx, &font->gState.projVec, 14);
+    }
+
+    TTF_LOG_VALUE(value, TTF_LOG_LEVEL_MINIMAL);
 }
 
 static void ttf__GETINFO(TTF* font) {
