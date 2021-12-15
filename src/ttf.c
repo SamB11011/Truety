@@ -214,6 +214,7 @@ enum {
     TTF_SVTCA     = 0x00,
     TTF_SVTCA_MAX = 0x01,
     TTF_SWAP      = 0x23,
+    TTF_SZPS      = 0x16,
     TTF_WCVTF     = 0x70,
     TTF_WCVTP     = 0x44,
     TTF_WS        = 0x42,
@@ -292,6 +293,7 @@ static void ttf__SRP2    (TTF* font);
 static void ttf__SUB     (TTF* font);
 static void ttf__SVTCA   (TTF* font, TTF_uint8 ins);
 static void ttf__SWAP    (TTF* font);
+static void ttf__SZPS    (TTF* font);
 static void ttf__WCVTF   (TTF* font);
 static void ttf__WCVTP   (TTF* font);
 static void ttf__WS      (TTF* font);
@@ -1889,6 +1891,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_SWAP:
             ttf__SWAP(font);
             return;
+        case TTF_SZPS:
+            ttf__SZPS(font);
+            return;
         case TTF_WCVTF:
             ttf__WCVTF(font);
             return;
@@ -2758,6 +2763,16 @@ static void ttf__SWAP(TTF* font) {
     TTF_uint32 e1 = ttf__stack_pop_uint32(font);
     ttf__stack_push_uint32(font, e2);
     ttf__stack_push_uint32(font, e1);
+}
+
+static void ttf__SZPS(TTF* font) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
+    TTF_uint32 zone = ttf__stack_pop_uint32(font);
+    assert(zone == 0 || zone == 1);
+    font->gState.zp0 = font->cur.zones + zone;
+    font->gState.zp1 = font->gState.zp0;
+    font->gState.zp2 = font->gState.zp1;
+    TTF_LOG_VALUE(zone, TTF_LOG_LEVEL_VERBOSE);
 }
 
 static void ttf__WCVTF(TTF* font) {
