@@ -342,12 +342,9 @@ static TTF_uint16 ttf__get_storage_area_cap       (TTF* font);
 /* Fixed-point Math */
 /* ---------------- */
 
-/* 
- * The proof:
- *     round(x/y) = floor(x/y + 0.5) = floor((x + y/2)/y) = shift-of-n(x + 2^(n-1))
- *
- *     https://en.wikipedia.org/wiki/Fixed-point_arithmetic
- */
+/* The proof:
+      round(x/y) = floor(x/y + 0.5) = floor((x + y/2)/y) = shift-of-n(x + 2^(n-1))
+      https://en.wikipedia.org/wiki/Fixed-point_arithmetic */
 #define TTF_ROUNDED_DIV_POW2(a, shift) \
     (((a) + (1l << ((shift) - 1))) >> (shift))
 
