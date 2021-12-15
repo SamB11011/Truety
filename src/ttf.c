@@ -118,12 +118,12 @@ static void     ttf__zone_free(TTF_Zone* zone);
 #define ttf__stack_pop_F2Dot14(font)       ttf__stack_pop_int32(font)
 #define ttf__stack_pop_F26Dot6(font)       ttf__stack_pop_int32(font)
 
-static void        ttf__stack_push_uint32   (TTF* font, TTF_uint32 val);
-static void        ttf__stack_push_int32    (TTF* font, TTF_int32  val);
-static TTF_uint32  ttf__stack_pop_uint32    (TTF* font);
-static TTF_int32   ttf__stack_pop_int32     (TTF* font);
-static void        ttf__stack_clear         (TTF* font);
-static TTF_uint8   ttf__get_num_vals_to_push(TTF_uint8 ins); /* For PUSHB and PUSHW */
+static void       ttf__stack_push_uint32   (TTF* font, TTF_uint32 val);
+static void       ttf__stack_push_int32    (TTF* font, TTF_int32  val);
+static TTF_uint32 ttf__stack_pop_uint32    (TTF* font);
+static TTF_int32  ttf__stack_pop_int32     (TTF* font);
+static void       ttf__stack_clear         (TTF* font);
+static TTF_uint8  ttf__get_num_vals_to_push(TTF_uint8 ins); /* For PUSHB and PUSHW */
 
 
 /* ----------------------------- */
@@ -375,6 +375,8 @@ static TTF_F26Dot6 ttf__f26dot6_floor (TTF_F26Dot6 val);
 #define TTF_LOG_LEVEL          TTF_LOG_LEVEL_VERBOSE
 
 #ifdef TTF_DEBUG
+    static int count = 0;
+
     #define TTF_LOG_UNKNOWN_INS(ins)\
         if (TTF_LOG_LEVEL_CRITICAL >= TTF_LOG_LEVEL) printf("Unknown instruction: %#X\n", ins)
 
@@ -382,7 +384,7 @@ static TTF_F26Dot6 ttf__f26dot6_floor (TTF_F26Dot6 val);
         if (TTF_LOG_LEVEL_MINIMAL >= TTF_LOG_LEVEL) printf("\n--- %s ---\n", program)
 
     #define TTF_LOG_INS(level)\
-        if (level >= TTF_LOG_LEVEL) printf("%s\n", __func__ + 5)
+        if (level >= TTF_LOG_LEVEL) printf("%d) %s\n", count++, __func__ + 5)
 
     #define TTF_LOG_POINT(point, level)\
         if (level >= TTF_LOG_LEVEL) printf("\t(%d, %d)\n", (point).x, (point).y)
@@ -2058,7 +2060,23 @@ static void ttf__DIV(TTF* font) {
     TTF_F26Dot6 n1 = ttf__stack_pop_F26Dot6(font);
     TTF_F26Dot6 n2 = ttf__stack_pop_F26Dot6(font);
     assert(n1 != 0);
-    TTF_F26Dot6 result = ttf__fix_div(n2, n1, 6);
+
+    TTF_bool isNeg = TTF_FALSE;
+    
+    if (n2 < 0) {
+        n2    = -n2;
+        isNeg = TTF_TRUE;
+    }
+    if (n1 < 0) {
+        n1    = -n1;
+        isNeg = !isNeg;
+    }
+
+    TTF_F26Dot6 result = ((TTF_int64)n2 << 6) / n1;
+    if (isNeg) {
+        result = -result;
+    }
+
     ttf__stack_push_F26Dot6(font, result);
     TTF_LOG_VALUE(result, TTF_LOG_LEVEL_MINIMAL);
 }
@@ -2073,8 +2091,8 @@ static void ttf__DUP(TTF* font) {
 
 static void ttf__EQ(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
-    TTF_uint32 e2 = ttf__stack_pop_uint32(font);
-    TTF_uint32 e1 = ttf__stack_pop_uint32(font);
+    TTF_int32 e2 = ttf__stack_pop_uint32(font);
+    TTF_int32 e1 = ttf__stack_pop_uint32(font);
     ttf__stack_push_uint32(font, e1 == e2 ? 1 : 0);
     TTF_LOG_VALUE(e1 == e2, TTF_LOG_LEVEL_VERBOSE);
 }
@@ -2159,16 +2177,16 @@ static void ttf__GPV(TTF* font) {
 
 static void ttf__GT(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
-    TTF_uint32 e2 = ttf__stack_pop_uint32(font);
-    TTF_uint32 e1 = ttf__stack_pop_uint32(font);
+    TTF_int32 e2 = ttf__stack_pop_uint32(font);
+    TTF_int32 e1 = ttf__stack_pop_uint32(font);
     ttf__stack_push_uint32(font, e1 > e2 ? 1 : 0);
     TTF_LOG_VALUE(e1 > e2, TTF_LOG_LEVEL_VERBOSE);
 }
 
 static void ttf__GTEQ(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
-    TTF_uint32 e2 = ttf__stack_pop_uint32(font);
-    TTF_uint32 e1 = ttf__stack_pop_uint32(font);
+    TTF_int32 e2 = ttf__stack_pop_uint32(font);
+    TTF_int32 e1 = ttf__stack_pop_uint32(font);
     ttf__stack_push_uint32(font, e1 >= e2 ? 1 : 0);
     TTF_LOG_VALUE(e1 >= e2, TTF_LOG_LEVEL_VERBOSE);
 }
@@ -2335,18 +2353,20 @@ static void ttf__LOOPCALL(TTF* font) {
 
 static void ttf__LT(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
-    TTF_uint32 e2 = ttf__stack_pop_uint32(font);
-    TTF_uint32 e1 = ttf__stack_pop_uint32(font);
+    TTF_int32 e2 = ttf__stack_pop_uint32(font);
+    TTF_int32 e1 = ttf__stack_pop_uint32(font);
     ttf__stack_push_uint32(font, e1 < e2 ? 1 : 0);
     TTF_LOG_VALUE(e1 < e2, TTF_LOG_LEVEL_VERBOSE);
+    printf("\t%d < %d\n", e1, e2);
 }
 
 static void ttf__LTEQ(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
-    TTF_uint32 e2 = ttf__stack_pop_uint32(font);
-    TTF_uint32 e1 = ttf__stack_pop_uint32(font);
+    TTF_int32 e2 = ttf__stack_pop_uint32(font);
+    TTF_int32 e1 = ttf__stack_pop_uint32(font);
     ttf__stack_push_uint32(font, e1 <= e2 ? 1 : 0);
     TTF_LOG_VALUE(e1 <= e2, TTF_LOG_LEVEL_VERBOSE);
+    printf("\t%d <= %d\n", e1, e2);
 }
 
 static void ttf__MD(TTF* font, TTF_uint8 ins) {
@@ -2594,8 +2614,8 @@ static void ttf__MUL(TTF* font) {
 
 static void ttf__NEQ(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
-    TTF_uint32 e2 = ttf__stack_pop_uint32(font);
-    TTF_uint32 e1 = ttf__stack_pop_uint32(font);
+    TTF_int32 e2 = ttf__stack_pop_uint32(font);
+    TTF_int32 e1 = ttf__stack_pop_uint32(font);
     ttf__stack_push_uint32(font, e1 != e2 ? 1 : 0);
     TTF_LOG_VALUE(e1 != e2, TTF_LOG_LEVEL_VERBOSE);
 }
@@ -2926,32 +2946,28 @@ static TTF_uint8 ttf__jump_to_else_or_eif(TTF_Ins_Stream* stream) {
     while (TTF_TRUE) {
         TTF_uint8 ins = ttf__ins_stream_next(stream);
 
-        switch (ins) {
-            case TTF_PUSHB:
-                ttf__ins_stream_skip(stream, ttf__get_num_vals_to_push(ins));
-                break;
-            case TTF_PUSHW:
-                ttf__ins_stream_skip(stream, 2 * ttf__get_num_vals_to_push(ins));
-                break;
-            case TTF_NPUSHB:
-                ttf__ins_stream_skip(stream, ttf__ins_stream_next(stream));
-                break;
-            case TTF_NPUSHW:
-                ttf__ins_stream_skip(stream, 2 * ttf__ins_stream_next(stream));
-                break;
-            case TTF_IF:
-                numNested++;
-                break;
-            default:
-                if (numNested == 0){
-                    if (ins == TTF_EIF || ins == TTF_ELSE) {
-                        return ins;
-                    }
-                }
-                else if (ins == TTF_EIF) {
-                    numNested--;
-                }
-                break;
+        if (ins >= TTF_PUSHB && ins <= TTF_PUSHB_MAX) {
+            ttf__ins_stream_skip(stream, ttf__get_num_vals_to_push(ins));
+        }
+        else if (ins >= TTF_PUSHW && ins <= TTF_PUSHW_MAX) {
+            ttf__ins_stream_skip(stream, 2 * ttf__get_num_vals_to_push(ins));
+        }
+        else if (ins == TTF_NPUSHB) {
+            ttf__ins_stream_skip(stream, ttf__ins_stream_next(stream));
+        }
+        else if (ins == TTF_NPUSHW) {
+            ttf__ins_stream_skip(stream, 2 * ttf__ins_stream_next(stream));
+        }
+        else if (ins == TTF_IF) {
+            numNested++;
+        }
+        else if (numNested == 0) {
+            if (ins == TTF_EIF || ins == TTF_ELSE) {
+                return ins;
+            }
+        }
+        else if (ins == TTF_EIF) {
+            numNested--;
         }
     }
 
