@@ -145,6 +145,7 @@ static void      ttf__ins_stream_skip(TTF_Ins_Stream* stream, TTF_uint32 count);
 #define TTF_SCALAR_VERSION 35
 
 enum {
+    TTF_ABS       = 0x64,
     TTF_ADD       = 0x60,
     TTF_AND       = 0x5A,
     TTF_CALL      = 0x2B,
@@ -190,6 +191,7 @@ enum {
     TTF_MIRP_MAX  = 0xFF,
     TTF_MPPEM     = 0x4B,
     TTF_MUL       = 0x63,
+    TTF_NEG       = 0x65,
     TTF_NEQ       = 0x55,
     TTF_NPUSHB    = 0x40,
     TTF_NPUSHW    = 0x41,
@@ -208,6 +210,7 @@ enum {
     TTF_RTHG      = 0x19,
     TTF_RUTG      = 0x7C,
     TTF_SCANCTRL  = 0x85,
+    TTF_SCANTYPE  = 0x8D,
     TTF_SCVTCI    = 0x1D,
     TTF_SDB       = 0x5E,
     TTF_SDS       = 0x5F,
@@ -238,6 +241,7 @@ static void     ttf__execute_cv_program   (TTF* font);
 static TTF_bool ttf__execute_glyph_program(TTF* font);
 static void     ttf__execute_ins          (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
 
+static void ttf__ABS     (TTF* font);
 static void ttf__ADD     (TTF* font);
 static void ttf__AND     (TTF* font);
 static void ttf__CALL    (TTF* font);
@@ -275,6 +279,7 @@ static void ttf__MINDEX  (TTF* font);
 static void ttf__MIRP    (TTF* font, TTF_uint8 ins);
 static void ttf__MPPEM   (TTF* font);
 static void ttf__MUL     (TTF* font);
+static void ttf__NEG     (TTF* font);
 static void ttf__NEQ     (TTF* font);
 static void ttf__NPUSHB  (TTF* font, TTF_Ins_Stream* stream);
 static void ttf__NPUSHW  (TTF* font, TTF_Ins_Stream* stream);
@@ -290,6 +295,7 @@ static void ttf__RTG     (TTF* font);
 static void ttf__RTHG    (TTF* font);
 static void ttf__RUTG    (TTF* font);
 static void ttf__SCANCTRL(TTF* font);
+static void ttf__SCANTYPE(TTF* font);
 static void ttf__SCVTCI  (TTF* font);
 static void ttf__SDB     (TTF* font);
 static void ttf__SDS     (TTF* font);
@@ -304,7 +310,7 @@ static void ttf__WCVTF   (TTF* font);
 static void ttf__WCVTP   (TTF* font);
 static void ttf__WS      (TTF* font);
 
-static void        ttf__reset_graphics_state     (TTF* font);
+static void        ttf__initialize_graphics_state(TTF* font);
 static void        ttf__call_func                (TTF* font, TTF_uint32 funcId, TTF_uint32 times);
 static TTF_uint8   ttf__jump_to_else_or_eif      (TTF_Ins_Stream* stream);
 static TTF_F26Dot6 ttf__round                    (TTF* font, TTF_F26Dot6 val);
@@ -1710,20 +1716,22 @@ static void ttf__execute_cv_program(TTF* font) {
     TTF_Ins_Stream stream;
     ttf__ins_stream_init(&stream, font->data + font->prep.off);
 
-    ttf__reset_graphics_state(font);
+    ttf__initialize_graphics_state(font);
     ttf__stack_clear(font);
     
     while (stream.off < font->prep.size) {
         TTF_uint8 ins = ttf__ins_stream_next(&stream);
         ttf__execute_ins(font, &stream, ins);
     }
+
+    font->cur.instance->gStateDefault = font->gState;
 }
 
 static TTF_bool ttf__execute_glyph_program(TTF* font) {
     TTF_LOG_PROGRAM("Glyph Program");
 
-    ttf__reset_graphics_state(font);
     ttf__stack_clear(font);
+    font->gState = font->cur.instance->gStateDefault;
 
     // TODO: handle composite glyphs
     assert(font->cur.numContours >= 0);
@@ -1755,6 +1763,9 @@ static TTF_bool ttf__execute_glyph_program(TTF* font) {
 
 static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
     switch (ins) {
+        case TTF_ABS:
+            ttf__ABS(font);
+            return;
         case TTF_ADD:
             ttf__ADD(font);
             return;
@@ -1839,6 +1850,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_MUL:
             ttf__MUL(font);
             return;
+        case TTF_NEG:
+            ttf__NEG(font);
+            return;
         case TTF_NEQ:
             ttf__NEQ(font);
             return;
@@ -1874,6 +1888,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
             return;
         case TTF_SCANCTRL:
             ttf__SCANCTRL(font);
+            return;
+        case TTF_SCANTYPE:
+            ttf__SCANTYPE(font);
             return;
         case TTF_SCVTCI:
             ttf__SCVTCI(font);
@@ -1960,6 +1977,13 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
 
     TTF_LOG_UNKNOWN_INS(ins);
     assert(0);
+}
+
+static void ttf__ABS(TTF* font) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
+    TTF_F26Dot6 val = ttf__stack_pop_F26Dot6(font);
+    ttf__stack_push_F26Dot6(font, labs(val));
+    TTF_LOG_VALUE((int)labs(val), TTF_LOG_LEVEL_VERBOSE);
 }
 
 static void ttf__ADD(TTF* font) {
@@ -2357,7 +2381,6 @@ static void ttf__LT(TTF* font) {
     TTF_int32 e1 = ttf__stack_pop_uint32(font);
     ttf__stack_push_uint32(font, e1 < e2 ? 1 : 0);
     TTF_LOG_VALUE(e1 < e2, TTF_LOG_LEVEL_VERBOSE);
-    printf("\t%d < %d\n", e1, e2);
 }
 
 static void ttf__LTEQ(TTF* font) {
@@ -2366,7 +2389,6 @@ static void ttf__LTEQ(TTF* font) {
     TTF_int32 e1 = ttf__stack_pop_uint32(font);
     ttf__stack_push_uint32(font, e1 <= e2 ? 1 : 0);
     TTF_LOG_VALUE(e1 <= e2, TTF_LOG_LEVEL_VERBOSE);
-    printf("\t%d <= %d\n", e1, e2);
 }
 
 static void ttf__MD(TTF* font, TTF_uint8 ins) {
@@ -2612,6 +2634,13 @@ static void ttf__MUL(TTF* font) {
     TTF_LOG_VALUE(result, TTF_LOG_LEVEL_VERBOSE);
 }
 
+static void ttf__NEG(TTF* font) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
+    TTF_F26Dot6 val = ttf__stack_pop_F26Dot6(font);
+    ttf__stack_push_F26Dot6(font, -val);
+    TTF_LOG_VALUE(-val, TTF_LOG_LEVEL_VERBOSE);
+}
+
 static void ttf__NEQ(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
     TTF_int32 e2 = ttf__stack_pop_uint32(font);
@@ -2781,6 +2810,13 @@ static void ttf__SCANCTRL(TTF* font) {
     TTF_LOG_VALUE(font->gState.scanControl, TTF_LOG_LEVEL_MINIMAL);
 }
 
+// TODO: This is the new default
+static void ttf__SCANTYPE(TTF* font) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
+    font->gState.scanType = ttf__stack_pop_uint32(font);
+    TTF_LOG_VALUE(font->gState.scanType, TTF_LOG_LEVEL_VERBOSE);
+}
+
 static void ttf__SCVTCI(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
     font->gState.controlValueCutIn = ttf__stack_pop_F26Dot6(font);
@@ -2893,7 +2929,7 @@ static void ttf__WS(TTF* font) {
     TTF_LOG_VALUE(font->cur.instance->storageArea[idx], TTF_LOG_LEVEL_VERBOSE);
 }
 
-static void ttf__reset_graphics_state(TTF* font) {
+static void ttf__initialize_graphics_state(TTF* font) {
     font->gState.autoFlip          = TTF_TRUE;
     font->gState.controlValueCutIn = 68;
     font->gState.deltaBase         = 9;

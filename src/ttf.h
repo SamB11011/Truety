@@ -105,6 +105,7 @@ typedef struct {
     TTF_uint32     rp2;
     TTF_uint8      roundState;
     TTF_bool       scanControl;
+    TTF_uint8      scanType;
     TTF_F26Dot6    singleWidthCutIn;
     TTF_F26Dot6    singleWidthValue;
     TTF_Touch_Flag touchFlags;
@@ -120,15 +121,14 @@ typedef struct {
 } TTF_Unhinted;
 
 typedef struct {
-    TTF_uint8*   mem;
-    TTF_F26Dot6* cvt;
-    TTF_int32*   storageArea;
-    TTF_bool     isRotated;
-    TTF_bool     isStretched;
-    TTF_uint32   ppem;
-    TTF_F10Dot22 scale;
-    /* TODO: Keep Graphics State default values here in case defaults are set
-             by the CV program. */
+    TTF_uint8*         mem;
+    TTF_F26Dot6*       cvt;
+    TTF_int32*         storageArea;
+    TTF_bool           isRotated;
+    TTF_bool           isStretched;
+    TTF_uint32         ppem;
+    TTF_F10Dot22       scale;
+    TTF_Graphics_State gStateDefault; /* Default values can be set by the CV program */
 } TTF_Instance;
 
 typedef struct {
