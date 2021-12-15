@@ -2018,7 +2018,22 @@ static void ttf__ADD(TTF* font) {
 
 static void ttf__ALIGNRP(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_MINIMAL);
-    assert(0);
+
+    TTF_F26Dot6_V2* rp0Cur = font->gState.zp0->cur + font->gState.rp0;
+
+    for (TTF_uint32 i = 0; i < font->gState.loop; i++) {
+        TTF_uint32 pointIdx = ttf__stack_pop_uint32(font);
+        assert(pointIdx < font->gState.zp1->cap);
+
+        TTF_F26Dot6 dist = ttf__fix_v2_sub_dot(
+            rp0Cur, font->gState.zp1->cur + pointIdx, &font->gState.projVec, 14);
+
+        ttf__move_point(font, font->gState.zp1, pointIdx, dist);
+
+        TTF_LOG_POINT(font->gState.zp1->cur[pointIdx], TTF_LOG_LEVEL_MINIMAL);
+    }
+
+    font->gState.loop = 1;
 }
 
 static void ttf__AND(TTF* font) {
