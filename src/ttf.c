@@ -151,6 +151,7 @@ enum {
     TTF_DELTAP1   = 0x5D,
     TTF_DELTAP2   = 0x71,
     TTF_DELTAP3   = 0x72,
+    TTF_DEPTH     = 0x24,
     TTF_DIV       = 0x62,
     TTF_DUP       = 0x20,
     TTF_EIF       = 0x59,
@@ -253,6 +254,7 @@ static void ttf__DELTAP1 (TTF* font);
 static void ttf__DELTAP2 (TTF* font);
 static void ttf__DELTAP3 (TTF* font);
 static void ttf__DELTAP  (TTF* font, TTF_uint8 range);
+static void ttf__DEPTH   (TTF* font);
 static void ttf__DIV     (TTF* font);
 static void ttf__DUP     (TTF* font);
 static void ttf__EQ      (TTF* font);
@@ -1809,6 +1811,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_DELTAP3:
             ttf__DELTAP3(font);
             return;
+        case TTF_DEPTH:
+            ttf__DEPTH(font);
+            return;
         case TTF_DIV:
             ttf__DIV(font);
             return;
@@ -2119,6 +2124,12 @@ static void ttf__DELTAP(TTF* font, TTF_uint8 range) {
 
         count--;
     }
+}
+
+static void ttf__DEPTH(TTF* font) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
+    TTF_LOG_VALUE(font->stack.count, TTF_LOG_LEVEL_VERBOSE);
+    ttf__stack_push_uint32(font, font->stack.count);
 }
 
 static void ttf__DIV(TTF* font) {
