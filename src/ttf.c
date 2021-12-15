@@ -1992,6 +1992,7 @@ static void ttf__ADD(TTF* font) {
     TTF_F26Dot6 n2 = ttf__stack_pop_F26Dot6(font);
     ttf__stack_push_F26Dot6(font, n1 + n2);
     TTF_LOG_VALUE(n1 + n2, TTF_LOG_LEVEL_VERBOSE);
+    printf("\t%d + %d\n", n1, n2);
 }
 
 static void ttf__AND(TTF* font) {
@@ -2154,6 +2155,8 @@ static void ttf__GC(TTF* font, TTF_uint8 ins) {
     else {
         value = ttf__fix_v2_dot(font->gState.zp2->orgScaled + pointIdx, &font->gState.projVec, 14);
     }
+
+    ttf__stack_push_F26Dot6(font, value);
 
     TTF_LOG_VALUE(value, TTF_LOG_LEVEL_MINIMAL);
 }
