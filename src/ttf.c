@@ -672,6 +672,10 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
     }
     
     
+    // Use this array when calculating the alpha values of each row of pixels.
+    // The image's pixels are not used directly because a loss of precision
+    // would result. This is due to the fact that the image's pixels are one 
+    // byte each and cannot store fractional values.
     TTF_F26Dot6* pixelRow = calloc(glyph->size.x, sizeof(TTF_F26Dot6));
     if (pixelRow == NULL) {
         ttf__active_edge_list_free(&activeEdgeList);
@@ -795,7 +799,10 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
             TTF_F26Dot6      xRel          = ttf__f26dot6_ceil(activeEdge->xIntersection);
 
             while (TTF_TRUE) {
+            partial_coverage:
                 {
+                    // Handle pixels that are only partially covered by the contour
+
                     TTF_uint32 xIdx = xRel == 0 ? 0 : (xRel >> 6) - 1;
                     assert(xIdx < glyph->size.x);
 
@@ -805,10 +812,7 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
                         activeEdge->xIntersection - xRel + 0x40;
 
                     pixelRow[xIdx] += TTF_FIX_MUL(weightedAlpha, coverage, 6);
-                }
 
-            set_next_active_edge:
-                {
                     if (activeEdge->next == NULL) {
                         break;
                     }
@@ -821,13 +825,16 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
                     activeEdge     = activeEdge->next;
 
                     if (repeat) {
-                        goto set_next_active_edge;
+                        goto partial_coverage;
                     }
                 }
 
                 xRel += 0x40;
 
                 if (xRel < activeEdge->xIntersection) {
+                    // Handle pixels that are either fully covered or fully 
+                    // not covered by the contour
+
                     if (windingNumber == 0) {
                         xRel = ttf__f26dot6_ceil(activeEdge->xIntersection);
                     }
@@ -848,10 +855,13 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
         yRel += TTF_PIXELS_PER_SCANLINE;
         
         if ((yRel & 0x3F) == 0) {
-            // A new pixel has been reached, reset the pixel row.
+            // A new row of pixels has been reached
+
             TTF_uint32 rowOff = ((yAbs - 0x40) >> 6) * image->w;
             
             for (TTF_uint32 i = 0; i < glyph->size.x; i++) {
+                // TODO: Round instead of floor?
+                assert(pixelRow[i] >= 0);
                 assert(pixelRow[i] >> 6 <= 255);
                 image->pixels[rowOff + x + i] = pixelRow[i] >> 6;
             }
@@ -2447,10 +2457,6 @@ static void ttf__IUP(TTF* font, TTF_uint8 ins) {
                 }
             }
         }
-    }
-
-    for (int i = 0; i < font->cur.numPoints; i++) {
-        printf("%d) (%d, %d)\n", i, font->cur.zone1.cur[i].x, font->cur.zone1.cur[i].y);
     }
 }
 
