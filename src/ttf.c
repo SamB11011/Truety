@@ -224,6 +224,7 @@ enum {
     TTF_SZPS      = 0x16,
     TTF_SZP0      = 0x13,
     TTF_SZP1      = 0x14,
+    TTF_SZP2      = 0x15,
     TTF_WCVTF     = 0x70,
     TTF_WCVTP     = 0x44,
     TTF_WS        = 0x42,
@@ -316,6 +317,7 @@ static void ttf__SWAP    (TTF* font);
 static void ttf__SZPS    (TTF* font);
 static void ttf__SZP0    (TTF* font);
 static void ttf__SZP1    (TTF* font);
+static void ttf__SZP2    (TTF* font);
 static void ttf__WCVTF   (TTF* font);
 static void ttf__WCVTP   (TTF* font);
 static void ttf__WS      (TTF* font);
@@ -1961,6 +1963,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_SZP1:
             ttf__SZP1(font);
             return;
+        case TTF_SZP2:
+            ttf__SZP2(font);
+            return;
         case TTF_WCVTF:
             ttf__WCVTF(font);
             return;
@@ -2216,21 +2221,15 @@ static void ttf__GC(TTF* font, TTF_uint8 ins) {
     TTF_uint32  pointIdx = ttf__stack_pop_uint32(font);
     TTF_F26Dot6 value;
 
-    printf("\tpointIdx = %d\n", pointIdx);
-
     assert(font->gState.zp2 != NULL);
     assert(pointIdx < font->gState.zp2->cap);
 
     if (ins & 0x1) {
         value = ttf__fix_v2_dot(
             font->gState.zp2->orgScaled + pointIdx, &font->gState.dualProjVec, 14);
-
-        printf("\torg (%d, %d)\n", font->gState.zp2->orgScaled[pointIdx].x, font->gState.zp2->orgScaled[pointIdx].y);
     }
     else {
         value = ttf__fix_v2_dot(font->gState.zp2->cur + pointIdx, &font->gState.projVec, 14);
-
-        printf("\tcur (%d, %d)\n", font->gState.zp2->cur[pointIdx].x, font->gState.zp2->cur[pointIdx].y);
     }
 
     ttf__stack_push_F26Dot6(font, value);
@@ -3034,7 +3033,6 @@ static void ttf__SZPS(TTF* font) {
     font->gState.zp1 = font->gState.zp0;
     font->gState.zp2 = font->gState.zp0;
     TTF_LOG_VALUE(zone, TTF_LOG_LEVEL_VERBOSE);
-    printf("\ttop=%d\n", font->stack.count);
 }
 
 static void ttf__SZP0(TTF* font) {
@@ -3048,6 +3046,13 @@ static void ttf__SZP1(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
     TTF_uint32 zone = ttf__stack_pop_uint32(font);
     font->gState.zp1 = ttf__get_zone_pointer(font, zone);
+    TTF_LOG_VALUE(zone, TTF_LOG_LEVEL_VERBOSE);
+}
+
+static void ttf__SZP2(TTF* font) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
+    TTF_uint32 zone = ttf__stack_pop_uint32(font);
+    font->gState.zp2 = ttf__get_zone_pointer(font, zone);
     TTF_LOG_VALUE(zone, TTF_LOG_LEVEL_VERBOSE);
 }
 
@@ -3235,15 +3240,15 @@ static TTF_bool ttf__get_delta_value(TTF* font, TTF_uint32 exc, TTF_uint8 range,
 }
 
 static void ttf__IUP_interpolate_or_shift(TTF_Zone* zone1, TTF_Touch_Flag touchFlag, TTF_uint16 startPointIdx, TTF_uint16 endPointIdx, TTF_uint16 touch0, TTF_uint16 touch1) {
-    #define TTF_IUP_INTERPOLATE(coord)                                                         \
-        TTF_F26Dot6 totalDistCur = zone1->cur[touch1].coord - zone1->cur[touch0].coord;        \
-        TTF_int32   totalDistOrg = zone1->org[touch1].coord - zone1->org[touch0].coord;        \
-        TTF_int32   orgDist      = zone1->org[i].coord      - zone1->org[touch0].coord;        \
-                                                                                               \
-        TTF_F10Dot22 scale     = ttf__rounded_div((TTF_int64)totalDistCur << 16, totalDistOrg);\
-        TTF_F26Dot6  newDist   = TTF_FIX_MUL(orgDist << 6, scale, 22);                         \
-        zone1->cur[i].coord = zone1->cur[touch0].coord + newDist;                              \
-                                                                                               \
+    #define TTF_IUP_INTERPOLATE(coord)                                                       \
+        TTF_F26Dot6 totalDistCur = zone1->cur[touch1].coord - zone1->cur[touch0].coord;      \
+        TTF_int32   totalDistOrg = zone1->org[touch1].coord - zone1->org[touch0].coord;      \
+        TTF_int32   orgDist      = zone1->org[i].coord      - zone1->org[touch0].coord;      \
+                                                                                             \
+        TTF_F10Dot22 scale   = ttf__rounded_div((TTF_int64)totalDistCur << 16, totalDistOrg);\
+        TTF_F26Dot6  newDist = TTF_FIX_MUL(orgDist << 6, scale, 22);                         \
+        zone1->cur[i].coord  = zone1->cur[touch0].coord + newDist;                           \
+                                                                                             \
         TTF_LOG_CUSTOM_F(TTF_LOG_LEVEL_MINIMAL, "Interp %3d: %5d", i, zone1->cur[i].coord);
 
     #define TTF_IUP_SHIFT(coord)\
