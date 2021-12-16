@@ -2421,7 +2421,7 @@ static void ttf__IUP(TTF* font, TTF_uint8 ins) {
                         pointIdx);
 
                     findingTouch1 = 
-                        pointIdx != endPointIdx || (touchFlags[pointIdx + 1] & touchFlag) == 0;
+                        pointIdx != endPointIdx || (touchFlags[startPointIdx] & touchFlag) == 0;
 
                     if (findingTouch1) {
                         touch0 = pointIdx;
@@ -2522,14 +2522,14 @@ static void ttf__MD(TTF* font, TTF_uint8 ins) {
         if (isTwilightZone) {
             dist = ttf__fix_v2_sub_dot(
                 font->gState.zp0->orgScaled + pointIdx1, font->gState.zp1->orgScaled + pointIdx0,
-                &font->gState.projVec, 14);
+                &font->gState.dualProjVec, 14);
         }
         else {
             dist = ttf__fix_v2_sub_dot(
                 font->gState.zp0->org + pointIdx1, font->gState.zp1->org + pointIdx0,
                 &font->gState.dualProjVec, 14);
 
-            dist = TTF_FIX_MUL(dist, font->cur.instance->scale, 22);
+            dist = TTF_FIX_MUL(dist << 6, font->cur.instance->scale, 22);
         }
     }
 
