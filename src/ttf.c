@@ -192,6 +192,7 @@ enum {
     TTF_NEQ       = 0x55,
     TTF_NPUSHB    = 0x40,
     TTF_NPUSHW    = 0x41,
+    TTF_OR        = 0x5B,
     TTF_POP       = 0x21,
     TTF_PUSHB     = 0xB0,
     TTF_PUSHB_MAX = 0xB7,
@@ -286,6 +287,7 @@ static void ttf__NEG     (TTF* font);
 static void ttf__NEQ     (TTF* font);
 static void ttf__NPUSHB  (TTF* font, TTF_Ins_Stream* stream);
 static void ttf__NPUSHW  (TTF* font, TTF_Ins_Stream* stream);
+static void ttf__OR      (TTF* font);
 static void ttf__POP     (TTF* font);
 static void ttf__PUSHB   (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
 static void ttf__PUSHW   (TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins);
@@ -1885,6 +1887,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_NPUSHW:
             ttf__NPUSHW(font, stream);
             return;
+        case TTF_OR:
+            ttf__OR(font);
+            return;
         case TTF_POP:
             ttf__POP(font);
             return;
@@ -2640,15 +2645,6 @@ static void ttf__MINDEX(TTF* font) {
     font->stack.count--;
     font->stack.frames[font->stack.count] = font->stack.frames[idx];
     memmove(font->stack.frames + idx, font->stack.frames + idx + 1, size);
-
-    
-    // TTF_uint32 idx = font->stack.count - ttf__stack_pop_uint32(font);
-    // font->stack.frames[font->stack.count] = font->stack.frames[idx];
-    // memmove(font->stack.frames + idx, font->stack.frames + idx + 1, font->stack.count - idx);
-
-    for (int i = font->stack.count - 1; i >= 0; i--) {
-        printf("\t%d/ %d) %d\n", font->stack.count-1-i, i, font->stack.frames[i].sValue);
-    }
 }
 
 static void ttf__MIRP(TTF* font, TTF_uint8 ins) {
@@ -2769,6 +2765,14 @@ static void ttf__NPUSHW(TTF* font, TTF_Ins_Stream* stream) {
         TTF_int32 val = (ms << 8) | ls;
         ttf__stack_push_int32(font, val);
     } while (--count);
+}
+
+static void ttf__OR(TTF* font) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
+    TTF_int32 e1 = ttf__stack_pop_int32(font);
+    TTF_int32 e2 = ttf__stack_pop_int32(font);
+    ttf__stack_push_uint32(font, (e1 != 0 || e2 != 0) ? 1 : 0);
+    TTF_LOG_VALUE((e1 != 0 || e2 != 0), TTF_LOG_LEVEL_VERBOSE);
 }
 
 static void ttf__POP(TTF* font) {
