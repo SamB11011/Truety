@@ -172,6 +172,7 @@ enum {
     TTF_IUP       = 0x30,
     TTF_IUP_MAX   = 0x31,
     TTF_JROT      = 0x78,
+    TTF_JMPR      = 0x1C,
     TTF_LOOPCALL  = 0x2A,
     TTF_LT        = 0x50,
     TTF_LTEQ      = 0x51,
@@ -272,6 +273,7 @@ static void ttf__IF      (TTF* font, TTF_Ins_Stream* stream);
 static void ttf__IP      (TTF* font);
 static void ttf__IUP     (TTF* font, TTF_uint8 ins);
 static void ttf__JROT    (TTF* font, TTF_Ins_Stream* stream);
+static void ttf__JMPR    (TTF* font, TTF_Ins_Stream* stream);
 static void ttf__LOOPCALL(TTF* font);
 static void ttf__LT      (TTF* font);
 static void ttf__LTEQ    (TTF* font);
@@ -1857,6 +1859,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_JROT:
             ttf__JROT(font, stream);
             return;
+        case TTF_JMPR:
+            ttf__JMPR(font, stream);
+            return;
         case TTF_LOOPCALL:
             ttf__LOOPCALL(font);
             return;
@@ -2453,11 +2458,18 @@ static void ttf__JROT(TTF* font, TTF_Ins_Stream* stream) {
 
     if (val != 0) {
         ttf__ins_stream_jump(stream, off - 1);
-        TTF_LOG_VALUE(val, TTF_LOG_LEVEL_VERBOSE);
+        TTF_LOG_VALUE(off - 1, TTF_LOG_LEVEL_VERBOSE);
     }
     else {
         TTF_LOG_VALUE(0, TTF_LOG_LEVEL_VERBOSE);
     }
+}
+
+static void ttf__JMPR(TTF* font, TTF_Ins_Stream* stream) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
+    TTF_int32 off = ttf__stack_pop_int32(font);
+    ttf__ins_stream_jump(stream, off - 1);
+    TTF_LOG_VALUE(off - 1, TTF_LOG_LEVEL_VERBOSE);
 }
 
 static void ttf__LOOPCALL(TTF* font) {
