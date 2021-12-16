@@ -214,6 +214,7 @@ enum {
     TTF_SDB       = 0x5E,
     TTF_SDS       = 0x5F,
     TTF_SHPIX     = 0x38,
+    TTF_SLOOP     = 0x17,
     TTF_SRP0      = 0x10,
     TTF_SRP1      = 0x11,
     TTF_SRP2      = 0x12,
@@ -308,6 +309,7 @@ static void ttf__SCVTCI  (TTF* font);
 static void ttf__SDB     (TTF* font);
 static void ttf__SDS     (TTF* font);
 static void ttf__SHPIX   (TTF* font);
+static void ttf__SLOOP   (TTF* font);
 static void ttf__SRP0    (TTF* font);
 static void ttf__SRP1    (TTF* font);
 static void ttf__SRP2    (TTF* font);
@@ -1939,6 +1941,9 @@ static void ttf__execute_ins(TTF* font, TTF_Ins_Stream* stream, TTF_uint8 ins) {
         case TTF_SHPIX:
             ttf__SHPIX(font);
             return;
+        case TTF_SLOOP:
+            ttf__SLOOP(font);
+            return;
         case TTF_SRP0:
             ttf__SRP0(font);
             return;
@@ -2972,6 +2977,12 @@ static void ttf__SHPIX(TTF* font) {
     }
 
     font->gState.loop = 1;
+}
+
+static void ttf__SLOOP(TTF* font) {
+    TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
+    font->gState.loop = ttf__stack_pop_uint32(font);
+    TTF_LOG_VALUE(font->gState.loop, TTF_LOG_LEVEL_VERBOSE);
 }
 
 static void ttf__SRP0(TTF* font) {
