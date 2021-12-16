@@ -2502,10 +2502,13 @@ static void ttf__MD(TTF* font, TTF_uint8 ins) {
     TTF_uint32  pointIdx1 = ttf__stack_pop_uint32(font);
     TTF_F26Dot6 dist;
 
+    // TODO: Spec says if ins & 0x1 = 1 then use original outline, but FreeType
+    //       uses current outline.
+
     if (ins & 0x1) {
         dist = ttf__fix_v2_sub_dot(
-            font->gState.zp0->orgScaled + pointIdx1, font->gState.zp1->orgScaled + pointIdx0, 
-            &font->gState.dualProjVec, 14);
+            font->gState.zp0->cur + pointIdx1, font->gState.zp1->cur + pointIdx0, 
+            &font->gState.projVec, 14);
     }
     else {
         TTF_bool isTwilightZone =
@@ -2514,7 +2517,7 @@ static void ttf__MD(TTF* font, TTF_uint8 ins) {
 
         if (isTwilightZone) {
             dist = ttf__fix_v2_sub_dot(
-                font->gState.zp0->cur + pointIdx1, font->gState.zp1->cur + pointIdx0, 
+                font->gState.zp0->orgScaled + pointIdx1, font->gState.zp1->orgScaled + pointIdx0,
                 &font->gState.projVec, 14);
         }
         else {
