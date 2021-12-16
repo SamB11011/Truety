@@ -123,15 +123,14 @@ typedef struct {
     /* Unlike zone 1, the twilight zone persists between glyph programs. 
        Therefore, it is stored here instead of TTF_Current so there is no
        chance it will be overridden. */
-    TTF_Zone           zone0;
-    TTF_uint8*         mem;
-    TTF_F26Dot6*       cvt;
-    TTF_int32*         storageArea;
-    TTF_bool           isRotated;
-    TTF_bool           isStretched;
-    TTF_uint32         ppem;
-    TTF_F10Dot22       scale;
-    TTF_Graphics_State gStateDefault; /* Default values can be set by the CV program */
+    TTF_Zone     zone0;
+    TTF_uint8*   mem;
+    TTF_F26Dot6* cvt;
+    TTF_int32*   storageArea;
+    TTF_bool     isRotated;
+    TTF_bool     isStretched;
+    TTF_uint32   ppem;
+    TTF_F10Dot22 scale;
 } TTF_Instance;
 
 typedef struct {

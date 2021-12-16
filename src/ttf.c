@@ -324,7 +324,7 @@ static void ttf__WCVTF   (TTF* font);
 static void ttf__WCVTP   (TTF* font);
 static void ttf__WS      (TTF* font);
 
-static void        ttf__initialize_graphics_state(TTF* font);
+static void        ttf__reset_graphics_state     (TTF* font);
 static void        ttf__call_func                (TTF* font, TTF_uint32 funcId, TTF_uint32 times);
 static TTF_uint8   ttf__jump_to_else_or_eif      (TTF_Ins_Stream* stream);
 static TTF_F26Dot6 ttf__round                    (TTF* font, TTF_F26Dot6 val);
@@ -484,6 +484,8 @@ init_failure:
 }
 
 TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
+    memset(instance, 0, sizeof(TTF_Instance));
+
     // Scale is 10.22 since upem already has a scale factor of 1
     instance->scale       = ttf__rounded_div((TTF_int64)ppem << 22, ttf__get_upem(font));
     instance->ppem        = ppem;
@@ -538,9 +540,6 @@ TTF_bool ttf_instance_init(TTF* font, TTF_Instance* instance, TTF_uint32 ppem) {
 
         font->cur.instance = instance;
         ttf__execute_cv_program(font);
-    }
-    else {
-        instance->cvt = NULL;
     }
 
     return TTF_TRUE;
@@ -1755,22 +1754,20 @@ static void ttf__execute_cv_program(TTF* font) {
     TTF_Ins_Stream stream;
     ttf__ins_stream_init(&stream, font->data + font->prep.off);
 
-    ttf__initialize_graphics_state(font);
+    ttf__reset_graphics_state(font);
     ttf__stack_clear(font);
     
     while (stream.off < font->prep.size) {
         TTF_uint8 ins = ttf__ins_stream_next(&stream);
         ttf__execute_ins(font, &stream, ins);
     }
-
-    font->cur.instance->gStateDefault = font->gState;
 }
 
 static TTF_bool ttf__execute_glyph_program(TTF* font) {
     TTF_LOG_PROGRAM("Glyph Program");
 
     ttf__stack_clear(font);
-    font->gState = font->cur.instance->gStateDefault;
+    ttf__reset_graphics_state(font);
 
     // TODO: handle composite glyphs
     assert(font->cur.numContours >= 0);
@@ -2385,7 +2382,7 @@ static void ttf__IP(TTF* font) {
 
         TTF_F26Dot6 distCur = ttf__fix_v2_sub_dot(pointCur, rp1Cur, &font->gState.projVec, 14);
         TTF_F26Dot6 distOrg = ttf__fix_v2_sub_dot(pointOrg, rp1Org, &font->gState.dualProjVec, 14);
-
+        
         // Scale distOrg by however many times bigger totalDistCur is than
         // totalDistOrg. 
         //
@@ -3105,7 +3102,7 @@ static void ttf__WS(TTF* font) {
     TTF_LOG_VALUE(font->cur.instance->storageArea[idx], TTF_LOG_LEVEL_VERBOSE);
 }
 
-static void ttf__initialize_graphics_state(TTF* font) {
+static void ttf__reset_graphics_state(TTF* font) {
     font->gState.autoFlip          = TTF_TRUE;
     font->gState.controlValueCutIn = 68;
     font->gState.deltaBase         = 9;
