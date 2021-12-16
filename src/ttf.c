@@ -798,11 +798,10 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
             TTF_F26Dot6      xRel          = ttf__f26dot6_ceil(activeEdge->xIntersection);
 
             while (TTF_TRUE) {
-            partial_coverage:
                 {
-                    // Handle pixels that are only partially covered by the contour
+                    // Handle pixels that are only partially covered by a contour
 
-                    TTF_uint32 xIdx = xRel == 0 ? 0 : (xRel >> 6) - 1;
+                    TTF_uint32  xIdx = xRel == 0 ? 0 : (xRel >> 6) - 1;
                     assert(xIdx < glyph->size.x);
 
                     TTF_F26Dot6 coverage =
@@ -810,21 +809,37 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
                         xRel - activeEdge->xIntersection :
                         activeEdge->xIntersection - xRel + 0x40;
 
+                partial_coverage:
+
                     pixelRow[xIdx] += TTF_FIX_MUL(weightedAlpha, coverage, 6);
+
+                next_active_edge:
 
                     if (activeEdge->next == NULL) {
                         break;
                     }
 
-                    TTF_bool repeat = 
-                        xRel >= activeEdge->next->xIntersection ||
-                        activeEdge->next->xIntersection == activeEdge->xIntersection;
+                    TTF_Active_Edge* prev = activeEdge;
 
                     windingNumber += activeEdge->edge->dir;
                     activeEdge     = activeEdge->next;
 
-                    if (repeat) {
-                        goto partial_coverage;
+                    if (activeEdge->xIntersection == prev->xIntersection) {
+                        goto next_active_edge;
+                    }
+
+                    if (xRel == activeEdge->xIntersection) {
+                        goto next_active_edge;
+                    }
+
+                    if (xRel > activeEdge->xIntersection) {
+                        if (windingNumber == 0) {
+                            coverage = xRel - activeEdge->xIntersection;
+                            goto partial_coverage;
+                        }
+                        else {
+                            goto next_active_edge;
+                        }
                     }
                 }
 
@@ -832,7 +847,7 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
 
                 if (xRel < activeEdge->xIntersection) {
                     // Handle pixels that are either fully covered or fully 
-                    // not covered by the contour
+                    // not covered by a contour
 
                     if (windingNumber == 0) {
                         xRel = ttf__f26dot6_ceil(activeEdge->xIntersection);
