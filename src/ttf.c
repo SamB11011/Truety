@@ -2206,14 +2206,21 @@ static void ttf__GC(TTF* font, TTF_uint8 ins) {
     TTF_uint32  pointIdx = ttf__stack_pop_uint32(font);
     TTF_F26Dot6 value;
 
+    printf("\tpointIdx = %d\n", pointIdx);
+
     assert(font->gState.zp2 != NULL);
     assert(pointIdx < font->gState.zp2->cap);
 
     if (ins & 0x1) {
-        value = ttf__fix_v2_dot(font->gState.zp2->cur + pointIdx, &font->gState.projVec, 14);
+        value = ttf__fix_v2_dot(
+            font->gState.zp2->orgScaled + pointIdx, &font->gState.dualProjVec, 14);
+
+        printf("\torg (%d, %d)\n", font->gState.zp2->orgScaled[pointIdx].x, font->gState.zp2->orgScaled[pointIdx].y);
     }
     else {
-        value = ttf__fix_v2_dot(font->gState.zp2->orgScaled + pointIdx, &font->gState.projVec, 14);
+        value = ttf__fix_v2_dot(font->gState.zp2->cur + pointIdx, &font->gState.projVec, 14);
+
+        printf("\tcur (%d, %d)\n", font->gState.zp2->cur[pointIdx].x, font->gState.zp2->cur[pointIdx].y);
     }
 
     ttf__stack_push_F26Dot6(font, value);
@@ -2626,15 +2633,22 @@ static void ttf__MIAP(TTF* font, TTF_uint8 ins) {
 
 static void ttf__MINDEX(TTF* font) {
     TTF_LOG_INS(TTF_LOG_LEVEL_VERBOSE);
-    
-    TTF_uint32       idx   = ttf__stack_pop_uint32(font);
-    TTF_Stack_Frame* ptr   = font->stack.frames + idx;
-    TTF_Stack_Frame  frame = *ptr;
-    TTF_uint32       size  = sizeof(TTF_Stack_Frame) * (font->stack.count - idx - 1);
-    memmove(ptr, ptr, size);
-    
+
+    TTF_uint32 idx  = font->stack.count - font->stack.frames[font->stack.count - 1].uValue - 1;
+    size_t     size = sizeof(TTF_Stack_Frame) * (font->stack.count - idx - 1);
+
     font->stack.count--;
-    ttf__stack_push_uint32(font, frame.uValue);
+    font->stack.frames[font->stack.count] = font->stack.frames[idx];
+    memmove(font->stack.frames + idx, font->stack.frames + idx + 1, size);
+
+    
+    // TTF_uint32 idx = font->stack.count - ttf__stack_pop_uint32(font);
+    // font->stack.frames[font->stack.count] = font->stack.frames[idx];
+    // memmove(font->stack.frames + idx, font->stack.frames + idx + 1, font->stack.count - idx);
+
+    for (int i = font->stack.count - 1; i >= 0; i--) {
+        printf("\t%d/ %d) %d\n", font->stack.count-1-i, i, font->stack.frames[i].sValue);
+    }
 }
 
 static void ttf__MIRP(TTF* font, TTF_uint8 ins) {
@@ -3001,6 +3015,7 @@ static void ttf__SZPS(TTF* font) {
     font->gState.zp1 = font->gState.zp0;
     font->gState.zp2 = font->gState.zp0;
     TTF_LOG_VALUE(zone, TTF_LOG_LEVEL_VERBOSE);
+    printf("\ttop=%d\n", font->stack.count);
 }
 
 static void ttf__SZP0(TTF* font) {
