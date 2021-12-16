@@ -385,13 +385,13 @@ static TTF_F26Dot6 ttf__f26dot6_ceil  (TTF_F26Dot6 val);
 static TTF_F26Dot6 ttf__f26dot6_floor (TTF_F26Dot6 val);
 
 
-#define TTF_DEBUG
+// #define TTF_DEBUG
 
 #define TTF_LOG_LEVEL_VERBOSE  0
 #define TTF_LOG_LEVEL_MINIMAL  1
 #define TTF_LOG_LEVEL_CRITICAL 2
 #define TTF_LOG_LEVEL_NONE     3
-#define TTF_LOG_LEVEL          TTF_LOG_LEVEL_VERBOSE
+#define TTF_LOG_LEVEL          TTF_LOG_LEVEL_NONE
 
 #ifdef TTF_DEBUG
     static int count = 0;
@@ -435,6 +435,7 @@ static TTF_F26Dot6 ttf__f26dot6_floor (TTF_F26Dot6 val);
     #define TTF_LOG_INS(level)
     #define TTF_LOG_POINT(point, level)
     #define TTF_LOG_VALUE(value, level)
+    #define TTF_LOG_CUSTOM_F(level, format, ...)
     #define TTF_FIX_TO_FLOAT(val, shift)
 #endif
 
@@ -795,14 +796,18 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
             TTF_Active_Edge* activeEdge    = activeEdgeList.headEdge;
             TTF_int32        windingNumber = 0;
             TTF_F26Dot6      weightedAlpha = TTF_FIX_MUL(0x3FC0, TTF_PIXELS_PER_SCANLINE, 6);
-            TTF_F26Dot6      xRel          = ttf__f26dot6_ceil(activeEdge->xIntersection);
+            
+            TTF_F26Dot6 xRel = ttf__f26dot6_ceil(activeEdge->xIntersection);
+            if (xRel == 0) {
+                xRel += 0x40;
+            }
+
+            TTF_F26Dot6 xIdx = (xRel >> 6) - 1;
 
             while (TTF_TRUE) {
                 {
                     // Handle pixels that are only partially covered by a contour
-
-                    TTF_uint32  xIdx = xRel == 0 ? 0 : (xRel >> 6) - 1;
-                    assert(xIdx < glyph->size.x);
+                    // assert(xIdx < glyph->size.x);
 
                     TTF_F26Dot6 coverage =
                         windingNumber == 0 ?
@@ -810,11 +815,9 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
                         activeEdge->xIntersection - xRel + 0x40;
 
                 partial_coverage:
-
                     pixelRow[xIdx] += TTF_FIX_MUL(weightedAlpha, coverage, 6);
 
                 next_active_edge:
-
                     if (activeEdge->next == NULL) {
                         break;
                     }
@@ -844,6 +847,7 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
                 }
 
                 xRel += 0x40;
+                xIdx += 1;
 
                 if (xRel < activeEdge->xIntersection) {
                     // Handle pixels that are either fully covered or fully 
@@ -851,14 +855,15 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
 
                     if (windingNumber == 0) {
                         xRel = ttf__f26dot6_ceil(activeEdge->xIntersection);
+                        xIdx = (xRel >> 6) - 1;
                     }
                     else {
                         do {
-                            TTF_uint32 xIdx = (xRel >> 6) - 1;
-                            assert(xIdx < glyph->size.x);
+                            // assert(xIdx < glyph->size.x);
 
                             pixelRow[xIdx] += weightedAlpha;
                             xRel           += 0x40;
+                            xIdx           += 1;
                         } while (xRel < activeEdge->xIntersection);
                     }
                 }
@@ -870,14 +875,13 @@ TTF_bool ttf_render_glyph_to_existing_image(TTF* font, TTF_Instance* instance, T
         
         if ((yRel & 0x3F) == 0) {
             // A new row of pixels has been reached
-
-            TTF_uint32 rowOff = ((yAbs - 0x40) >> 6) * image->w;
+            TTF_uint32 startIdx = (((yAbs - 0x40) >> 6) * image->w) + x;
             
             for (TTF_uint32 i = 0; i < glyph->size.x; i++) {
                 // TODO: Round instead of floor?
-                assert(pixelRow[i] >= 0);
-                assert(pixelRow[i] >> 6 <= 255);
-                image->pixels[rowOff + x + i] = pixelRow[i] >> 6;
+                // assert(pixelRow[i] >= 0);
+                // assert(pixelRow[i] >> 6 <= 255);
+                image->pixels[startIdx + i] = pixelRow[i] >> 6;
             }
             
             memset(pixelRow, 0, glyph->size.x * sizeof(TTF_F26Dot6));
