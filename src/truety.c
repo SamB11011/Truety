@@ -560,30 +560,36 @@ static TTY_F26Dot6 tty_f26dot6_ceil(TTY_F26Dot6 val);
 static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val);
 
 
-// #define TTY_DEBUG
+#define TTY_DEBUG
+#define TTY_LOGGING
 
-#define TTY_LOGGING_ENABLED 1 
+#ifdef TTY_DEBUG
+    #define TTY_ASSERT(cond) assert(cond)
+#else
+    #define TTY_ASSERT(cond)
+#endif
 
-#ifdef TTY_LOGGING_ENABLED
-    static int count = 0;
+#ifdef TTY_LOGGING
+    static int tty_insCount = 0;
+
+    #define TTY_LOG_PROGRAM(program)      \
+        printf("\n--- %s ---\n", program);\
+        tty_insCount = 0
 
     #define TTY_LOG_UNKNOWN_INS(ins)\
-        if (TTY_LOGGING_ENABLED) printf("Unknown instruction: %#X\n", ins)
-
-    #define TTY_LOG_PROGRAM(program)\
-        if (TTY_LOGGING_ENABLED) printf("\n--- %s ---\n", program)
+        printf("Unknown instruction: %#X\n", ins)
 
     #define TTY_LOG_INS()\
-        if (TTY_LOGGING_ENABLED) printf("%d) %s\n", count++, __func__ + 5)
+        printf("%d) %s\n", tty_insCount++, __func__ + 5)
 
     #define TTY_LOG_POINT(point)\
-        if (TTY_LOGGING_ENABLED) printf("\t(%d, %d)\n", (point).x, (point).y)
+        printf("\t(%d, %d)\n", (point).x, (point).y)
 
     #define TTY_LOG_VALUE(value)\
-        if (TTY_LOGGING_ENABLED) printf("\t%d\n", value)
+        printf("\t%d\n", value)
 
     #define TTY_LOG_CUSTOM_F(format, ...)\
-        if (TTY_LOGGING_ENABLED) printf("\t"format"\n", __VA_ARGS__)
+        printf("\t"format"\n", __VA_ARGS__)
 
     #define TTY_FIX_TO_FLOAT(val, shift) tty_fix_to_float(val, shift)
     
@@ -637,7 +643,7 @@ TTY_bool tty_init(TTY* font, const char* path) {
     }
     else {
         // TODO: Get ascender and descender from hhea
-        assert(0);
+        TTY_ASSERT(0);
     }
 
     if (font->hasHinting) {
@@ -788,7 +794,7 @@ TTY_uint32 tty_get_glyph_index(TTY* font, TTY_uint32 cp) {
             return 0;
     }
 
-    assert(0);
+    TTY_ASSERT(0);
     return 0;
 }
 
@@ -802,7 +808,7 @@ TTY_int32 tty_get_ascender(TTY* font, TTY_Instance* instance) {
 
 TTY_bool tty_render_glyph(TTY* font, TTY_Image* image, TTY_uint32 cp) {
     // TODO
-    assert(0);
+    TTY_ASSERT(0);
     return TTY_FALSE;
 }
 
@@ -976,7 +982,7 @@ TTY_bool tty_render_glyph_to_existing_image(TTY*          font,
             while (TTY_TRUE) {
                 {
                     // Handle pixels that are only partially covered by a contour
-                    // assert(xIdx < glyph->size.x);
+                    TTY_ASSERT(xIdx < glyph->size.x);
 
                     TTY_F26Dot6 coverage =
                         windingNumber == 0 ?
@@ -1028,7 +1034,7 @@ TTY_bool tty_render_glyph_to_existing_image(TTY*          font,
                     }
                     else {
                         do {
-                            // assert(xIdx < glyph->size.x);
+                            TTY_ASSERT(xIdx < glyph->size.x);
 
                             pixelRow[xIdx] += weightedAlpha;
                             xRel           += 0x40;
@@ -1048,8 +1054,8 @@ TTY_bool tty_render_glyph_to_existing_image(TTY*          font,
             
             for (TTY_uint32 i = 0; i < glyph->size.x; i++) {
                 // TODO: Round instead of floor?
-                // assert(pixelRow[i] >= 0);
-                // assert(pixelRow[i] >> 6 <= 255);
+                TTY_ASSERT(pixelRow[i] >= 0);
+                TTY_ASSERT(pixelRow[i] >> 6 <= 255);
                 image->pixels[startIdx + i] = pixelRow[i] >> 6;
             }
             
@@ -1610,7 +1616,7 @@ static void tty_remove_active_edge(TTY_Active_Edge_List* list,
 static void tty_swap_active_edge_with_next(TTY_Active_Edge_List* list, 
                                            TTY_Active_Edge*      prev, 
                                            TTY_Active_Edge*      edge) {
-    assert(edge->next != NULL);
+    TTY_ASSERT(edge->next != NULL);
     
     if (prev != NULL) {
         prev->next = edge->next;
@@ -1819,7 +1825,7 @@ static TTY_bool tty_extract_glyph_points(TTY* font) {
         points[pointIdx].x = 0;
 
         pointIdx++;
-        assert(pointIdx == TTY_TEMP.zone1.cap);
+        TTY_ASSERT(pointIdx == TTY_TEMP.zone1.cap);
     }
 
 
@@ -1878,22 +1884,22 @@ static TTY_int32 tty_get_next_coord_off(TTY_uint8** data,
 /* Interpreter Stack Operations */
 /* ---------------------------- */
 static void tty_stack_push_uint32(TTY* font, TTY_uint32 val) {
-    assert(font->stack.count < font->stack.cap);
+    TTY_ASSERT(font->stack.count < font->stack.cap);
     font->stack.frames[font->stack.count++].uValue = val;
 }
 
 static void tty_stack_push_int32(TTY* font, TTY_int32 val) {
-    assert(font->stack.count < font->stack.cap);
+    TTY_ASSERT(font->stack.count < font->stack.cap);
     font->stack.frames[font->stack.count++].sValue = val;
 }
 
 static TTY_uint32 tty_stack_pop_uint32(TTY* font) {
-    assert(font->stack.count > 0);
+    TTY_ASSERT(font->stack.count > 0);
     return font->stack.frames[--font->stack.count].uValue;
 }
 
 static TTY_int32 tty_stack_pop_int32(TTY* font) {
-    assert(font->stack.count > 0);
+    TTY_ASSERT(font->stack.count > 0);
     return font->stack.frames[--font->stack.count].sValue;
 }
 
@@ -1934,7 +1940,7 @@ static void tty_execute_font_program(TTY* font) {
     
     while (stream.off < font->fpgm.size) {
         TTY_uint8 ins = tty_ins_stream_next(&stream);
-        assert(ins == TTY_PUSHB || ins == TTY_FDEF || ins == TTY_IDEF);
+        TTY_ASSERT(ins == TTY_PUSHB || ins == TTY_FDEF || ins == TTY_IDEF);
         tty_execute_ins(font, &stream, ins);
     }
 }
@@ -2231,7 +2237,7 @@ static void tty_execute_ins(TTY* font, TTY_Ins_Stream* stream, TTY_uint8 ins) {
     }
 
     TTY_LOG_UNKNOWN_INS(ins);
-    assert(0);
+    TTY_ASSERT(0);
 }
 
 static void tty_ABS(TTY* font) {
@@ -2256,7 +2262,7 @@ static void tty_ALIGNRP(TTY* font) {
 
     for (TTY_uint32 i = 0; i < font->gState.loop; i++) {
         TTY_uint32 pointIdx = tty_stack_pop_uint32(font);
-        assert(pointIdx < font->gState.zp1->cap);
+        TTY_ASSERT(pointIdx < font->gState.zp1->cap);
 
         TTY_F26Dot6 dist = tty_fix_v2_sub_dot(
             rp0Cur, font->gState.zp1->cur + pointIdx, &font->gState.projVec, 14);
@@ -2364,7 +2370,7 @@ static void tty_DIV(TTY* font) {
     TTY_LOG_INS();
     TTY_F26Dot6 n1 = tty_stack_pop_F26Dot6(font);
     TTY_F26Dot6 n2 = tty_stack_pop_F26Dot6(font);
-    assert(n1 != 0);
+    TTY_ASSERT(n1 != 0);
 
     TTY_bool isNeg = TTY_FALSE;
     
@@ -2405,10 +2411,10 @@ static void tty_EQ(TTY* font) {
 static void tty_FDEF(TTY* font, TTY_Ins_Stream* stream) {
     TTY_LOG_INS();
 
-    assert(font->funcArray.count < font->funcArray.cap);
+    TTY_ASSERT(font->funcArray.count < font->funcArray.cap);
 
     TTY_uint32 funcId = tty_stack_pop_uint32(font);
-    assert(funcId < font->funcArray.cap);
+    TTY_ASSERT(funcId < font->funcArray.cap);
 
     font->funcArray.funcs[funcId].firstIns = stream->bytes + stream->off;
     font->funcArray.count++;
@@ -2429,8 +2435,8 @@ static void tty_GC(TTY* font, TTY_uint8 ins) {
     TTY_uint32  pointIdx = tty_stack_pop_uint32(font);
     TTY_F26Dot6 value;
 
-    assert(font->gState.zp2 != NULL);
-    assert(pointIdx < font->gState.zp2->cap);
+    TTY_ASSERT(font->gState.zp2 != NULL);
+    TTY_ASSERT(pointIdx < font->gState.zp2->cap);
 
     if (ins & 0x1) {
         value = tty_fix_v2_dot(
@@ -2483,7 +2489,7 @@ static void tty_GETINFO(TTY* font) {
 static void tty_GPV(TTY* font) {
     // TODO
     TTY_LOG_INS();
-    assert(0);
+    TTY_ASSERT(0);
 }
 
 static void tty_GT(TTY* font) {
@@ -2505,7 +2511,7 @@ static void tty_GTEQ(TTY* font) {
 static void tty_IDEF(TTY* font, TTY_Ins_Stream* stream) {
     // TODO
     TTY_LOG_INS();
-    assert(0);
+    TTY_ASSERT(0);
 }
 
 static void tty_IF(TTY* font, TTY_Ins_Stream* stream) {
@@ -2541,8 +2547,8 @@ static void tty_IF(TTY* font, TTY_Ins_Stream* stream) {
 static void tty_IP(TTY* font) {
     TTY_LOG_INS();
 
-    assert(font->gState.rp1 < font->gState.zp0->cap);
-    assert(font->gState.rp2 < font->gState.zp1->cap);
+    TTY_ASSERT(font->gState.rp1 < font->gState.zp0->cap);
+    TTY_ASSERT(font->gState.rp2 < font->gState.zp1->cap);
 
     TTY_F26Dot6_V2* rp1Cur = font->gState.zp0->cur + font->gState.rp1;
     TTY_F26Dot6_V2* rp2Cur = font->gState.zp1->cur + font->gState.rp2;
@@ -2570,7 +2576,7 @@ static void tty_IP(TTY* font) {
 
     for (TTY_uint32 i = 0; i < font->gState.loop; i++) {
         TTY_uint32 pointIdx = tty_stack_pop_uint32(font);
-        assert(pointIdx < font->gState.zp2->cap);
+        TTY_ASSERT(pointIdx < font->gState.zp2->cap);
 
         TTY_F26Dot6_V2* pointCur = font->gState.zp2->cur + pointIdx;
         TTY_F26Dot6_V2* pointOrg = 
@@ -2599,8 +2605,8 @@ static void tty_IUP(TTY* font, TTY_uint8 ins) {
 
     // Applying IUP to zone0 is an error
     // TODO: How are composite glyphs handled?
-    assert(font->gState.zp2 == &TTY_TEMP.zone1);
-    assert(TTY_TEMP.numContours >= 0);
+    TTY_ASSERT(font->gState.zp2 == &TTY_TEMP.zone1);
+    TTY_ASSERT(TTY_TEMP.numContours >= 0);
 
     if (TTY_TEMP.numContours == 0) {
         return;
@@ -2763,10 +2769,10 @@ static void tty_MDAP(TTY* font, TTY_uint8 ins) {
 static void tty_MDRP(TTY* font, TTY_uint8 ins) {
     TTY_LOG_INS();
 
-    assert(font->gState.rp0 < font->gState.zp0->cap);
+    TTY_ASSERT(font->gState.rp0 < font->gState.zp0->cap);
 
     TTY_uint32 pointIdx = tty_stack_pop_uint32(font);
-    assert(pointIdx < font->gState.zp1->cap);
+    TTY_ASSERT(pointIdx < font->gState.zp1->cap);
 
     TTY_F26Dot6_V2* rp0Cur   = font->gState.zp0->cur + font->gState.rp0;
     TTY_F26Dot6_V2* pointCur = font->gState.zp1->cur + pointIdx;
@@ -2821,8 +2827,8 @@ static void tty_MIAP(TTY* font, TTY_uint8 ins) {
     TTY_uint32 cvtIdx   = tty_stack_pop_uint32(font);
     TTY_uint32 pointIdx = tty_stack_pop_uint32(font);
 
-    assert(cvtIdx < font->cvt.size / sizeof(TTY_FWORD));
-    assert(pointIdx < font->gState.zp0->cap);
+    TTY_ASSERT(cvtIdx < font->cvt.size / sizeof(TTY_FWORD));
+    TTY_ASSERT(pointIdx < font->gState.zp0->cap);
 
     TTY_F26Dot6 newDist = TTY_INSTANCE->cvt[cvtIdx];
 
@@ -2873,8 +2879,8 @@ static void tty_MIRP(TTY* font, TTY_uint8 ins) {
     TTY_uint32 cvtIdx   = tty_stack_pop_uint32(font);
     TTY_uint32 pointIdx = tty_stack_pop_uint32(font);
 
-    assert(cvtIdx   < font->cvt.size / sizeof(TTY_FWORD));
-    assert(pointIdx < font->gState.zp1->cap);
+    TTY_ASSERT(cvtIdx   < font->cvt.size / sizeof(TTY_FWORD));
+    TTY_ASSERT(pointIdx < font->gState.zp1->cap);
 
     TTY_F26Dot6 cvtVal = TTY_INSTANCE->cvt[cvtIdx];
     cvtVal = tty_apply_single_width_cut_in(font, cvtVal);
@@ -3026,7 +3032,7 @@ static void tty_RCVT(TTY* font) {
     TTY_LOG_INS();
     
     TTY_uint32 cvtIdx = tty_stack_pop_uint32(font);
-    assert(cvtIdx < font->cvt.size / sizeof(TTY_FWORD));
+    TTY_ASSERT(cvtIdx < font->cvt.size / sizeof(TTY_FWORD));
 
     tty_stack_push_F26Dot6(font, TTY_INSTANCE->cvt[cvtIdx]);
     TTY_LOG_VALUE(TTY_INSTANCE->cvt[cvtIdx]);
@@ -3166,7 +3172,7 @@ static void tty_SHPIX(TTY* font) {
 
     for (TTY_uint32 i = 0; i < font->gState.loop; i++) {
         TTY_uint32 pointIdx = tty_stack_pop_uint32(font);
-        assert(pointIdx <= font->gState.zp2->cap);
+        TTY_ASSERT(pointIdx <= font->gState.zp2->cap);
 
         font->gState.zp2->cur[pointIdx].x      += dist.x;
         font->gState.zp2->cur[pointIdx].y      += dist.y;
@@ -3271,7 +3277,7 @@ static void tty_WCVTF(TTY* font) {
 
     TTY_uint32 funits = tty_stack_pop_uint32(font);
     TTY_uint32 cvtIdx = tty_stack_pop_uint32(font);
-    assert(cvtIdx < font->cvt.size / sizeof(TTY_FWORD));
+    TTY_ASSERT(cvtIdx < font->cvt.size / sizeof(TTY_FWORD));
 
     TTY_INSTANCE->cvt[cvtIdx] = TTY_FIX_MUL(funits << 6, TTY_INSTANCE->scale, 22);
 
@@ -3284,7 +3290,7 @@ static void tty_WCVTP(TTY* font) {
     TTY_uint32 pixels = tty_stack_pop_uint32(font);
     
     TTY_uint32 cvtIdx = tty_stack_pop_uint32(font);
-    assert(cvtIdx < font->cvt.size / sizeof(TTY_FWORD));
+    TTY_ASSERT(cvtIdx < font->cvt.size / sizeof(TTY_FWORD));
 
     TTY_INSTANCE->cvt[cvtIdx] = pixels;
     TTY_LOG_VALUE(TTY_INSTANCE->cvt[cvtIdx]);
@@ -3325,7 +3331,7 @@ static void tty_reset_graphics_state(TTY* font) {
 }
 
 static void tty_call_func(TTY* font, TTY_uint32 funcId, TTY_uint32 times) {
-    assert(funcId < font->funcArray.count);
+    TTY_ASSERT(funcId < font->funcArray.count);
 
     while (times > 0) {
         TTY_Ins_Stream stream;
@@ -3376,7 +3382,7 @@ static TTY_uint8 tty_jump_to_else_or_eif(TTY_Ins_Stream* stream) {
         }
     }
 
-    assert(0);
+    TTY_ASSERT(0);
     return 0;
 }
 
@@ -3390,7 +3396,7 @@ static TTY_F26Dot6 tty_round(TTY* font, TTY_F26Dot6 val) {
             return tty_f26dot6_round(val);
         case TTY_ROUND_TO_DOUBLE_GRID:
             // TODO
-            assert(0);
+            TTY_ASSERT(0);
             break;
         case TTY_ROUND_DOWN_TO_GRID:
             return tty_f26dot6_floor(val);
@@ -3398,10 +3404,10 @@ static TTY_F26Dot6 tty_round(TTY* font, TTY_F26Dot6 val) {
             return tty_f26dot6_ceil(val);
         case TTY_ROUND_OFF:
             // TODO
-            assert(0);
+            TTY_ASSERT(0);
             break;
     }
-    assert(0);
+    TTY_ASSERT(0);
     return 0;
 }
 
@@ -3590,7 +3596,7 @@ static TTY_int16 tty_get_glyph_left_side_bearing(TTY* font, TTY_uint32 glyphIdx)
 static TTY_int32 tty_get_glyph_y_advance(TTY* font) {
     if (font->vmtx.exists) {
         // TODO: Get from vmtx
-        assert(0);
+        TTY_ASSERT(0);
     }
     
     return font->ascender - font->descender;
@@ -3599,7 +3605,7 @@ static TTY_int32 tty_get_glyph_y_advance(TTY* font) {
 static TTY_int32 tty_get_glyph_top_side_bearing(TTY* font, TTY_int16 yMax) {
     if (font->vmtx.exists) {
         // TODO: Get from vmtx
-        assert(0);
+        TTY_ASSERT(0);
     }
 
     return font->ascender - yMax;
@@ -3621,7 +3627,7 @@ static TTY_Zone* tty_get_zone_pointer(TTY* font, TTY_uint32 zone) {
         case 1:
             return &TTY_TEMP.zone1;
     }
-    assert(0);
+    TTY_ASSERT(0);
     return NULL;
 }
 
