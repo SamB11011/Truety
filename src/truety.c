@@ -72,21 +72,21 @@ static TTY_Edge* tty_get_glyph_edges(TTY* font, TTY_uint32* numEdges);
 static void tty_convert_points_to_bitmap_space(TTY* font, TTY_F26Dot6_V2* points);
 
 static TTY_Curve* tty_convert_points_into_curves(TTY*            font, 
-                                                  TTY_F26Dot6_V2* points, 
-                                                  TTY_Point_Type* pointTypes, 
-                                                  TTY_uint32*     numCurves);
+                                                 TTY_F26Dot6_V2* points, 
+                                                 TTY_Point_Type* pointTypes, 
+                                                 TTY_uint32*     numCurves);
 
 static TTY_Edge* tty_subdivide_curves_into_edges(TTY*        font, 
-                                                  TTY_Curve*  curves, 
-                                                  TTY_uint32  numCurves, 
-                                                  TTY_uint32* numEdges);
+                                                 TTY_Curve*  curves, 
+                                                 TTY_uint32  numCurves, 
+                                                 TTY_uint32* numEdges);
 
 static void tty_subdivide_curve_into_edges(TTY_F26Dot6_V2* p0, 
-                                            TTY_F26Dot6_V2* p1, 
-                                            TTY_F26Dot6_V2* p2, 
-                                            TTY_int8        dir, 
-                                            TTY_Edge*       edges, 
-                                            TTY_uint32*     numEdges);
+                                           TTY_F26Dot6_V2* p1, 
+                                           TTY_F26Dot6_V2* p2, 
+                                           TTY_int8        dir, 
+                                           TTY_Edge*       edges, 
+                                           TTY_uint32*     numEdges);
 
 static void tty_edge_init(TTY_Edge* edge, TTY_F26Dot6_V2* p0, TTY_F26Dot6_V2* p1, TTY_int8 dir);
 
@@ -105,15 +105,15 @@ static TTY_Active_Edge* tty_get_available_active_edge(TTY_Active_Edge_List* list
 static TTY_Active_Edge* tty_insert_active_edge_first(TTY_Active_Edge_List* list);
 
 static TTY_Active_Edge* tty_insert_active_edge_after(TTY_Active_Edge_List* list, 
-                                                      TTY_Active_Edge*      after);
+                                                     TTY_Active_Edge*      after);
 
 static void tty_remove_active_edge(TTY_Active_Edge_List* list, 
-                                    TTY_Active_Edge*      prev, 
-                                    TTY_Active_Edge*      remove);
+                                    TTY_Active_Edge*     prev, 
+                                    TTY_Active_Edge*     remove);
 
 static void tty_swap_active_edge_with_next(TTY_Active_Edge_List* list, 
-                                            TTY_Active_Edge*      prev, 
-                                            TTY_Active_Edge*      edge);
+                                            TTY_Active_Edge*     prev, 
+                                            TTY_Active_Edge*     edge);
 
 
 /* ------------------- */
@@ -470,16 +470,16 @@ static TTY_F26Dot6 tty_apply_single_width_cut_in(TTY* font, TTY_F26Dot6 value);
 static TTY_F26Dot6 tty_apply_min_dist(TTY* font, TTY_F26Dot6 value);
 
 static TTY_bool tty_get_delta_value(TTY*         font, 
-                                     TTY_uint32   exc, 
-                                     TTY_uint8    range, 
-                                     TTY_F26Dot6* deltaVal);
+                                    TTY_uint32   exc, 
+                                    TTY_uint8    range, 
+                                    TTY_F26Dot6* deltaVal);
 
 static void tty_IUP_interpolate_or_shift(TTY_Zone*      zone1, 
-                                          TTY_Touch_Flag touchFlag, 
-                                          TTY_uint16     startPointIdx, 
-                                          TTY_uint16     endPointIdx, 
-                                          TTY_uint16     touch0, 
-                                          TTY_uint16     touch1);
+                                         TTY_Touch_Flag touchFlag, 
+                                         TTY_uint16     startPointIdx, 
+                                         TTY_uint16     endPointIdx, 
+                                         TTY_uint16     touch0, 
+                                         TTY_uint16     touch1);
 
 
 /* ------------------ */
@@ -562,32 +562,28 @@ static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val);
 
 // #define TTY_DEBUG
 
-#define TTY_LOG_LEVEL_VERBOSE  0
-#define TTY_LOG_LEVEL_MINIMAL  1
-#define TTY_LOG_LEVEL_CRITICAL 2
-#define TTY_LOG_LEVEL_NONE     3
-#define TTY_LOG_LEVEL          TTY_LOG_LEVEL_NONE
+#define TTY_LOGGING_ENABLED 1 
 
-#ifdef TTY_DEBUG
+#ifdef TTY_LOGGING_ENABLED
     static int count = 0;
 
     #define TTY_LOG_UNKNOWN_INS(ins)\
-        if (TTY_LOG_LEVEL_CRITICAL >= TTY_LOG_LEVEL) printf("Unknown instruction: %#X\n", ins)
+        if (TTY_LOGGING_ENABLED) printf("Unknown instruction: %#X\n", ins)
 
     #define TTY_LOG_PROGRAM(program)\
-        if (TTY_LOG_LEVEL_MINIMAL >= TTY_LOG_LEVEL) printf("\n--- %s ---\n", program)
+        if (TTY_LOGGING_ENABLED) printf("\n--- %s ---\n", program)
 
-    #define TTY_LOG_INS(level)\
-        if (level >= TTY_LOG_LEVEL) printf("%d) %s\n", count++, _func_ + 5)
+    #define TTY_LOG_INS()\
+        if (TTY_LOGGING_ENABLED) printf("%d) %s\n", count++, __func__ + 5)
 
-    #define TTY_LOG_POINT(point, level)\
-        if (level >= TTY_LOG_LEVEL) printf("\t(%d, %d)\n", (point).x, (point).y)
+    #define TTY_LOG_POINT(point)\
+        if (TTY_LOGGING_ENABLED) printf("\t(%d, %d)\n", (point).x, (point).y)
 
-    #define TTY_LOG_VALUE(value, level)\
-        if (level >= TTY_LOG_LEVEL) printf("\t%d\n", value)
+    #define TTY_LOG_VALUE(value)\
+        if (TTY_LOGGING_ENABLED) printf("\t%d\n", value)
 
-    #define TTY_LOG_CUSTOM_F(level, format, ...)\
-        if (level >= TTY_LOG_LEVEL) printf("\t"format"\n", _VA_ARGS_)
+    #define TTY_LOG_CUSTOM_F(format, ...)\
+        if (TTY_LOGGING_ENABLED) printf("\t"format"\n", __VA_ARGS__)
 
     #define TTY_FIX_TO_FLOAT(val, shift) tty_fix_to_float(val, shift)
     
@@ -607,10 +603,10 @@ static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val);
 #else
     #define TTY_LOG_UNKNOWN_INS(ins)
     #define TTY_LOG_PROGRAM(program)
-    #define TTY_LOG_INS(level)
-    #define TTY_LOG_POINT(point, level)
-    #define TTY_LOG_VALUE(value, level)
-    #define TTY_LOG_CUSTOM_F(level, format, ...)
+    #define TTY_LOG_INS()
+    #define TTY_LOG_POINT(point)
+    #define TTY_LOG_VALUE(value)
+    #define TTY_LOG_CUSTOM_F(format, ...)
     #define TTY_FIX_TO_FLOAT(val, shift)
 #endif
 
@@ -1374,9 +1370,9 @@ static TTY_Edge* tty_get_glyph_edges(TTY* font, TTY_uint32* numEdges) {
 }
 
 static TTY_Curve* tty_convert_points_into_curves(TTY*            font, 
-                                                  TTY_F26Dot6_V2* points, 
-                                                  TTY_Point_Type* pointTypes, 
-                                                  TTY_uint32*     numCurves) {
+                                                 TTY_F26Dot6_V2* points, 
+                                                 TTY_Point_Type* pointTypes, 
+                                                 TTY_uint32*     numCurves) {
     TTY_Curve* curves = malloc(TTY_TEMP.numPoints * sizeof(TTY_Curve));
     if (curves == NULL) {
         return NULL;
@@ -1433,9 +1429,9 @@ static TTY_Curve* tty_convert_points_into_curves(TTY*            font,
 }
 
 static TTY_Edge* tty_subdivide_curves_into_edges(TTY*        font, 
-                                                  TTY_Curve*  curves, 
-                                                  TTY_uint32  numCurves, 
-                                                  TTY_uint32* numEdges) {
+                                                 TTY_Curve*  curves, 
+                                                 TTY_uint32  numCurves, 
+                                                 TTY_uint32* numEdges) {
     // Count the number of edges that are needed
     *numEdges = 0;
     for (TTY_uint32 i = 0; i < numCurves; i++) {
@@ -1473,11 +1469,11 @@ static TTY_Edge* tty_subdivide_curves_into_edges(TTY*        font,
 }
 
 static void tty_subdivide_curve_into_edges(TTY_F26Dot6_V2* p0, 
-                                            TTY_F26Dot6_V2* p1, 
-                                            TTY_F26Dot6_V2* p2, 
-                                            TTY_int8        dir, 
-                                            TTY_Edge*       edges, 
-                                            TTY_uint32*     numEdges) {
+                                           TTY_F26Dot6_V2* p1, 
+                                           TTY_F26Dot6_V2* p2, 
+                                           TTY_int8        dir, 
+                                           TTY_Edge*       edges, 
+                                           TTY_uint32*     numEdges) {
     #define TTY_DIVIDE(a, b)                       \
         { TTY_FIX_MUL(((a)->x + (b)->x), 0x20, 6), \
           TTY_FIX_MUL(((a)->y + (b)->y), 0x20, 6) }
@@ -1587,7 +1583,7 @@ static TTY_Active_Edge* tty_insert_active_edge_first(TTY_Active_Edge_List* list)
 }
 
 static TTY_Active_Edge* tty_insert_active_edge_after(TTY_Active_Edge_List* list, 
-                                                      TTY_Active_Edge*      after) {
+                                                     TTY_Active_Edge*      after) {
     TTY_Active_Edge* edge = tty_get_available_active_edge(list);
     edge->next  = after->next;
     after->next = edge;
@@ -1595,8 +1591,8 @@ static TTY_Active_Edge* tty_insert_active_edge_after(TTY_Active_Edge_List* list,
 }
 
 static void tty_remove_active_edge(TTY_Active_Edge_List* list, 
-                                    TTY_Active_Edge*      prev, 
-                                    TTY_Active_Edge*      remove) {
+                                   TTY_Active_Edge*      prev, 
+                                   TTY_Active_Edge*      remove) {
     if (prev == NULL) {
         list->headEdge = list->headEdge->next;
     }
@@ -1612,8 +1608,8 @@ static void tty_remove_active_edge(TTY_Active_Edge_List* list,
 }
 
 static void tty_swap_active_edge_with_next(TTY_Active_Edge_List* list, 
-                                            TTY_Active_Edge*      prev, 
-                                            TTY_Active_Edge*      edge) {
+                                           TTY_Active_Edge*      prev, 
+                                           TTY_Active_Edge*      edge) {
     assert(edge->next != NULL);
     
     if (prev != NULL) {
@@ -1857,9 +1853,9 @@ static TTY_bool tty_extract_glyph_points(TTY* font) {
 }
 
 static TTY_int32 tty_get_next_coord_off(TTY_uint8** data, 
-                                         TTY_uint8   dualFlag, 
-                                         TTY_uint8   shortFlag, 
-                                         TTY_uint8   flags) {
+                                        TTY_uint8   dualFlag, 
+                                        TTY_uint8   shortFlag, 
+                                        TTY_uint8   flags) {
     TTY_int32 coord;
 
     if (flags & shortFlag) {
@@ -2239,22 +2235,22 @@ static void tty_execute_ins(TTY* font, TTY_Ins_Stream* stream, TTY_uint8 ins) {
 }
 
 static void tty_ABS(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_F26Dot6 val = tty_stack_pop_F26Dot6(font);
     tty_stack_push_F26Dot6(font, labs(val));
-    TTY_LOG_VALUE((int)labs(val), TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE((int)labs(val));
 }
 
 static void tty_ADD(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_F26Dot6 n1 = tty_stack_pop_F26Dot6(font);
     TTY_F26Dot6 n2 = tty_stack_pop_F26Dot6(font);
     tty_stack_push_F26Dot6(font, n1 + n2);
-    TTY_LOG_VALUE(n1 + n2, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(n1 + n2);
 }
 
 static void tty_ALIGNRP(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
 
     TTY_F26Dot6_V2* rp0Cur = font->gState.zp0->cur + font->gState.rp0;
 
@@ -2267,45 +2263,45 @@ static void tty_ALIGNRP(TTY* font) {
 
         tty_move_point(font, font->gState.zp1, pointIdx, dist);
 
-        TTY_LOG_POINT(font->gState.zp1->cur[pointIdx], TTY_LOG_LEVEL_MINIMAL);
+        TTY_LOG_POINT(font->gState.zp1->cur[pointIdx]);
     }
 
     font->gState.loop = 1;
 }
 
 static void tty_AND(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_uint32 e2 = tty_stack_pop_uint32(font);
     TTY_uint32 e1 = tty_stack_pop_uint32(font);
     tty_stack_push_uint32(font, e1 != 0 && e2 != 0 ? 1 : 0);
-    TTY_LOG_VALUE(e1 != 0 && e2 != 0, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(e1 != 0 && e2 != 0);
 }
 
 static void tty_CALL(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     tty_call_func(font, tty_stack_pop_uint32(font), 1);
 }
 
 static void tty_CINDEX(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_uint32 pos = tty_stack_pop_uint32(font);
     TTY_uint32 val = font->stack.frames[font->stack.count - pos].uValue;
     tty_stack_push_uint32(font, val);
-    TTY_LOG_VALUE(val, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(val);
 }
 
 static void tty_DELTAC1(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
     tty_DELTAC(font, 0);
 }
 
 static void tty_DELTAC2(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
     tty_DELTAC(font, 16);
 }
 
 static void tty_DELTAC3(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
     tty_DELTAC(font, 32);
 }
 
@@ -2319,7 +2315,7 @@ static void tty_DELTAC(TTY* font, TTY_uint8 range) {
         TTY_F26Dot6 deltaVal;
         if (tty_get_delta_value(font, exc, range, &deltaVal)) {
             TTY_INSTANCE->cvt[cvtIdx] += deltaVal;
-            TTY_LOG_VALUE(deltaVal, TTY_LOG_LEVEL_MINIMAL);
+            TTY_LOG_VALUE(deltaVal);
         }
 
         count--;
@@ -2327,17 +2323,17 @@ static void tty_DELTAC(TTY* font, TTY_uint8 range) {
 }
 
 static void tty_DELTAP1(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
     tty_DELTAP(font, 0);
 }
 
 static void tty_DELTAP2(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
     tty_DELTAP(font, 16);
 }
 
 static void tty_DELTAP3(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
     tty_DELTAP(font, 32);
 }
 
@@ -2351,7 +2347,7 @@ static void tty_DELTAP(TTY* font, TTY_uint8 range) {
         TTY_F26Dot6 deltaVal;
         if (tty_get_delta_value(font, exc, range, &deltaVal)) {
             tty_move_point(font, font->gState.zp0, pointIdx, deltaVal);
-            TTY_LOG_VALUE(deltaVal, TTY_LOG_LEVEL_MINIMAL);
+            TTY_LOG_VALUE(deltaVal);
         }
 
         count--;
@@ -2359,13 +2355,13 @@ static void tty_DELTAP(TTY* font, TTY_uint8 range) {
 }
 
 static void tty_DEPTH(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
-    TTY_LOG_VALUE(font->stack.count, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
+    TTY_LOG_VALUE(font->stack.count);
     tty_stack_push_uint32(font, font->stack.count);
 }
 
 static void tty_DIV(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
     TTY_F26Dot6 n1 = tty_stack_pop_F26Dot6(font);
     TTY_F26Dot6 n2 = tty_stack_pop_F26Dot6(font);
     assert(n1 != 0);
@@ -2387,27 +2383,27 @@ static void tty_DIV(TTY* font) {
     }
 
     tty_stack_push_F26Dot6(font, result);
-    TTY_LOG_VALUE(result, TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_VALUE(result);
 }
 
 static void tty_DUP(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_uint32 e = tty_stack_pop_uint32(font);
     tty_stack_push_uint32(font, e);
     tty_stack_push_uint32(font, e);
-    TTY_LOG_VALUE(e, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(e);
 }
 
 static void tty_EQ(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_int32 e2 = tty_stack_pop_uint32(font);
     TTY_int32 e1 = tty_stack_pop_uint32(font);
     tty_stack_push_uint32(font, e1 == e2 ? 1 : 0);
-    TTY_LOG_VALUE(e1 == e2, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(e1 == e2);
 }
 
 static void tty_FDEF(TTY* font, TTY_Ins_Stream* stream) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
 
     assert(font->funcArray.count < font->funcArray.cap);
 
@@ -2421,14 +2417,14 @@ static void tty_FDEF(TTY* font, TTY_Ins_Stream* stream) {
 }
 
 static void tty_FLOOR(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
     TTY_F26Dot6 val = tty_stack_pop_F26Dot6(font);
     tty_stack_push_F26Dot6(font, tty_f26dot6_floor(val));
-    TTY_LOG_VALUE(tty_f26dot6_floor(val), TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_VALUE(tty_f26dot6_floor(val));
 }
 
 static void tty_GC(TTY* font, TTY_uint8 ins) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
 
     TTY_uint32  pointIdx = tty_stack_pop_uint32(font);
     TTY_F26Dot6 value;
@@ -2446,11 +2442,11 @@ static void tty_GC(TTY* font, TTY_uint8 ins) {
 
     tty_stack_push_F26Dot6(font, value);
 
-    TTY_LOG_VALUE(value, TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_VALUE(value);
 }
 
 static void tty_GETINFO(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
 
     // These are the only supported selector bits for scalar version 35
     enum {
@@ -2480,50 +2476,50 @@ static void tty_GETINFO(TTY* font) {
         // result |= 0x1000;
     }
 
-    TTY_LOG_VALUE(result, TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_VALUE(result);
     tty_stack_push_uint32(font, result);
 }
 
 static void tty_GPV(TTY* font) {
     // TODO
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     assert(0);
 }
 
 static void tty_GT(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_int32 e2 = tty_stack_pop_uint32(font);
     TTY_int32 e1 = tty_stack_pop_uint32(font);
     tty_stack_push_uint32(font, e1 > e2 ? 1 : 0);
-    TTY_LOG_VALUE(e1 > e2, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(e1 > e2);
 }
 
 static void tty_GTEQ(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_int32 e2 = tty_stack_pop_uint32(font);
     TTY_int32 e1 = tty_stack_pop_uint32(font);
     tty_stack_push_uint32(font, e1 >= e2 ? 1 : 0);
-    TTY_LOG_VALUE(e1 >= e2, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(e1 >= e2);
 }
 
 static void tty_IDEF(TTY* font, TTY_Ins_Stream* stream) {
     // TODO
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     assert(0);
 }
 
 static void tty_IF(TTY* font, TTY_Ins_Stream* stream) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
 
     if (tty_stack_pop_uint32(font) == 0) {
-        TTY_LOG_VALUE(0, TTY_LOG_LEVEL_VERBOSE);
+        TTY_LOG_VALUE(0);
         if (tty_jump_to_else_or_eif(stream) == TTY_EIF) {
             // Condition is false and there is no else instruction
             return;
         }
     }
     else {
-        TTY_LOG_VALUE(1, TTY_LOG_LEVEL_VERBOSE);
+        TTY_LOG_VALUE(1);
     }
 
     while (TTY_TRUE) {
@@ -2543,7 +2539,7 @@ static void tty_IF(TTY* font, TTY_Ins_Stream* stream) {
 }
 
 static void tty_IP(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
 
     assert(font->gState.rp1 < font->gState.zp0->cap);
     assert(font->gState.rp2 < font->gState.zp1->cap);
@@ -2592,14 +2588,14 @@ static void tty_IP(TTY* font) {
 
         tty_move_point(font, font->gState.zp2, pointIdx, distNew - distCur);
 
-        TTY_LOG_POINT(*pointCur, TTY_LOG_LEVEL_MINIMAL);
+        TTY_LOG_POINT(*pointCur);
     }
 
     font->gState.loop = 1;
 }
 
 static void tty_IUP(TTY* font, TTY_uint8 ins) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
 
     // Applying IUP to zone0 is an error
     // TODO: How are composite glyphs handled?
@@ -2658,52 +2654,52 @@ static void tty_IUP(TTY* font, TTY_uint8 ins) {
 }
 
 static void tty_JROT(TTY* font, TTY_Ins_Stream* stream) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     
     TTY_uint32 val = tty_stack_pop_uint32(font);
     TTY_int32  off = tty_stack_pop_int32(font); 
 
     if (val != 0) {
         tty_ins_stream_jump(stream, off - 1);
-        TTY_LOG_VALUE(off - 1, TTY_LOG_LEVEL_VERBOSE);
+        TTY_LOG_VALUE(off - 1);
     }
     else {
-        TTY_LOG_VALUE(0, TTY_LOG_LEVEL_VERBOSE);
+        TTY_LOG_VALUE(0);
     }
 }
 
 static void tty_JMPR(TTY* font, TTY_Ins_Stream* stream) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_int32 off = tty_stack_pop_int32(font);
     tty_ins_stream_jump(stream, off - 1);
-    TTY_LOG_VALUE(off - 1, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(off - 1);
 }
 
 static void tty_LOOPCALL(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_uint32 funcId = tty_stack_pop_uint32(font);
     TTY_uint32 times  = tty_stack_pop_uint32(font);
     tty_call_func(font, funcId, times);
 }
 
 static void tty_LT(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_int32 e2 = tty_stack_pop_uint32(font);
     TTY_int32 e1 = tty_stack_pop_uint32(font);
     tty_stack_push_uint32(font, e1 < e2 ? 1 : 0);
-    TTY_LOG_VALUE(e1 < e2, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(e1 < e2);
 }
 
 static void tty_LTEQ(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_int32 e2 = tty_stack_pop_uint32(font);
     TTY_int32 e1 = tty_stack_pop_uint32(font);
     tty_stack_push_uint32(font, e1 <= e2 ? 1 : 0);
-    TTY_LOG_VALUE(e1 <= e2, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(e1 <= e2);
 }
 
 static void tty_MD(TTY* font, TTY_uint8 ins) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
     
     TTY_uint32  pointIdx0 = tty_stack_pop_uint32(font);
     TTY_uint32  pointIdx1 = tty_stack_pop_uint32(font);
@@ -2738,11 +2734,11 @@ static void tty_MD(TTY* font, TTY_uint8 ins) {
 
     tty_stack_push_F26Dot6(font, dist);
 
-    TTY_LOG_VALUE(dist, TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_VALUE(dist);
 }
 
 static void tty_MDAP(TTY* font, TTY_uint8 ins) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
 
     TTY_uint32      pointIdx = tty_stack_pop_uint32(font);
     TTY_F26Dot6_V2* point    = font->gState.zp0->cur + pointIdx;
@@ -2761,11 +2757,11 @@ static void tty_MDAP(TTY* font, TTY_uint8 ins) {
     font->gState.rp0 = pointIdx;
     font->gState.rp1 = pointIdx;
 
-    TTY_LOG_POINT(*point, TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_POINT(*point);
 }
 
 static void tty_MDRP(TTY* font, TTY_uint8 ins) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
 
     assert(font->gState.rp0 < font->gState.zp0->cap);
 
@@ -2816,11 +2812,11 @@ static void tty_MDRP(TTY* font, TTY_uint8 ins) {
 
     tty_move_point(font, font->gState.zp1, pointIdx, distOrg - distCur);
 
-    TTY_LOG_POINT(*pointCur, TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_POINT(*pointCur);
 }
 
 static void tty_MIAP(TTY* font, TTY_uint8 ins) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
 
     TTY_uint32 cvtIdx   = tty_stack_pop_uint32(font);
     TTY_uint32 pointIdx = tty_stack_pop_uint32(font);
@@ -2855,11 +2851,11 @@ static void tty_MIAP(TTY* font, TTY_uint8 ins) {
     font->gState.rp0 = pointIdx;
     font->gState.rp1 = pointIdx;
 
-    TTY_LOG_POINT(font->gState.zp0->cur[pointIdx], TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_POINT(font->gState.zp0->cur[pointIdx]);
 }
 
 static void tty_MINDEX(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
 
     TTY_uint32 idx  = font->stack.count - font->stack.frames[font->stack.count - 1].uValue - 1;
     size_t     size = sizeof(TTY_Stack_Frame) * (font->stack.count - idx - 1);
@@ -2872,7 +2868,7 @@ static void tty_MINDEX(TTY* font) {
 static void tty_MIRP(TTY* font, TTY_uint8 ins) {
     // Note: There is a lot of undocumented stuff involving this instruction
 
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
 
     TTY_uint32 cvtIdx   = tty_stack_pop_uint32(font);
     TTY_uint32 pointIdx = tty_stack_pop_uint32(font);
@@ -2932,41 +2928,41 @@ static void tty_MIRP(TTY* font, TTY_uint8 ins) {
         font->gState.rp0 = pointIdx;
     }
 
-    TTY_LOG_POINT(*pointCur, TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_POINT(*pointCur);
 }
 
 static void tty_MPPEM(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     tty_stack_push_uint32(font, TTY_INSTANCE->ppem);
-    TTY_LOG_VALUE(TTY_INSTANCE->ppem, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(TTY_INSTANCE->ppem);
 }
 
 static void tty_MUL(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_F26Dot6 n1     = tty_stack_pop_F26Dot6(font);
     TTY_F26Dot6 n2     = tty_stack_pop_F26Dot6(font);
     TTY_F26Dot6 result = TTY_FIX_MUL(n1, n2, 6);
     tty_stack_push_F26Dot6(font, result);
-    TTY_LOG_VALUE(result, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(result);
 }
 
 static void tty_NEG(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_F26Dot6 val = tty_stack_pop_F26Dot6(font);
     tty_stack_push_F26Dot6(font, -val);
-    TTY_LOG_VALUE(-val, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(-val);
 }
 
 static void tty_NEQ(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_int32 e2 = tty_stack_pop_uint32(font);
     TTY_int32 e1 = tty_stack_pop_uint32(font);
     tty_stack_push_uint32(font, e1 != e2 ? 1 : 0);
-    TTY_LOG_VALUE(e1 != e2, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(e1 != e2);
 }
 
 static void tty_NPUSHB(TTY* font, TTY_Ins_Stream* stream) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
 
     TTY_uint8 count = tty_ins_stream_next(stream);
 
@@ -2977,7 +2973,7 @@ static void tty_NPUSHB(TTY* font, TTY_Ins_Stream* stream) {
 }
 
 static void tty_NPUSHW(TTY* font, TTY_Ins_Stream* stream) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
 
     TTY_uint8 count = tty_ins_stream_next(stream);
 
@@ -2990,20 +2986,20 @@ static void tty_NPUSHW(TTY* font, TTY_Ins_Stream* stream) {
 }
 
 static void tty_OR(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_int32 e1 = tty_stack_pop_int32(font);
     TTY_int32 e2 = tty_stack_pop_int32(font);
     tty_stack_push_uint32(font, (e1 != 0 || e2 != 0) ? 1 : 0);
-    TTY_LOG_VALUE((e1 != 0 || e2 != 0), TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE((e1 != 0 || e2 != 0));
 }
 
 static void tty_POP(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     tty_stack_pop_uint32(font);
 }
 
 static void tty_PUSHB(TTY* font, TTY_Ins_Stream* stream, TTY_uint8 ins) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
 
     TTY_uint8 count = tty_get_num_vals_to_push(ins);
 
@@ -3014,7 +3010,7 @@ static void tty_PUSHB(TTY* font, TTY_Ins_Stream* stream, TTY_uint8 ins) {
 }
 
 static void tty_PUSHW(TTY* font, TTY_Ins_Stream* stream, TTY_uint8 ins) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
 
     TTY_uint8 count = tty_get_num_vals_to_push(ins);
 
@@ -3027,22 +3023,22 @@ static void tty_PUSHW(TTY* font, TTY_Ins_Stream* stream, TTY_uint8 ins) {
 }
 
 static void tty_RCVT(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     
     TTY_uint32 cvtIdx = tty_stack_pop_uint32(font);
     assert(cvtIdx < font->cvt.size / sizeof(TTY_FWORD));
 
     tty_stack_push_F26Dot6(font, TTY_INSTANCE->cvt[cvtIdx]);
-    TTY_LOG_VALUE(TTY_INSTANCE->cvt[cvtIdx], TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(TTY_INSTANCE->cvt[cvtIdx]);
 }
 
 static void tty_RDTG(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     font->gState.roundState = TTY_ROUND_DOWN_TO_GRID;
 }
 
 static void tty_ROLL(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_uint32 a = tty_stack_pop_uint32(font);
     TTY_uint32 b = tty_stack_pop_uint32(font);
     TTY_uint32 c = tty_stack_pop_uint32(font);
@@ -3052,37 +3048,37 @@ static void tty_ROLL(TTY* font) {
 }
 
 static void tty_ROUND(TTY* font, TTY_uint8 ins) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
     TTY_F26Dot6 dist = tty_stack_pop_F26Dot6(font);
     dist = tty_round(font, dist);
     tty_stack_push_F26Dot6(font, dist);
-    TTY_LOG_VALUE(dist, TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_VALUE(dist);
 }
 
 static void tty_RS(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_uint32 idx = tty_stack_pop_uint32(font);
     tty_stack_push_int32(font, TTY_INSTANCE->storageArea[idx]);
-    TTY_LOG_VALUE(TTY_INSTANCE->storageArea[idx], TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(TTY_INSTANCE->storageArea[idx]);
 }
 
 static void tty_RTG(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     font->gState.roundState = TTY_ROUND_TO_GRID;
 }
 
 static void tty_RTHG(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     font->gState.roundState = TTY_ROUND_TO_HALF_GRID;
 }
 
 static void tty_RUTG(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     font->gState.roundState = TTY_ROUND_UP_TO_GRID;
 }
 
 static void tty_SCANCTRL(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
 
     TTY_uint16 flags  = tty_stack_pop_uint32(font);
     TTY_uint8  thresh = flags & 0xFF;
@@ -3131,35 +3127,35 @@ static void tty_SCANCTRL(TTY* font) {
         }
     }
 
-    TTY_LOG_VALUE(font->gState.scanControl, TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_VALUE(font->gState.scanControl);
 }
 
 static void tty_SCANTYPE(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     font->gState.scanType = tty_stack_pop_uint32(font);
-    TTY_LOG_VALUE(font->gState.scanType, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(font->gState.scanType);
 }
 
 static void tty_SCVTCI(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     font->gState.controlValueCutIn = tty_stack_pop_F26Dot6(font);
-    TTY_LOG_VALUE(font->gState.controlValueCutIn, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(font->gState.controlValueCutIn);
 }
 
 static void tty_SDB(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     font->gState.deltaBase = tty_stack_pop_uint32(font);
-    TTY_LOG_VALUE(font->gState.deltaBase, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(font->gState.deltaBase);
 }
 
 static void tty_SDS(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     font->gState.deltaShift = tty_stack_pop_uint32(font);
-    TTY_LOG_VALUE(font->gState.deltaShift, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(font->gState.deltaShift);
 }
 
 static void tty_SHPIX(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_MINIMAL);
+    TTY_LOG_INS();
     
     TTY_F26Dot6_V2 dist;
     {
@@ -3176,46 +3172,46 @@ static void tty_SHPIX(TTY* font) {
         font->gState.zp2->cur[pointIdx].y      += dist.y;
         font->gState.zp2->touchFlags[pointIdx] |= font->gState.touchFlags;
 
-        TTY_LOG_POINT(font->gState.zp2->cur[pointIdx], TTY_LOG_LEVEL_MINIMAL);
+        TTY_LOG_POINT(font->gState.zp2->cur[pointIdx]);
     }
 
     font->gState.loop = 1;
 }
 
 static void tty_SLOOP(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     font->gState.loop = tty_stack_pop_uint32(font);
-    TTY_LOG_VALUE(font->gState.loop, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(font->gState.loop);
 }
 
 static void tty_SRP0(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     font->gState.rp0 = tty_stack_pop_uint32(font);
-    TTY_LOG_VALUE(font->gState.rp0, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(font->gState.rp0);
 }
 
 static void tty_SRP1(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     font->gState.rp1 = tty_stack_pop_uint32(font);
-    TTY_LOG_VALUE(font->gState.rp1, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(font->gState.rp1);
 }
 
 static void tty_SRP2(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     font->gState.rp2 = tty_stack_pop_uint32(font);
-    TTY_LOG_VALUE(font->gState.rp2, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(font->gState.rp2);
 }
 
 static void tty_SUB(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_F26Dot6 n1 = tty_stack_pop_F26Dot6(font);
     TTY_F26Dot6 n2 = tty_stack_pop_F26Dot6(font);
     tty_stack_push_F26Dot6(font, n2 - n1);
-    TTY_LOG_VALUE(n2 - n1, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(n2 - n1);
 }
 
 static void tty_SVTCA(TTY* font, TTY_uint8 ins) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
 
     if (ins & 0x1) {
         font->gState.freedomVec.x = 1l << 14;
@@ -3233,7 +3229,7 @@ static void tty_SVTCA(TTY* font, TTY_uint8 ins) {
 }
 
 static void tty_SWAP(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_uint32 e2 = tty_stack_pop_uint32(font);
     TTY_uint32 e1 = tty_stack_pop_uint32(font);
     tty_stack_push_uint32(font, e2);
@@ -3241,37 +3237,37 @@ static void tty_SWAP(TTY* font) {
 }
 
 static void tty_SZPS(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_uint32 zone = tty_stack_pop_uint32(font);
     font->gState.zp0 = tty_get_zone_pointer(font, zone);
     font->gState.zp1 = font->gState.zp0;
     font->gState.zp2 = font->gState.zp0;
-    TTY_LOG_VALUE(zone, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(zone);
 }
 
 static void tty_SZP0(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_uint32 zone = tty_stack_pop_uint32(font);
     font->gState.zp0 = tty_get_zone_pointer(font, zone);
-    TTY_LOG_VALUE(zone, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(zone);
 }
 
 static void tty_SZP1(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_uint32 zone = tty_stack_pop_uint32(font);
     font->gState.zp1 = tty_get_zone_pointer(font, zone);
-    TTY_LOG_VALUE(zone, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(zone);
 }
 
 static void tty_SZP2(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_uint32 zone = tty_stack_pop_uint32(font);
     font->gState.zp2 = tty_get_zone_pointer(font, zone);
-    TTY_LOG_VALUE(zone, TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(zone);
 }
 
 static void tty_WCVTF(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
 
     TTY_uint32 funits = tty_stack_pop_uint32(font);
     TTY_uint32 cvtIdx = tty_stack_pop_uint32(font);
@@ -3279,11 +3275,11 @@ static void tty_WCVTF(TTY* font) {
 
     TTY_INSTANCE->cvt[cvtIdx] = TTY_FIX_MUL(funits << 6, TTY_INSTANCE->scale, 22);
 
-    TTY_LOG_VALUE(TTY_INSTANCE->cvt[cvtIdx], TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(TTY_INSTANCE->cvt[cvtIdx]);
 }
 
 static void tty_WCVTP(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
 
     TTY_uint32 pixels = tty_stack_pop_uint32(font);
     
@@ -3291,15 +3287,15 @@ static void tty_WCVTP(TTY* font) {
     assert(cvtIdx < font->cvt.size / sizeof(TTY_FWORD));
 
     TTY_INSTANCE->cvt[cvtIdx] = pixels;
-    TTY_LOG_VALUE(TTY_INSTANCE->cvt[cvtIdx], TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(TTY_INSTANCE->cvt[cvtIdx]);
 }
 
 static void tty_WS(TTY* font) {
-    TTY_LOG_INS(TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_INS();
     TTY_int32  value = tty_stack_pop_int32(font);
     TTY_uint32 idx   = tty_stack_pop_uint32(font);
     TTY_INSTANCE->storageArea[idx] = value;
-    TTY_LOG_VALUE(TTY_INSTANCE->storageArea[idx], TTY_LOG_LEVEL_VERBOSE);
+    TTY_LOG_VALUE(TTY_INSTANCE->storageArea[idx]);
 }
 
 static void tty_reset_graphics_state(TTY* font) {
@@ -3437,9 +3433,9 @@ static TTY_F26Dot6 tty_apply_min_dist(TTY* font, TTY_F26Dot6 value) {
 }
 
 static TTY_bool tty_get_delta_value(TTY*         font, 
-                                     TTY_uint32   exc, 
-                                     TTY_uint8    range, 
-                                     TTY_F26Dot6* deltaVal) {
+                                    TTY_uint32   exc, 
+                                    TTY_uint8    range, 
+                                    TTY_F26Dot6* deltaVal) {
     TTY_uint32 ppem = ((exc & 0xF0) >> 4) + font->gState.deltaBase + range;
 
     if (TTY_INSTANCE->ppem != ppem) {
@@ -3457,11 +3453,11 @@ static TTY_bool tty_get_delta_value(TTY*         font,
 }
 
 static void tty_IUP_interpolate_or_shift(TTY_Zone*      zone1, 
-                                          TTY_Touch_Flag touchFlag, 
-                                          TTY_uint16     startPointIdx, 
-                                          TTY_uint16     endPointIdx, 
-                                          TTY_uint16     touch0, 
-                                          TTY_uint16     touch1) {
+                                         TTY_Touch_Flag touchFlag, 
+                                         TTY_uint16     startPointIdx, 
+                                         TTY_uint16     endPointIdx, 
+                                         TTY_uint16     touch0, 
+                                         TTY_uint16     touch1) {
     #define TTY_IUP_INTERPOLATE(coord)                                                       \
         TTY_F26Dot6 totalDistCur = zone1->cur[touch1].coord - zone1->cur[touch0].coord;      \
         TTY_int32   totalDistOrg = zone1->org[touch1].coord - zone1->org[touch0].coord;      \
@@ -3471,7 +3467,7 @@ static void tty_IUP_interpolate_or_shift(TTY_Zone*      zone1,
         TTY_F26Dot6  newDist = TTY_FIX_MUL(orgDist << 6, scale, 22);                         \
         zone1->cur[i].coord  = zone1->cur[touch0].coord + newDist;                           \
                                                                                              \
-        TTY_LOG_CUSTOM_F(TTY_LOG_LEVEL_MINIMAL, "Interp %3d: %5d", i, zone1->cur[i].coord);
+        TTY_LOG_CUSTOM_F( "Interp %3d: %5d", i, zone1->cur[i].coord);
 
     #define TTY_IUP_SHIFT(coord)\
         TTY_int32 diff0 = labs(zone1->org[touch0].coord - zone1->org[i].coord);           \
@@ -3485,7 +3481,7 @@ static void tty_IUP_interpolate_or_shift(TTY_Zone*      zone1,
             TTY_int32 diff = zone1->cur[touch1].coord - zone1->orgScaled[touch1].coord;   \
             zone1->cur[i].coord += diff;                                                  \
         }                                                                                 \
-        TTY_LOG_CUSTOM_F(TTY_LOG_LEVEL_MINIMAL, "Shift %3d: %5d", i, zone1->cur[i].coord);
+        TTY_LOG_CUSTOM_F( "Shift %3d: %5d", i, zone1->cur[i].coord);
 
     #define TTY_IUP_INTERPOLATE_OR_SHIFT                                 \
         if (touchFlag == TTY_TOUCH_X) {                                  \
