@@ -140,7 +140,7 @@ typedef struct {
 
 typedef struct {
     TTY_uint32 idx;
-    TTY_uint16 xAdvance;
+    TTY_int32  xAdvance;
     TTY_V2     offset;
     TTY_V2     bitmapPos;
     TTY_V2     size;
@@ -206,8 +206,6 @@ TTY_uint32 tty_get_glyph_index(TTY* font, TTY_uint32 cp);
 TTY_uint16 tty__get_num_glyphs(TTY* font);
 
 TTY_int32 tty_get_ascender(TTY* font, TTY_Instance* instance);
-
-TTY_int32 tty_get_advance_width(TTY_Instance* instance, TTY_Glyph* glyph);
 
 TTY_bool tty_render_glyph(TTY* font, TTY_Image* image, TTY_uint32 cp);
 
