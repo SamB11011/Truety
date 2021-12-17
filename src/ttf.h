@@ -121,8 +121,7 @@ typedef struct {
 
 typedef struct {
     /* Unlike zone 1, the twilight zone persists between glyph programs. 
-       Therefore, it is stored here instead of TTF_Current so there is no
-       chance it will be overridden. */
+       Therefore, it is stored here instead of TTF_Temp. */
     TTF_Zone     zone0;
     TTF_uint8*   mem;
     TTF_F26Dot6* cvt;
@@ -147,6 +146,8 @@ typedef struct {
     TTF_V2     size;
 } TTF_Glyph;
 
+/* Stores temporary variables that are used during execution of a glyph program
+   and/ or glyph rendering. */
 typedef struct {
     union {
         TTF_Zone     zone1;
@@ -158,7 +159,7 @@ typedef struct {
     TTF_uint16    numContours;
     TTF_uint32    numPoints;
     TTF_uint8*    glyfBlock;
-} TTF_Current;
+} TTF_Temp;
 
 typedef struct {
     TTF_uint8*         data;
@@ -183,7 +184,7 @@ typedef struct {
     TTF_Stack          stack;
     TTF_Func_Array     funcArray;
     TTF_Graphics_State gState;
-    TTF_Current        cur;
+    TTF_Temp           temp;
 } TTF;
 
 TTF_bool ttf_init         (TTF* font, const char* path);
