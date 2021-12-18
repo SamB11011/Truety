@@ -23,6 +23,7 @@ typedef TTY_uint16 TTY_Offset16;
 typedef TTY_uint32 TTY_Offset32;
 typedef TTY_uint32 TTY_Version16Dot16;
 typedef TTY_int32  TTY_F2Dot14;
+typedef TTY_int32  TTY_F2Dot30;
 typedef TTY_int32  TTY_F10Dot22;
 typedef TTY_int32  TTY_F16Dot16;
 typedef TTY_int32  TTY_F26Dot6;
@@ -98,6 +99,7 @@ typedef struct {
     TTY_F2Dot14_V2 freedomVec;
     TTY_uint32     loop;
     TTY_F26Dot6    minDist;
+    TTY_F2Dot14    projDotFree;
     TTY_F2Dot14_V2 projVec;
     TTY_uint32     rp0;
     TTY_uint32     rp1;

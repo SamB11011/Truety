@@ -276,6 +276,8 @@ enum {
     TTY_SCVTCI    = 0x1D,
     TTY_SDB       = 0x5E,
     TTY_SDS       = 0x5F,
+    TTY_SHP       = 0x32,
+    TTY_SHP_MAX   = 0x33,
     TTY_SHPIX     = 0x38,
     TTY_SLOOP     = 0x17,
     TTY_SRP0      = 0x10,
@@ -437,6 +439,8 @@ static void tty_SDB(TTY* font);
 
 static void tty_SDS(TTY* font);
 
+static void tty_SHP(TTY* font, TTY_uint8 ins);
+
 static void tty_SHPIX(TTY* font);
 
 static void tty_SLOOP(TTY* font);
@@ -592,7 +596,7 @@ static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val);
         printf("Unknown instruction: %#X\n", ins)
 
     #define TTY_LOG_INS()\
-        printf("%d) %s\n", tty_insCount++, __func__ + 5)
+        printf("%d) %s\n", tty_insCount++, __func__ + 4)
 
     #define TTY_LOG_POINT(point)\
         printf("\t(%d, %d)\n", (point).x, (point).y)
@@ -827,6 +831,9 @@ TTY_bool tty_render_glyph_to_existing_image(TTY*          font,
                                             TTY_Glyph*    glyph, 
                                             TTY_uint32    x, 
                                             TTY_uint32    y) {
+    if (image->pixels == NULL) {
+        return TTY_FALSE;
+    }
     return tty_render_glyph_internal(font, instance, image, glyph, x, y);
 }
 
@@ -1567,7 +1574,7 @@ static TTY_F16Dot16 tty_get_inv_slope(TTY_F26Dot6_V2* p0, TTY_F26Dot6_V2* p1) {
     }
     
     TTY_F16Dot16 slope = tty_fix_div(p1->y - p0->y, p1->x - p0->x, 16);
-    return tty_fix_div(1l << 16, slope, 16);
+    return tty_fix_div(0x10000, slope, 16);
 }
 
 static int tty_compare_edges(const void* edge0, const void* edge1) {
@@ -1980,7 +1987,7 @@ static void tty_execute_font_program(TTY* font) {
     
     while (stream.off < font->fpgm.size) {
         TTY_uint8 ins = tty_ins_stream_next(&stream);
-        TTY_ASSERT(ins == TTY_PUSHB || ins == TTY_FDEF || ins == TTY_IDEF);
+        // TTY_ASSERT(ins == TTY_PUSHB || ins == TTY_FDEF || ins == TTY_IDEF);
         tty_execute_ins(font, &stream, ins);
     }
 }
@@ -2271,6 +2278,10 @@ static void tty_execute_ins(TTY* font, TTY_Ins_Stream* stream, TTY_uint8 ins) {
         tty_ROUND(font, ins);
         return;
     }
+    else if (ins >= TTY_SHP && ins <= TTY_SHP_MAX) {
+        tty_SHP(font, ins);
+        return;
+    }
     else if (ins >= TTY_SVTCA && ins <= TTY_SVTCA_MAX) {
         tty_SVTCA(font, ins);
         return;
@@ -2460,6 +2471,8 @@ static void tty_FDEF(TTY* font, TTY_Ins_Stream* stream) {
     font->funcArray.count++;
 
     while (tty_ins_stream_next(stream) != TTY_ENDF);
+
+    TTY_LOG_VALUE(funcId);
 }
 
 static void tty_FLOOR(TTY* font) {
@@ -3200,6 +3213,45 @@ static void tty_SDS(TTY* font) {
     TTY_LOG_VALUE(font->gState.deltaShift);
 }
 
+static void tty_SHP(TTY* font, TTY_uint8 ins) {
+    TTY_LOG_INS();
+
+    TTY_F26Dot6_V2 dist;
+    {
+        TTY_F26Dot6_V2* refPointCur, *refPointOrg;
+
+        if (ins & 0x1) {
+            refPointCur = font->gState.zp0->cur       + font->gState.rp1;
+            refPointOrg = font->gState.zp0->orgScaled + font->gState.rp1;
+        }
+        else {
+            refPointCur = font->gState.zp1->cur       + font->gState.rp2;
+            refPointOrg = font->gState.zp1->orgScaled + font->gState.rp2;
+        }
+
+        TTY_F26Dot6 d = tty_fix_v2_sub_dot(refPointCur, refPointOrg, &font->gState.projVec, 14);
+
+        dist.x = tty_rounded_div(
+            (TTY_int64)d * (font->gState.freedomVec.x << 16), font->gState.projDotFree);
+
+        dist.y = tty_rounded_div(
+            (TTY_int64)d * (font->gState.freedomVec.y << 16), font->gState.projDotFree);
+    }
+
+    for (TTY_uint32 i = 0; i < font->gState.loop; i++) {
+        TTY_uint32 pointIdx = tty_stack_pop_uint32(font);
+        TTY_ASSERT(pointIdx < font->gState.zp2->cap);
+
+        font->gState.zp2->cur[pointIdx].x      += dist.x;
+        font->gState.zp2->cur[pointIdx].y      += dist.y;
+        font->gState.zp2->touchFlags[pointIdx] |= font->gState.touchFlags;
+
+        TTY_LOG_POINT(font->gState.zp2->cur[pointIdx]);
+    }
+
+    font->gState.loop = 1;
+}
+
 static void tty_SHPIX(TTY* font) {
     TTY_LOG_INS();
     
@@ -3212,7 +3264,7 @@ static void tty_SHPIX(TTY* font) {
 
     for (TTY_uint32 i = 0; i < font->gState.loop; i++) {
         TTY_uint32 pointIdx = tty_stack_pop_uint32(font);
-        TTY_ASSERT(pointIdx <= font->gState.zp2->cap);
+        TTY_ASSERT(pointIdx < font->gState.zp2->cap);
 
         font->gState.zp2->cur[pointIdx].x      += dist.x;
         font->gState.zp2->cur[pointIdx].y      += dist.y;
@@ -3260,18 +3312,19 @@ static void tty_SVTCA(TTY* font, TTY_uint8 ins) {
     TTY_LOG_INS();
 
     if (ins & 0x1) {
-        font->gState.freedomVec.x = 1l << 14;
+        font->gState.freedomVec.x = 0x4000;
         font->gState.freedomVec.y = 0;
         font->gState.touchFlags   = TTY_TOUCH_X;
     }
     else {
         font->gState.freedomVec.x = 0;
-        font->gState.freedomVec.y = 1l << 14;
+        font->gState.freedomVec.y = 0x4000;
         font->gState.touchFlags   = TTY_TOUCH_Y;
     }
 
     font->gState.projVec     = font->gState.freedomVec;
     font->gState.dualProjVec = font->gState.freedomVec;
+    font->gState.projDotFree = 0x40000000;
 }
 
 static void tty_SWAP(TTY* font) {
@@ -3349,13 +3402,14 @@ static void tty_reset_graphics_state(TTY* font) {
     font->gState.controlValueCutIn = 68;
     font->gState.deltaBase         = 9;
     font->gState.deltaShift        = 3;
-    font->gState.dualProjVec.x     = 1l << 14;
+    font->gState.dualProjVec.x     = 0x4000;
     font->gState.dualProjVec.y     = 0;
-    font->gState.freedomVec.x      = 1l << 14;
+    font->gState.freedomVec.x      = 0x4000;
     font->gState.freedomVec.y      = 0;
     font->gState.loop              = 1;
-    font->gState.minDist           = 1l << 6;
-    font->gState.projVec.x         = 1l << 14;
+    font->gState.minDist           = 0x40;
+    font->gState.projDotFree       = 0x40000000;
+    font->gState.projVec.x         = 0x4000;
     font->gState.projVec.y         = 0;
     font->gState.rp0               = 0;
     font->gState.rp1               = 0;
@@ -3371,7 +3425,8 @@ static void tty_reset_graphics_state(TTY* font) {
 }
 
 static void tty_call_func(TTY* font, TTY_uint32 funcId, TTY_uint32 times) {
-    TTY_ASSERT(funcId < font->funcArray.count);
+    TTY_ASSERT(funcId < font->funcArray.cap);
+    TTY_ASSERT(font->funcArray.funcs[funcId].firstIns != NULL);
 
     while (times > 0) {
         TTY_Ins_Stream stream;
@@ -3452,8 +3507,8 @@ static TTY_F26Dot6 tty_round(TTY* font, TTY_F26Dot6 val) {
 }
 
 static void tty_move_point(TTY* font, TTY_Zone* zone, TTY_uint32 idx, TTY_F26Dot6 amount) {
-    zone->cur[idx].x         += TTY_FIX_MUL(amount, font->gState.freedomVec.x, 14);
-    zone->cur[idx].y         += TTY_FIX_MUL(amount, font->gState.freedomVec.y, 14);
+    zone->cur[idx].x      += TTY_FIX_MUL(amount, font->gState.freedomVec.x, 14);
+    zone->cur[idx].y      += TTY_FIX_MUL(amount, font->gState.freedomVec.y, 14);
     zone->touchFlags[idx] |= font->gState.touchFlags;
 }
 
@@ -3612,7 +3667,7 @@ static TTY_uint16 tty_get_upem(TTY* font) {
 
 static TTY_uint16 tty_get_glyph_x_advance(TTY* font, TTY_uint32 glyphIdx) {
     TTY_uint8* hmtxData    = font->data + font->hmtx.off;
-    TTY_uint16 numHMetrics = tty_get_uint16(font->data + font->hhea.off + 48);
+    TTY_uint16 numHMetrics = tty_get_uint16(font->data + font->hhea.off + 34);
     if (glyphIdx < numHMetrics) {
         return tty_get_uint16(hmtxData + 4 * glyphIdx);
     }
@@ -3626,7 +3681,7 @@ static TTY_int32 tty_get_scaled_glyph_x_advance(TTY* font, TTY_uint32 glyphIdx) 
 
 static TTY_int16 tty_get_glyph_left_side_bearing(TTY* font, TTY_uint32 glyphIdx) {
     TTY_uint8* hmtxData    = font->data + font->hmtx.off;
-    TTY_uint16 numHMetrics = tty_get_uint16(font->data + font->hhea.off + 48);
+    TTY_uint16 numHMetrics = tty_get_uint16(font->data + font->hhea.off + 34);
     if (glyphIdx < numHMetrics) {
         return tty_get_int16(hmtxData + 4 * glyphIdx + 2);
     }
