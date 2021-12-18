@@ -280,6 +280,7 @@ enum {
     TTY_SHP_MAX   = 0x33,
     TTY_SHPIX     = 0x38,
     TTY_SLOOP     = 0x17,
+    TTY_SMD       = 0x1A,
     TTY_SRP0      = 0x10,
     TTY_SRP1      = 0x11,
     TTY_SRP2      = 0x12,
@@ -444,6 +445,8 @@ static void tty_SHP(TTY* font, TTY_uint8 ins);
 static void tty_SHPIX(TTY* font);
 
 static void tty_SLOOP(TTY* font);
+
+static void tty_SMD(TTY* font);
 
 static void tty_SRP0(TTY* font);
 
@@ -2200,6 +2203,9 @@ static void tty_execute_ins(TTY* font, TTY_Ins_Stream* stream, TTY_uint8 ins) {
         case TTY_SLOOP:
             tty_SLOOP(font);
             return;
+        case TTY_SMD:
+            tty_SMD(font);
+            return;
         case TTY_SRP0:
             tty_SRP0(font);
             return;
@@ -3280,6 +3286,12 @@ static void tty_SLOOP(TTY* font) {
     TTY_LOG_INS();
     font->gState.loop = tty_stack_pop_uint32(font);
     TTY_LOG_VALUE(font->gState.loop);
+}
+
+static void tty_SMD(TTY* font) {
+    TTY_LOG_INS();
+    font->gState.minDist = tty_stack_pop_F26Dot6(font);
+    TTY_LOG_VALUE(font->gState.minDist);
 }
 
 static void tty_SRP0(TTY* font) {
