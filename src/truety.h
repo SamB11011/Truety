@@ -120,8 +120,10 @@ typedef struct {
 } TTY_Unhinted;
 
 typedef struct {
-    /* Unlike zone 1, the twilight zone persists between glyph programs. 
-       Therefore, it is stored here instead of TTY_Temp. */
+    /* 
+     * Unlike zone 1, the twilight zone persists between glyph programs. 
+     * Therefore, it is stored here instead of TTY_Temp. 
+     */
     TTY_Zone     zone0;
     TTY_uint8*   mem;
     TTY_F26Dot6* cvt;
@@ -146,8 +148,10 @@ typedef struct {
     TTY_V2     size;
 } TTY_Glyph;
 
-/* Stores temporary variables that are used during execution of a glyph program
-   and/ or glyph rendering. */
+/* 
+ * Stores temporary variables that are used during execution of a glyph program
+ * and/ or glyph rendering. 
+ */
 typedef struct {
     union {
         TTY_Zone     zone1;
@@ -191,6 +195,9 @@ TTY_bool tty_init(TTY* font, const char* path);
 
 TTY_bool tty_instance_init(TTY* font, TTY_Instance* instance, TTY_uint32 ppem);
 
+/* 
+ * If pixels is NULL, a pixel buffer of size w * h will be allocated.
+ */
 TTY_bool tty_image_init(TTY_Image* image, TTY_uint8* pixels, TTY_uint32 w, TTY_uint32 h);
 
 void tty_glyph_init(TTY* font, TTY_Glyph* glyph, TTY_uint32 glyphIdx);
@@ -207,11 +214,23 @@ TTY_uint16 tty__get_num_glyphs(TTY* font);
 
 TTY_int32 tty_get_ascender(TTY* font, TTY_Instance* instance);
 
-TTY_bool tty_render_glyph(TTY* font, TTY_Image* image, TTY_uint32 cp);
+/* 
+ * Creates an image whose size is a tight bounding box of the glyph and then
+ * renders to it.
+ */
+TTY_bool tty_render_glyph(TTY*          font,
+                          TTY_Instance* instance,
+                          TTY_Image*    image,
+                          TTY_Glyph*    glyph);
 
+/*
+ * Renders the glyph to the provided image at the provided position.
+ *
+ * Note: y values increas downwards.
+ */
 TTY_bool tty_render_glyph_to_existing_image(TTY*          font, 
                                             TTY_Instance* instance, 
-                                            TTY_Image*    image, 
+                                            TTY_Image*    image,
                                             TTY_Glyph*    glyph, 
                                             TTY_uint32    x, 
                                             TTY_uint32    y);

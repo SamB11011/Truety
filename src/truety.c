@@ -67,9 +67,21 @@ typedef struct {
     TTY_Active_Edge*  reusableEdges;
 } TTY_Active_Edge_List;
 
-static TTY_Edge* tty_get_glyph_edges(TTY* font, TTY_uint32* numEdges);
+static TTY_bool tty_render_glyph_internal(TTY*          font, 
+                                          TTY_Instance* instance, 
+                                          TTY_Image*    image,
+                                          TTY_Glyph*    glyph, 
+                                          TTY_uint32    x, 
+                                          TTY_uint32    y);
 
-static void tty_convert_points_to_bitmap_space(TTY* font, TTY_F26Dot6_V2* points);
+static TTY_bool tty_get_glyph_points(TTY*             font, 
+                                     TTY_F26Dot6_V2** points, 
+                                     TTY_Point_Type** pointTypes);
+
+static void tty_get_max_and_min_points(TTY_F26Dot6_V2* points, 
+                                       TTY_uint32      numPoints, 
+                                       TTY_F26Dot6_V2* max, 
+                                       TTY_F26Dot6_V2* min);
 
 static TTY_Curve* tty_convert_points_into_curves(TTY*            font, 
                                                  TTY_F26Dot6_V2* points, 
@@ -725,16 +737,11 @@ TTY_bool tty_instance_init(TTY* font, TTY_Instance* instance, TTY_uint32 ppem) {
 
 TTY_bool tty_image_init(TTY_Image* image, TTY_uint8* pixels, TTY_uint32 w, TTY_uint32 h) {
     if (pixels == NULL) {
-        pixels = calloc(w * h, 1);
-        if (pixels == NULL) {
-            return TTY_FALSE;
-        }
+        image->pixels = calloc(w * h, 1);
     }
-
-    image->pixels = pixels;
-    image->w      = w;
-    image->h      = h;
-    return TTY_TRUE;
+    image->w = w;
+    image->h = h;
+    return image->pixels != NULL;
 }
 
 void tty_glyph_init(TTY* font, TTY_Glyph* glyph, TTY_uint32 glyphIdx) {
@@ -806,10 +813,12 @@ TTY_int32 tty_get_ascender(TTY* font, TTY_Instance* instance) {
     return tty_f26dot6_ceil(TTY_FIX_MUL(font->ascender << 6, instance->scale, 22)) >> 6;
 }
 
-TTY_bool tty_render_glyph(TTY* font, TTY_Image* image, TTY_uint32 cp) {
-    // TODO
-    TTY_ASSERT(0);
-    return TTY_FALSE;
+TTY_bool tty_render_glyph(TTY*          font,
+                          TTY_Instance* instance,
+                          TTY_Image*    image,
+                          TTY_Glyph*    glyph) {
+    memset(image, 0, sizeof(TTY_Image));
+    return tty_render_glyph_internal(font, instance, image, glyph, 0, 0);
 }
 
 TTY_bool tty_render_glyph_to_existing_image(TTY*          font, 
@@ -818,256 +827,7 @@ TTY_bool tty_render_glyph_to_existing_image(TTY*          font,
                                             TTY_Glyph*    glyph, 
                                             TTY_uint32    x, 
                                             TTY_uint32    y) {
-    if (!tty_get_glyf_data_block(font, &TTY_TEMP.glyfBlock, glyph->idx)) {
-        // The glyph doesn't have any outlines (' ' for example)
-        glyph->xAdvance = tty_get_scaled_glyph_x_advance(font, glyph->idx);
-        return TTY_TRUE;
-    }
-
-    TTY_INSTANCE         = instance;
-    TTY_TEMP.glyph       = glyph;
-    TTY_TEMP.numContours = tty_get_int16(TTY_TEMP.glyfBlock);
-    TTY_TEMP.numPoints   = 1 + tty_get_uint16(TTY_TEMP.glyfBlock + 8 + 2 * TTY_TEMP.numContours);
-
-
-    TTY_uint32 numEdges;
-    TTY_Edge* edges = tty_get_glyph_edges(font, &numEdges);
-    if (edges == NULL) {
-        return TTY_FALSE;
-    }
-
-    // Sort edges from topmost to bottom most (smallest to largest y)
-    qsort(edges, numEdges, sizeof(TTY_Edge), tty_compare_edges);
-
-
-    TTY_Active_Edge_List activeEdgeList;
-    if (!tty_active_edge_list_init(&activeEdgeList)) {
-        free(edges);
-        return TTY_FALSE;
-    }
-    
-    
-    // Use this array when calculating the alpha values of each row of pixels.
-    // The image's pixels are not used directly because a loss of precision
-    // would result. This is due to the fact that the image's pixels are one 
-    // byte each and cannot store fractional values.
-    TTY_F26Dot6* pixelRow = calloc(glyph->size.x, sizeof(TTY_F26Dot6));
-    if (pixelRow == NULL) {
-        tty_active_edge_list_free(&activeEdgeList);
-        free(edges);
-        return TTY_FALSE;
-    }
-    
-
-    TTY_F26Dot6 yRel    = 0;
-    TTY_F26Dot6 yAbs    = y << 6;
-    TTY_F26Dot6 yEndAbs = tty_min(glyph->size.y + y, image->h - 1) << 6;
-    TTY_uint32  edgeIdx = 0;
-    
-    while (yAbs <= yEndAbs) {
-        {
-            // If an edge is no longer active, remove it from the list, else
-            // update its x-intersection with the current scanline
-
-            TTY_Active_Edge* activeEdge     = activeEdgeList.headEdge;
-            TTY_Active_Edge* prevActiveEdge = NULL;
-
-            while (activeEdge != NULL) {
-                TTY_Active_Edge* next = activeEdge->next;
-                
-                if (activeEdge->edge->yMax <= yRel) {
-                    tty_remove_active_edge(&activeEdgeList, prevActiveEdge, activeEdge);
-                }
-                else {
-                    activeEdge->xIntersection = 
-                        tty_get_edge_scanline_x_intersection(activeEdge->edge, yRel);
-                    
-                    prevActiveEdge = activeEdge;
-                }
-                
-                activeEdge = next;
-            }
-        }
-
-        {
-            // Make sure that the active edges are still sorted from smallest 
-            // to largest x-intersection
-
-            TTY_Active_Edge* activeEdge     = activeEdgeList.headEdge;
-            TTY_Active_Edge* prevActiveEdge = NULL;
-            
-            while (activeEdge != NULL) {
-                TTY_Active_Edge* current = activeEdge;
-
-                while (TTY_TRUE) {
-                    if (current->next != NULL) {
-                        if (current->xIntersection > current->next->xIntersection) {
-                            tty_swap_active_edge_with_next(
-                                &activeEdgeList, prevActiveEdge, current);
-
-                            continue;
-                        }
-                    }
-                    break;
-                }
-
-                prevActiveEdge = activeEdge;
-                activeEdge     = activeEdge->next;
-            }
-        }
-
-
-        // Find any edges that intersect the current scanline and insert them
-        // into the active edge list
-        while (edgeIdx < numEdges) {
-            if (edges[edgeIdx].yMin > yRel) {
-                // All further edges start below the scanline
-                break;
-            }
-            
-            if (edges[edgeIdx].yMax > yRel) {
-                TTY_F26Dot6 xIntersection = 
-                    tty_get_edge_scanline_x_intersection(edges + edgeIdx, yRel);
-                
-                TTY_Active_Edge* activeEdge     = activeEdgeList.headEdge;
-                TTY_Active_Edge* prevActiveEdge = NULL;
-                
-                while (activeEdge != NULL) {
-                    if (xIntersection < activeEdge->xIntersection) {
-                        break;
-                    }
-                    else if (xIntersection == activeEdge->xIntersection) {
-                        if (edges[edgeIdx].xMin < activeEdge->edge->xMin) {
-                            break;
-                        }
-                    }
-                    prevActiveEdge = activeEdge;
-                    activeEdge     = activeEdge->next;
-                }
-                
-                TTY_Active_Edge* newActiveEdge = 
-                    prevActiveEdge == NULL ?
-                    tty_insert_active_edge_first(&activeEdgeList) :
-                    tty_insert_active_edge_after(&activeEdgeList, prevActiveEdge);
-                
-                if (newActiveEdge == NULL) {
-                    tty_active_edge_list_free(&activeEdgeList);
-                    free(edges);
-                    free(pixelRow);
-                    return TTY_FALSE;
-                }
-                
-                newActiveEdge->edge          = edges + edgeIdx;
-                newActiveEdge->xIntersection = xIntersection;
-            }
-            
-            edgeIdx++;
-        }
-
-
-        if (activeEdgeList.headEdge != NULL) {
-            // Set the opacity of the pixels along the scanline
-
-            TTY_Active_Edge* activeEdge    = activeEdgeList.headEdge;
-            TTY_int32        windingNumber = 0;
-            TTY_F26Dot6      weightedAlpha = TTY_FIX_MUL(0x3FC0, TTY_PIXELS_PER_SCANLINE, 6);
-            
-            TTY_F26Dot6 xRel = tty_f26dot6_ceil(activeEdge->xIntersection);
-            if (xRel == 0) {
-                xRel += 0x40;
-            }
-
-            TTY_F26Dot6 xIdx = (xRel >> 6) - 1;
-
-            while (TTY_TRUE) {
-                {
-                    // Handle pixels that are only partially covered by a contour
-                    TTY_ASSERT(xIdx < glyph->size.x);
-
-                    TTY_F26Dot6 coverage =
-                        windingNumber == 0 ?
-                        xRel - activeEdge->xIntersection :
-                        activeEdge->xIntersection - xRel + 0x40;
-
-                partial_coverage:
-                    pixelRow[xIdx] += TTY_FIX_MUL(weightedAlpha, coverage, 6);
-
-                next_active_edge:
-                    if (activeEdge->next == NULL) {
-                        break;
-                    }
-
-                    TTY_Active_Edge* prev = activeEdge;
-
-                    windingNumber += activeEdge->edge->dir;
-                    activeEdge     = activeEdge->next;
-
-                    if (activeEdge->xIntersection == prev->xIntersection) {
-                        goto next_active_edge;
-                    }
-
-                    if (xRel == activeEdge->xIntersection) {
-                        goto next_active_edge;
-                    }
-
-                    if (xRel > activeEdge->xIntersection) {
-                        if (windingNumber == 0) {
-                            coverage = xRel - activeEdge->xIntersection;
-                            goto partial_coverage;
-                        }
-                        else {
-                            goto next_active_edge;
-                        }
-                    }
-                }
-
-                xRel += 0x40;
-                xIdx += 1;
-
-                if (xRel < activeEdge->xIntersection) {
-                    // Handle pixels that are either fully covered or fully 
-                    // not covered by a contour
-
-                    if (windingNumber == 0) {
-                        xRel = tty_f26dot6_ceil(activeEdge->xIntersection);
-                        xIdx = (xRel >> 6) - 1;
-                    }
-                    else {
-                        do {
-                            TTY_ASSERT(xIdx < glyph->size.x);
-
-                            pixelRow[xIdx] += weightedAlpha;
-                            xRel           += 0x40;
-                            xIdx           += 1;
-                        } while (xRel < activeEdge->xIntersection);
-                    }
-                }
-            }
-        }
-
-        yAbs += TTY_PIXELS_PER_SCANLINE;
-        yRel += TTY_PIXELS_PER_SCANLINE;
-        
-        if ((yRel & 0x3F) == 0) {
-            // A new row of pixels has been reached
-            TTY_uint32 startIdx = (((yAbs - 0x40) >> 6) * image->w) + x;
-            
-            for (TTY_uint32 i = 0; i < glyph->size.x; i++) {
-                // TODO: Round instead of floor?
-                TTY_ASSERT(pixelRow[i] >= 0);
-                TTY_ASSERT(pixelRow[i] >> 6 <= 255);
-                image->pixels[startIdx + i] = pixelRow[i] >> 6;
-            }
-            
-            memset(pixelRow, 0, glyph->size.x * sizeof(TTY_F26Dot6));
-        }
-    }
-
-    
-    tty_active_edge_list_free(&activeEdgeList);
-    free(edges);
-    free(pixelRow);
-    return TTY_TRUE;
+    return tty_render_glyph_internal(font, instance, image, glyph, x, y);
 }
 
 
@@ -1278,101 +1038,381 @@ static TTY_uint16 tty_get_glyph_index_format_4(TTY_uint8* subtable, TTY_uint32 c
 /* -------------------- */
 /* Rendering Operations */
 /* -------------------- */
-static void tty_convert_points_to_bitmap_space(TTY* font, TTY_F26Dot6_V2* points) {
-    // This function ensures that the x and y minimums are 0 and inverts the 
-    // y-axis so that y values increase downwards.
+static TTY_bool tty_render_glyph_internal(TTY*          font, 
+                                          TTY_Instance* instance, 
+                                          TTY_Image*    image,
+                                          TTY_Glyph*    glyph, 
+                                          TTY_uint32    x, 
+                                          TTY_uint32    y) {
+    if (!tty_get_glyf_data_block(font, &TTY_TEMP.glyfBlock, glyph->idx)) {
+        // The glyph doesn't have any outlines (' ' for example)
+        glyph->xAdvance = tty_get_scaled_glyph_x_advance(font, glyph->idx);
+        return TTY_TRUE;
+    }
 
-    TTY_F26Dot6 xMax = points[0].x;
-    TTY_F26Dot6 xMin = points[0].x;
-    TTY_F26Dot6 yMin = points[0].y;
-    TTY_F26Dot6 yMax = points[0].y;
+    TTY_INSTANCE         = instance;
+    TTY_TEMP.glyph       = glyph;
+    TTY_TEMP.numContours = tty_get_int16(TTY_TEMP.glyfBlock);
+    TTY_TEMP.numPoints   = 1 + tty_get_uint16(TTY_TEMP.glyfBlock + 8 + 2 * TTY_TEMP.numContours);
 
-    for (TTY_uint32 i = 1; i < TTY_TEMP.numPoints; i++) {
-        if (points[i].x < xMin) {
-            xMin = points[i].x;
-        }
-        else if (points[i].x > xMax) {
-            xMax = points[i].x;
+
+    TTY_uint32 numEdges;
+    TTY_Edge*  edges;
+
+    {
+        // Get the glyph points
+        TTY_F26Dot6_V2* points;
+        TTY_Point_Type* pointTypes;
+        if (!tty_get_glyph_points(font, &points, &pointTypes)) {
+            return TTY_FALSE;
         }
 
-        if (points[i].y < yMin) {
-            yMin = points[i].y;
+
+        // Convert points into bitmap space, and set glyph metrics such as
+        // size, offset, and advance width
+
+        TTY_F26Dot6_V2 max, min;
+        tty_get_max_and_min_points(points, TTY_TEMP.numPoints, &max, &min);
+        
+        TTY_TEMP.glyph->size.x = labs(max.x - min.x);
+        TTY_TEMP.glyph->size.y = labs(max.y - min.y);
+
+        // To convert to bitmap space, translate the points such that all
+        // coordinates are >= 0, and invert the y-axis so y-values increase
+        // downwards.
+        for (TTY_uint32 i = 0; i < TTY_TEMP.numPoints; i++) {
+            points[i].x -= min.x;
+            points[i].y  = TTY_TEMP.glyph->size.y - (points[i].y - min.y);
         }
-        else if (points[i].y > yMax) {
-            yMax = points[i].y;
+
+        // The offset is how much the glyph was translated to ensure all points
+        // have coordinates >= 0
+        TTY_TEMP.glyph->offset.x = tty_f26dot6_round(min.x) >> 6;
+        TTY_TEMP.glyph->offset.y = tty_f26dot6_round(max.y) >> 6;
+
+        TTY_TEMP.glyph->size.x = tty_f26dot6_ceil(TTY_TEMP.glyph->size.x) >> 6;
+        TTY_TEMP.glyph->size.y = tty_f26dot6_ceil(TTY_TEMP.glyph->size.y) >> 6;
+        
+        TTY_TEMP.glyph->xAdvance = tty_get_scaled_glyph_x_advance(font, TTY_TEMP.glyph->idx);
+
+
+        // Convert the glyph points into curves
+        TTY_uint32 numCurves;
+        TTY_Curve* curves = tty_convert_points_into_curves(font, points, pointTypes, &numCurves);
+        if (font->hasHinting) {
+            free(TTY_TEMP.zone1.mem);
+        }
+        else {
+            free(TTY_TEMP.unhinted.mem);
+        }
+        if (curves == NULL) {
+            return TTY_FALSE;
+        }
+
+
+        // Approximate the glyph curves using edges. This is done because the
+        // intersection of a scanline and an edge is simpler and cheaper to
+        // calculate than the intersection of a scanline and a curve
+        edges = tty_subdivide_curves_into_edges(font, curves, numCurves, &numEdges);
+        free(curves);
+        if (edges == NULL) {
+            return TTY_FALSE;
+        }
+
+        // Sort edges from topmost to bottom most (smallest to largest y)
+        qsort(edges, numEdges, sizeof(TTY_Edge), tty_compare_edges);
+    }
+
+
+    if (image->pixels == NULL) {
+        // The image's pixels have not been allocated so create an image that
+        // is a tight bounding box of the glyph
+        image->w = TTY_TEMP.glyph->size.x;
+        image->h = TTY_TEMP.glyph->size.y;
+        image->pixels = calloc(1, image->w * image->h);
+
+        if (image->pixels == NULL) {
+            free(edges);
+            return TTY_FALSE;
         }
     }
 
-    TTY_TEMP.glyph->size.x = labs(xMax - xMin);
-    TTY_TEMP.glyph->size.y = labs(yMax - yMin);
 
-    for (TTY_uint32 i = 0; i < TTY_TEMP.numPoints; i++) {
-        points[i].x -= xMin;
-        points[i].y  = TTY_TEMP.glyph->size.y - (points[i].y - yMin);
+    // Maintain a list of active edges. An active edge is an edge that is 
+    // intersected by the current scanline
+    TTY_Active_Edge_List activeEdgeList;
+    if (!tty_active_edge_list_init(&activeEdgeList)) {
+        free(edges);
+        return TTY_FALSE;
     }
-
-    TTY_TEMP.glyph->offset.x = tty_f26dot6_round(xMin) >> 6;
-    TTY_TEMP.glyph->offset.y = tty_f26dot6_round(yMax) >> 6;
-
-    TTY_TEMP.glyph->size.x = tty_f26dot6_ceil(TTY_TEMP.glyph->size.x) >> 6;
-    TTY_TEMP.glyph->size.y = tty_f26dot6_ceil(TTY_TEMP.glyph->size.y) >> 6;
     
-    TTY_TEMP.glyph->xAdvance = tty_get_scaled_glyph_x_advance(font, TTY_TEMP.glyph->idx);
+    
+    // Use this array when calculating the alpha values of each row of pixels.
+    // The image's pixels are not used directly because a loss of precision
+    // would result. This is due to the fact that the image's pixels are one 
+    // byte each and cannot store fractional values.
+    TTY_F26Dot6* pixelRow = calloc(glyph->size.x, sizeof(TTY_F26Dot6));
+    if (pixelRow == NULL) {
+        tty_active_edge_list_free(&activeEdgeList);
+        free(edges);
+        return TTY_FALSE;
+    }
+    
+
+    TTY_F26Dot6 yRel    = 0;
+    TTY_F26Dot6 yAbs    = y << 6;
+    TTY_F26Dot6 yEndAbs = tty_min(glyph->size.y + y, image->h) << 6;
+    TTY_uint32  edgeIdx = 0;
+    
+    while (yAbs <= yEndAbs) {
+        {
+            // If an edge is no longer active, remove it from the list, else
+            // update its x-intersection with the current scanline
+
+            TTY_Active_Edge* activeEdge     = activeEdgeList.headEdge;
+            TTY_Active_Edge* prevActiveEdge = NULL;
+
+            while (activeEdge != NULL) {
+                TTY_Active_Edge* next = activeEdge->next;
+                
+                if (activeEdge->edge->yMax <= yRel) {
+                    tty_remove_active_edge(&activeEdgeList, prevActiveEdge, activeEdge);
+                }
+                else {
+                    activeEdge->xIntersection = 
+                        tty_get_edge_scanline_x_intersection(activeEdge->edge, yRel);
+                    
+                    prevActiveEdge = activeEdge;
+                }
+                
+                activeEdge = next;
+            }
+        }
+
+        {
+            // Make sure that the active edges are still sorted from smallest 
+            // to largest x-intersection
+
+            TTY_Active_Edge* activeEdge     = activeEdgeList.headEdge;
+            TTY_Active_Edge* prevActiveEdge = NULL;
+            
+            while (activeEdge != NULL) {
+                TTY_Active_Edge* current = activeEdge;
+
+                while (TTY_TRUE) {
+                    if (current->next != NULL) {
+                        if (current->xIntersection > current->next->xIntersection) {
+                            tty_swap_active_edge_with_next(
+                                &activeEdgeList, prevActiveEdge, current);
+
+                            continue;
+                        }
+                    }
+                    break;
+                }
+
+                prevActiveEdge = activeEdge;
+                activeEdge     = activeEdge->next;
+            }
+        }
+
+
+        // Find any edges that intersect the current scanline and insert them
+        // into the active edge list
+        while (edgeIdx < numEdges) {
+            if (edges[edgeIdx].yMin > yRel) {
+                // All further edges start below the scanline
+                break;
+            }
+            
+            if (edges[edgeIdx].yMax > yRel) {
+                TTY_F26Dot6 xIntersection = 
+                    tty_get_edge_scanline_x_intersection(edges + edgeIdx, yRel);
+                
+                TTY_Active_Edge* activeEdge     = activeEdgeList.headEdge;
+                TTY_Active_Edge* prevActiveEdge = NULL;
+                
+                while (activeEdge != NULL) {
+                    if (xIntersection < activeEdge->xIntersection) {
+                        break;
+                    }
+                    else if (xIntersection == activeEdge->xIntersection) {
+                        if (edges[edgeIdx].xMin < activeEdge->edge->xMin) {
+                            break;
+                        }
+                    }
+                    prevActiveEdge = activeEdge;
+                    activeEdge     = activeEdge->next;
+                }
+                
+                TTY_Active_Edge* newActiveEdge = 
+                    prevActiveEdge == NULL ?
+                    tty_insert_active_edge_first(&activeEdgeList) :
+                    tty_insert_active_edge_after(&activeEdgeList, prevActiveEdge);
+                
+                if (newActiveEdge == NULL) {
+                    tty_active_edge_list_free(&activeEdgeList);
+                    free(edges);
+                    free(pixelRow);
+                    return TTY_FALSE;
+                }
+                
+                newActiveEdge->edge          = edges + edgeIdx;
+                newActiveEdge->xIntersection = xIntersection;
+            }
+            
+            edgeIdx++;
+        }
+
+
+        if (activeEdgeList.headEdge != NULL) {
+            // Set the opacity of the pixels along the scanline
+
+            TTY_Active_Edge* activeEdge    = activeEdgeList.headEdge;
+            TTY_int32        windingNumber = 0;
+            TTY_F26Dot6      weightedAlpha = TTY_FIX_MUL(0x3FC0, TTY_PIXELS_PER_SCANLINE, 6);
+            
+            TTY_F26Dot6 xRel = tty_f26dot6_ceil(activeEdge->xIntersection);
+            if (xRel == 0) {
+                xRel += 0x40;
+            }
+
+            TTY_F26Dot6 xIdx = (xRel >> 6) - 1;
+
+            while (TTY_TRUE) {
+                {
+                    // Handle pixels that are only partially covered by a contour
+                    TTY_ASSERT(xIdx < glyph->size.x);
+
+                    TTY_F26Dot6 coverage =
+                        windingNumber == 0 ?
+                        xRel - activeEdge->xIntersection :
+                        activeEdge->xIntersection - xRel + 0x40;
+
+                partial_coverage:
+                    pixelRow[xIdx] += TTY_FIX_MUL(weightedAlpha, coverage, 6);
+
+                next_active_edge:
+                    if (activeEdge->next == NULL) {
+                        break;
+                    }
+
+                    TTY_Active_Edge* prev = activeEdge;
+
+                    windingNumber += activeEdge->edge->dir;
+                    activeEdge     = activeEdge->next;
+
+                    if (activeEdge->xIntersection == prev->xIntersection) {
+                        goto next_active_edge;
+                    }
+
+                    if (xRel == activeEdge->xIntersection) {
+                        goto next_active_edge;
+                    }
+
+                    if (xRel > activeEdge->xIntersection) {
+                        if (windingNumber == 0) {
+                            coverage = xRel - activeEdge->xIntersection;
+                            goto partial_coverage;
+                        }
+                        else {
+                            goto next_active_edge;
+                        }
+                    }
+                }
+
+                xRel += 0x40;
+                xIdx += 1;
+
+                if (xRel < activeEdge->xIntersection) {
+                    // Handle pixels that are either fully covered or fully 
+                    // not covered by a contour
+
+                    if (windingNumber == 0) {
+                        xRel = tty_f26dot6_ceil(activeEdge->xIntersection);
+                        xIdx = (xRel >> 6) - 1;
+                    }
+                    else {
+                        do {
+                            TTY_ASSERT(xIdx < glyph->size.x);
+
+                            pixelRow[xIdx] += weightedAlpha;
+                            xRel           += 0x40;
+                            xIdx           += 1;
+                        } while (xRel < activeEdge->xIntersection);
+                    }
+                }
+            }
+        }
+
+        yAbs += TTY_PIXELS_PER_SCANLINE;
+        yRel += TTY_PIXELS_PER_SCANLINE;
+        
+        if ((yRel & 0x3F) == 0) {
+            // A new row of pixels has been reached
+            TTY_uint32 startIdx = (((yAbs - 0x40) >> 6) * image->w) + x;
+            
+            for (TTY_uint32 i = 0; i < glyph->size.x; i++) {
+                // TODO: Round instead of floor?
+                TTY_ASSERT(pixelRow[i] >= 0);
+                TTY_ASSERT(pixelRow[i] >> 6 <= 255);
+                image->pixels[startIdx + i] = pixelRow[i] >> 6;
+            }
+            
+            memset(pixelRow, 0, glyph->size.x * sizeof(TTY_F26Dot6));
+        }
+    }
+
+    
+    tty_active_edge_list_free(&activeEdgeList);
+    free(edges);
+    free(pixelRow);
+    return TTY_TRUE;
 }
 
-static TTY_Edge* tty_get_glyph_edges(TTY* font, TTY_uint32* numEdges) {
-    // Get the points of the glyph
-    TTY_F26Dot6_V2* points;
-    TTY_Point_Type* pointTypes;
-
+static TTY_bool tty_get_glyph_points(TTY*             font, 
+                                     TTY_F26Dot6_V2** points, 
+                                     TTY_Point_Type** pointTypes) {
     if (font->hasHinting) {
         if (!tty_execute_glyph_program(font)) {
-            return NULL;
+            return TTY_FALSE;
         }
-        points     = TTY_TEMP.zone1.cur;
-        pointTypes = TTY_TEMP.zone1.pointTypes;
+        *points     = TTY_TEMP.zone1.cur;
+        *pointTypes = TTY_TEMP.zone1.pointTypes;
     }
     else {
         if (!tty_extract_glyph_points(font)) {
-            return NULL;
+            return TTY_FALSE;
         }
-        points     = TTY_TEMP.unhinted.points;
-        pointTypes = TTY_TEMP.unhinted.pointTypes;
+        *points     = TTY_TEMP.unhinted.points;
+        *pointTypes = TTY_TEMP.unhinted.pointTypes;
     }
 
-    tty_convert_points_to_bitmap_space(font, points);
+    return TTY_TRUE;
+}
 
+static void tty_get_max_and_min_points(TTY_F26Dot6_V2* points, 
+                                       TTY_uint32      numPoints, 
+                                       TTY_F26Dot6_V2* max, 
+                                       TTY_F26Dot6_V2* min) {
+    *max = *points;
+    *min = *points;
 
-    // Convert the glyph points into curves
-    TTY_uint32 numCurves;
-    TTY_Curve* curves = tty_convert_points_into_curves(font, points, pointTypes, &numCurves);
+    for (TTY_uint32 i = 1; i < numPoints; i++) {
+        if (points[i].x < min->x) {
+            min->x = points[i].x;
+        }
+        else if (points[i].x > max->x) {
+            max->x = points[i].x;
+        }
 
-    if (font->hasHinting) {
-        free(TTY_TEMP.zone1.mem);
+        if (points[i].y < min->y) {
+            min->y = points[i].y;
+        }
+        else if (points[i].y > max->y) {
+            max->y = points[i].y;
+        }
     }
-    else {
-        free(TTY_TEMP.unhinted.mem);
-    }
-
-    if (curves == NULL) {
-        return NULL;
-    }
-
-
-    // Approximate the glyph curves using edges
-    //
-    // This is done because the intersection of a scanline and an edge is 
-    // simpler and cheaper to calculate than the intersection of a scanline and 
-    // a curve.
-    TTY_Edge* edges = tty_subdivide_curves_into_edges(font, curves, numCurves, numEdges);
-    
-    free(curves);
-
-    if (edges == NULL) {
-        return NULL;
-    }
-
-    return edges;
 }
 
 static TTY_Curve* tty_convert_points_into_curves(TTY*            font, 
