@@ -120,12 +120,12 @@ static TTY_Active_Edge* tty_insert_active_edge_after(TTY_Active_Edge_List* list,
                                                      TTY_Active_Edge*      after);
 
 static void tty_remove_active_edge(TTY_Active_Edge_List* list, 
-                                    TTY_Active_Edge*     prev, 
-                                    TTY_Active_Edge*     remove);
+                                   TTY_Active_Edge*     prev, 
+                                   TTY_Active_Edge*     remove);
 
 static void tty_swap_active_edge_with_next(TTY_Active_Edge_List* list, 
-                                            TTY_Active_Edge*     prev, 
-                                            TTY_Active_Edge*     edge);
+                                           TTY_Active_Edge*     prev, 
+                                           TTY_Active_Edge*     edge);
 
 
 /* ------------------- */
@@ -153,9 +153,9 @@ static TTY_bool tty_get_glyf_data_block(TTY* font, TTY_uint8** block, TTY_uint32
 static TTY_bool tty_extract_glyph_points(TTY* font);
 
 static TTY_int32 tty_get_next_coord_off(TTY_uint8** data, 
-                                         TTY_uint8   dualFlag, 
-                                         TTY_uint8   shortFlag, 
-                                         TTY_uint8   flags);
+                                        TTY_uint8   dualFlag, 
+                                        TTY_uint8   shortFlag, 
+                                        TTY_uint8   flags);
 
 
 /* ---------------------------- */
@@ -3073,7 +3073,7 @@ static void tty_NPUSHW(TTY* font, TTY_Ins_Stream* stream) {
     TTY_uint8 count = tty_ins_stream_next(stream);
 
     do {
-        TTY_uint8 ms  = tty_ins_stream_next(stream);
+        TTY_int8  ms  = tty_ins_stream_next(stream);
         TTY_uint8 ls  = tty_ins_stream_next(stream);
         TTY_int32 val = (ms << 8) | ls;
         tty_stack_push_int32(font, val);
@@ -3110,7 +3110,7 @@ static void tty_PUSHW(TTY* font, TTY_Ins_Stream* stream, TTY_uint8 ins) {
     TTY_uint8 count = tty_get_num_vals_to_push(ins);
 
     do {
-        TTY_uint8 ms  = tty_ins_stream_next(stream);
+        TTY_int8  ms  = tty_ins_stream_next(stream);
         TTY_uint8 ls  = tty_ins_stream_next(stream);
         TTY_int32 val = (ms << 8) | ls;
         tty_stack_push_int32(font, val);
