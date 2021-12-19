@@ -580,12 +580,30 @@ static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val);
 
 
 #define TTY_DEBUG
-#define TTY_LOGGING
+// #define TTY_LOGGING
 
 #ifdef TTY_DEBUG
     #define TTY_ASSERT(cond) assert(cond)
+    
+    #define TTY_FIX_TO_FLOAT(val, shift) tty_fix_to_float(val, shift)
+    
+    float tty_fix_to_float(TTY_int32 val, TTY_int32 shift) {
+        float value = val >> shift;
+        float power = 0.5f;
+        TTY_int32 mask = 1 << (shift - 1);
+        for (TTY_uint32 i = 0; i < shift; i++) {
+            if (val & mask) {
+                value += power;
+            }
+            mask >>= 1;
+            power /= 2.0f;
+        }
+        return value;
+    }
 #else
     #define TTY_ASSERT(cond)
+
+    #define TTY_FIX_TO_FLOAT(val, shift)
 #endif
 
 #ifdef TTY_LOGGING
@@ -609,22 +627,6 @@ static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val);
 
     #define TTY_LOG_CUSTOM_F(format, ...)\
         printf("\t"format"\n", __VA_ARGS__)
-
-    #define TTY_FIX_TO_FLOAT(val, shift) tty_fix_to_float(val, shift)
-    
-    float tty_fix_to_float(TTY_int32 val, TTY_int32 shift) {
-        float value = val >> shift;
-        float power = 0.5f;
-        TTY_int32 mask = 1 << (shift - 1);
-        for (TTY_uint32 i = 0; i < shift; i++) {
-            if (val & mask) {
-                value += power;
-            }
-            mask >>= 1;
-            power /= 2.0f;
-        }
-        return value;
-    }
 #else
     #define TTY_LOG_UNKNOWN_INS(ins)
     #define TTY_LOG_PROGRAM(program)
@@ -632,7 +634,6 @@ static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val);
     #define TTY_LOG_POINT(point)
     #define TTY_LOG_VALUE(value)
     #define TTY_LOG_CUSTOM_F(format, ...)
-    #define TTY_FIX_TO_FLOAT(val, shift)
 #endif
 
 
@@ -1068,7 +1069,8 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
 
     TTY_uint32 numEdges;
     TTY_Edge*  edges;
-
+    
+    TTY_F26Dot6_V2 max, min;
     {
         // Get the glyph points
         TTY_F26Dot6_V2* points;
@@ -1080,8 +1082,7 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
 
         // Convert points into bitmap space, and set glyph metrics such as
         // size, offset, and advance width
-
-        TTY_F26Dot6_V2 max, min;
+        
         tty_get_max_and_min_points(points, TTY_TEMP.numPoints, &max, &min);
         
         TTY_TEMP.glyph->size.x = labs(max.x - min.x);
@@ -1091,19 +1092,34 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         // coordinates are >= 0, and invert the y-axis so y-values increase
         // downwards.
         for (TTY_uint32 i = 0; i < TTY_TEMP.numPoints; i++) {
-            points[i].x -= min.x;
+            if (min.x < 0) {
+                points[i].x -= min.x;
+            }
             points[i].y  = TTY_TEMP.glyph->size.y - (points[i].y - min.y);
         }
 
         // The offset is how much the glyph was translated to ensure all points
         // have coordinates >= 0
-        TTY_TEMP.glyph->offset.x = tty_f26dot6_round(min.x) >> 6;
+        TTY_TEMP.glyph->offset.x = min.x >> 6;
         TTY_TEMP.glyph->offset.y = tty_f26dot6_round(max.y) >> 6;
 
-        TTY_TEMP.glyph->size.x = tty_f26dot6_ceil(TTY_TEMP.glyph->size.x) >> 6;
+        {
+            TTY_F26Dot6 xHoriBearing = tty_f26dot6_floor(min.x);
+            TTY_F26Dot6 right        = tty_f26dot6_ceil(min.x + TTY_TEMP.glyph->size.x);
+            TTY_F26Dot6 xAdv         = tty_f26dot6_round(points[TTY_TEMP.numPoints + 1].x - points[TTY_TEMP.numPoints].x);
+
+            TTY_TEMP.glyph->size.x   = (right - xHoriBearing) >> 6;
+            TTY_TEMP.glyph->xAdvance = xAdv >> 6;
+            
+            if (min.x > 0) {
+                glyph->size.x += min.x >> 6;
+            }
+        }
+
+        // TTY_TEMP.glyph->size.x = tty_f26dot6_ceil(TTY_TEMP.glyph->size.x) >> 6;
         TTY_TEMP.glyph->size.y = tty_f26dot6_ceil(TTY_TEMP.glyph->size.y) >> 6;
         
-        TTY_TEMP.glyph->xAdvance = tty_get_scaled_glyph_x_advance(font, TTY_TEMP.glyph->idx);
+        // TTY_TEMP.glyph->xAdvance = tty_get_scaled_glyph_x_advance(font, TTY_TEMP.glyph->idx);
 
 
         // Convert the glyph points into curves
@@ -1131,7 +1147,19 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
 
         // Sort edges from topmost to bottom most (smallest to largest y)
         qsort(edges, numEdges, sizeof(TTY_Edge), tty_compare_edges);
+
+        // for (int i = 0; i < numEdges; i++) {
+        //     printf("%2d) (%f, %f) => (%f, %f), %2d\n",
+        //            i, 
+        //            tty_fix_to_float(edges[i].p0.x, 6),
+        //            tty_fix_to_float(edges[i].p0.y, 6),
+        //            tty_fix_to_float(edges[i].p1.x, 6),
+        //            tty_fix_to_float(edges[i].p1.y, 6),
+        //            edges[i].dir);
+        // }
     }
+
+    // printf("\tmin.x = %f\n", tty_fix_to_float(min.x, 6));
 
 
     if (image->pixels == NULL) {
@@ -1287,7 +1315,7 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
                 xRel += 0x40;
             }
 
-            TTY_F26Dot6 xIdx = (xRel >> 6) - 1;
+            TTY_int32 xIdx = (xRel >> 6) - 1;
 
             while (TTY_TRUE) {
                 {
@@ -1345,7 +1373,6 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
                     else {
                         do {
                             TTY_ASSERT(xIdx < glyph->size.x);
-
                             pixelRow[xIdx] += weightedAlpha;
                             xRel           += 0x40;
                             xIdx           += 1;
@@ -3686,9 +3713,12 @@ static TTY_uint16 tty_get_glyph_x_advance(TTY* font, TTY_uint32 glyphIdx) {
     return 0;
 }
 
+#define TTY_ROUND_FOO(val) (((val & 0x8000) << 1) + (val & 0xFFFF0000))
+
 static TTY_int32 tty_get_scaled_glyph_x_advance(TTY* font, TTY_uint32 glyphIdx) {
     TTY_int32 xAdvance = tty_get_glyph_x_advance(font, glyphIdx);
-    return tty_f26dot6_round(TTY_FIX_MUL(xAdvance, TTY_INSTANCE->scale, 16)) >> 6;
+    xAdvance = tty_rounded_div((TTY_int64)xAdvance * TTY_INSTANCE->scale, 64);
+    return xAdvance >> 16;
 }
 
 static TTY_int16 tty_get_glyph_left_side_bearing(TTY* font, TTY_uint32 glyphIdx) {
