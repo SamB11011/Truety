@@ -580,7 +580,7 @@ static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val);
 
 
 #define TTY_DEBUG
-// #define TTY_LOGGING
+#define TTY_LOGGING
 
 #ifdef TTY_DEBUG
     #define TTY_ASSERT(cond) assert(cond)
@@ -2904,6 +2904,9 @@ static void tty_MDRP(TTY* font, TTY_uint8 ins) {
 
     tty_move_point(font, font->gState.zp1, pointIdx, distOrg - distCur);
 
+    font->gState.rp1 = font->gState.rp0;
+    font->gState.rp2 = pointIdx;
+
     TTY_LOG_POINT(*pointCur);
 }
 
@@ -3525,7 +3528,7 @@ static TTY_F26Dot6 tty_round(TTY* font, TTY_F26Dot6 val) {
 
     switch (font->gState.roundState) {
         case TTY_ROUND_TO_HALF_GRID:
-            return (val & 0x3F) | 0x20;
+            return (val & 0xFFFFFFC0) | 0x20;
         case TTY_ROUND_TO_GRID:
             return tty_f26dot6_round(val);
         case TTY_ROUND_TO_DOUBLE_GRID:
