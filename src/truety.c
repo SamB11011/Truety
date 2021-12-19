@@ -580,7 +580,7 @@ static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val);
 
 
 #define TTY_DEBUG
-#define TTY_LOGGING
+// #define TTY_LOGGING
 
 #ifdef TTY_DEBUG
     #define TTY_ASSERT(cond) assert(cond)
@@ -1093,9 +1093,10 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         // downwards.
         for (TTY_uint32 i = 0; i < TTY_TEMP.numPoints; i++) {
             if (min.x < 0) {
-                points[i].x -= min.x;
+                TTY_F26Dot6 foo = tty_f26dot6_ceil(labs(min.x));//-(min.x + min.x);
+                points[i].x += foo;
             }
-            points[i].y  = TTY_TEMP.glyph->size.y - (points[i].y - min.y);
+            points[i].y = glyph->size.y - (points[i].y - min.y);
         }
 
         // The offset is how much the glyph was translated to ensure all points
@@ -1105,21 +1106,24 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
 
         {
             TTY_F26Dot6 xHoriBearing = tty_f26dot6_floor(min.x);
-            TTY_F26Dot6 right        = tty_f26dot6_ceil(min.x + TTY_TEMP.glyph->size.x);
+            TTY_F26Dot6 right        = tty_f26dot6_ceil(min.x + glyph->size.x);
             TTY_F26Dot6 xAdv         = tty_f26dot6_round(points[TTY_TEMP.numPoints + 1].x - points[TTY_TEMP.numPoints].x);
 
             TTY_TEMP.glyph->size.x   = (right - xHoriBearing) >> 6;
             TTY_TEMP.glyph->xAdvance = xAdv >> 6;
             
-            if (min.x > 0) {
-                glyph->size.x += min.x >> 6;
+            if (min.x >= 0) {
+                glyph->size.x   += min.x >> 6;
+                glyph->offset.x  = 0;
+            }
+            else {
+                // printf("\t move if >= 1 : %d\n", tty_f26dot6_round((-(min.x + min.x))) >> 6);
+                // glyph->size.x   += tty_f26dot6_ceil(labs(min.x)) >> 6;
+                // glyph->offset.x  = -(tty_f26dot6_ceil(labs(min.x)) >> 6);
             }
         }
 
-        // TTY_TEMP.glyph->size.x = tty_f26dot6_ceil(TTY_TEMP.glyph->size.x) >> 6;
-        TTY_TEMP.glyph->size.y = tty_f26dot6_ceil(TTY_TEMP.glyph->size.y) >> 6;
-        
-        // TTY_TEMP.glyph->xAdvance = tty_get_scaled_glyph_x_advance(font, TTY_TEMP.glyph->idx);
+        glyph->size.y = tty_f26dot6_ceil(glyph->size.y) >> 6;
 
 
         // Convert the glyph points into curves
@@ -1159,7 +1163,8 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         // }
     }
 
-    // printf("\tmin.x = %f\n", tty_fix_to_float(min.x, 6));
+    printf("\tmin.x  = %f\n", tty_fix_to_float(min.x, 6));
+    printf("\tsize.x = %d\n", glyph->size.x);
 
 
     if (image->pixels == NULL) {
@@ -1387,12 +1392,13 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         
         if ((yRel & 0x3F) == 0) {
             // A new row of pixels has been reached
-            TTY_uint32 startIdx = (((yAbs - 0x40) >> 6) * image->w) + x;
+            TTY_uint32 startIdx = (((yAbs - 0x40) >> 6) * image->w) + x;// + (tty_f26dot6_ceil(labs(min.x)) >> 6);
             
             for (TTY_uint32 i = 0; i < glyph->size.x; i++) {
                 // TODO: Round instead of floor?
                 TTY_ASSERT(pixelRow[i] >= 0);
                 TTY_ASSERT(pixelRow[i] >> 6 <= 255);
+                TTY_ASSERT(startIdx + i < image->w * image->h);
                 image->pixels[startIdx + i] = pixelRow[i] >> 6;
             }
             
