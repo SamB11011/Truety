@@ -1,47 +1,48 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
-#include "ttf.h"
+#include "truety.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
 int main() {
-    TTF font;
-    if (!ttf_init(&font, "./resources/fonts/Roboto-Regular.ttf")) {
-        fprintf(stderr, "Failed to create TTF.\n");
+    TTY font;
+    if (!tty_init(&font, "./resources/fonts/LiberationSans-Regular.ttf")) {
+        fprintf(stderr, "Failed to load font\n");
         return 1;
     }
 
-    TTF_Instance instance;
-    if (!ttf_instance_init(&font, &instance, 30)) {
-        fprintf(stderr, "Failed to create TTF_Instance.\n");
+    TTY_Instance instance;
+    if (!tty_instance_init(&font, &instance, 16)) {
+        fprintf(stderr, "Failed to create an instance\n");
         return 1;
     }
 
-    TTF_Image image;
-    if (!ttf_image_init(&image, NULL, 100, 100)) {
-        fprintf(stderr, "Failed to create TTF_Image.\n");
-        return 1;
-    }
+    for (int cp = ' '; cp <= '~'; cp++) {
+        if (cp == ';' || cp == ':') {
+            // TODO: Handle composite glyphs
+            continue;
+        }
 
-    for (int cp = 'M'; cp <= 'M'; cp++) {
-        TTF_Glyph glyph;
-        ttf_glyph_init(&font, &glyph, ttf_get_glyph_index(&font, cp));
+        printf("Rendering %c\n", cp);
 
-        if (!ttf_render_glyph_to_existing_image(&font, &instance, &image, &glyph, 0, 0)) {
-            fprintf(stderr, "Failed to render glyph.\n");
+        TTY_Glyph glyph;
+        tty_glyph_init(&font, &glyph, tty_get_glyph_index(&font, cp));
+
+        TTY_Image image;
+        if (!tty_render_glyph(&font, &instance, &image, &glyph)) {
+            fprintf(stderr, "Failed to render glyph\n");
             return 1;
         }
 
-        // memset(image.pixels, 0, image.w * image.h);
+        tty_free_image(&image);
     }
 
-    stbi_write_png("./resources/output.png", image.w, image.h, 1, image.pixels, image.w);
+    // stbi_write_png("./resources/output.png", image.w, image.h, 1, image.pixels, image.w);
 
-    ttf_free_image(&image);
-    ttf_free_instance(&font, &instance);
-    ttf_free(&font);
+    tty_free_instance(&font, &instance);
+    tty_free(&font);
 
     printf("Done\n");
 

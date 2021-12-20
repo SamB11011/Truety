@@ -1085,23 +1085,24 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         
         tty_get_max_and_min_points(points, TTY_TEMP.numPoints, &max, &min);
         
-        TTY_TEMP.glyph->size.x = labs(max.x - min.x);
-        TTY_TEMP.glyph->size.y = labs(max.y - min.y);
+        glyph->size.x = labs(max.x - min.x);
+        glyph->size.y = labs(max.y - min.y);
 
         // To convert to bitmap space, translate the points such that all
         // coordinates are >= 0, and invert the y-axis so y-values increase
         // downwards.
         for (TTY_uint32 i = 0; i < TTY_TEMP.numPoints; i++) {
             if (min.x < 0) {
-                TTY_F26Dot6 foo = tty_f26dot6_ceil(labs(min.x));//-(min.x + min.x);
-                points[i].x += foo;
+                points[i].x += tty_f26dot6_ceil(labs(min.x));
+            }
+            else if (min.x > 0) {
+                points[i].x -= tty_f26dot6_floor(min.x);
             }
             points[i].y = glyph->size.y - (points[i].y - min.y);
         }
 
         // The offset is how much the glyph was translated to ensure all points
         // have coordinates >= 0
-        TTY_TEMP.glyph->offset.x = min.x >> 6;
         TTY_TEMP.glyph->offset.y = tty_f26dot6_round(max.y) >> 6;
 
         {
@@ -1109,17 +1110,14 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
             TTY_F26Dot6 right        = tty_f26dot6_ceil(min.x + glyph->size.x);
             TTY_F26Dot6 xAdv         = tty_f26dot6_round(points[TTY_TEMP.numPoints + 1].x - points[TTY_TEMP.numPoints].x);
 
-            TTY_TEMP.glyph->size.x   = (right - xHoriBearing) >> 6;
-            TTY_TEMP.glyph->xAdvance = xAdv >> 6;
+            glyph->size.x   = (right - xHoriBearing) >> 6;
+            glyph->xAdvance = xAdv >> 6;
             
             if (min.x >= 0) {
-                glyph->size.x   += min.x >> 6;
-                glyph->offset.x  = 0;
+                glyph->offset.x = min.x >> 6;
             }
             else {
-                // printf("\t move if >= 1 : %d\n", tty_f26dot6_round((-(min.x + min.x))) >> 6);
-                // glyph->size.x   += tty_f26dot6_ceil(labs(min.x)) >> 6;
-                // glyph->offset.x  = -(tty_f26dot6_ceil(labs(min.x)) >> 6);
+                glyph->offset.x  = -(tty_f26dot6_ceil(labs(min.x)) >> 6);
             }
         }
 
@@ -1151,20 +1149,7 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
 
         // Sort edges from topmost to bottom most (smallest to largest y)
         qsort(edges, numEdges, sizeof(TTY_Edge), tty_compare_edges);
-
-        // for (int i = 0; i < numEdges; i++) {
-        //     printf("%2d) (%f, %f) => (%f, %f), %2d\n",
-        //            i, 
-        //            tty_fix_to_float(edges[i].p0.x, 6),
-        //            tty_fix_to_float(edges[i].p0.y, 6),
-        //            tty_fix_to_float(edges[i].p1.x, 6),
-        //            tty_fix_to_float(edges[i].p1.y, 6),
-        //            edges[i].dir);
-        // }
     }
-
-    printf("\tmin.x  = %f\n", tty_fix_to_float(min.x, 6));
-    printf("\tsize.x = %d\n", glyph->size.x);
 
 
     if (image->pixels == NULL) {
@@ -1321,6 +1306,7 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
             }
 
             TTY_int32 xIdx = (xRel >> 6) - 1;
+            TTY_ASSERT(xIdx >= 0);
 
             while (TTY_TRUE) {
                 {
@@ -1392,13 +1378,11 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         
         if ((yRel & 0x3F) == 0) {
             // A new row of pixels has been reached
-            TTY_uint32 startIdx = (((yAbs - 0x40) >> 6) * image->w) + x;// + (tty_f26dot6_ceil(labs(min.x)) >> 6);
+            TTY_uint32 startIdx = (((yAbs - 0x40) >> 6) * image->w) + x;
             
             for (TTY_uint32 i = 0; i < glyph->size.x; i++) {
-                // TODO: Round instead of floor?
                 TTY_ASSERT(pixelRow[i] >= 0);
                 TTY_ASSERT(pixelRow[i] >> 6 <= 255);
-                TTY_ASSERT(startIdx + i < image->w * image->h);
                 image->pixels[startIdx + i] = pixelRow[i] >> 6;
             }
             
