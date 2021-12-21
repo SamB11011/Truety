@@ -1045,6 +1045,12 @@ static TTY_uint16 tty_get_glyph_index_format_4(TTY_uint8* subtable, TTY_uint32 c
     #undef TTY_GET_END_CODE
 }
 
+static TTY_F26Dot6 foo_map(TTY_F26Dot6 x, TTY_F26Dot6 x0, TTY_F26Dot6 y0, TTY_F26Dot6 x1, TTY_F26Dot6 y1) {
+    TTY_F16Dot16 m = tty_fix_div(y1 - y0, x1 - x0, 16);
+    TTY_F16Dot16 b = y0 - TTY_FIX_MUL(m, x0, 16);
+    return TTY_FIX_MUL(m, x, 16) + b;
+}
+
 
 /* -------------------- */
 /* Rendering Operations */
@@ -1057,6 +1063,7 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
                                           TTY_uint32    y) {
     if (!tty_get_glyf_data_block(font, &TTY_TEMP.glyfBlock, glyph->idx)) {
         // The glyph doesn't have any outlines (' ' for example)
+        // TODO: need to properly calculate x advance
         glyph->xAdvance = tty_get_scaled_glyph_x_advance(font, glyph->idx);
         return TTY_TRUE;
     }
@@ -1064,6 +1071,7 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
     TTY_INSTANCE         = instance;
     TTY_TEMP.glyph       = glyph;
     TTY_TEMP.numContours = tty_get_int16(TTY_TEMP.glyfBlock);
+    assert(TTY_TEMP.numContours > 0);
     TTY_TEMP.numPoints   = 1 + tty_get_uint16(TTY_TEMP.glyfBlock + 8 + 2 * TTY_TEMP.numContours);
 
 
@@ -1079,12 +1087,9 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
             return TTY_FALSE;
         }
 
-        // for (int i = 0; i < TTY_TEMP.numPoints; i++) {
-        //     printf("%d (%f, %f)\n", 
-        //            i, 
-        //            tty_fix_to_float(points[i].x, 6), 
-        //            tty_fix_to_float(points[i].y, 6));
-        // }
+        for (int i = 0; i < TTY_TEMP.numPoints; i++) {
+            printf("%d) (%d, %d)\n", i, points[i].x, points[i].y);
+        }
 
 
         // Convert points into bitmap space, and set glyph metrics such as
@@ -1095,23 +1100,6 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         glyph->size.x = labs(max.x - min.x);
         glyph->size.y = labs(max.y - min.y);
 
-        // To convert to bitmap space, translate the points such that all
-        // coordinates are >= 0, and invert the y-axis so y-values increase
-        // downwards.
-        for (TTY_uint32 i = 0; i < TTY_TEMP.numPoints; i++) {
-            // TODO: Check if all fractions line up
-            if (min.x < 0) {
-                points[i].x += tty_f26dot6_ceil(labs(min.x));
-            }
-            else if (min.x > 0) {
-                points[i].x -= tty_f26dot6_floor(min.x);
-            }
-        }
-
-        // if min.y is negative, need to do some magics
-
-        // The offset is how much the glyph was translated to ensure all points
-        // have coordinates >= 0
 
         {
             TTY_F26Dot6 xHoriBearing = tty_f26dot6_floor(min.x);
@@ -1129,8 +1117,10 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
             }
         }
 
+        // TODO: use FreeType calculation for height
         glyph->offset.y = tty_f26dot6_round(max.y) >> 6;
-        glyph->size.y   = (tty_f26dot6_ceil(glyph->size.y) >> 6);
+        glyph->size.y   = tty_f26dot6_ceil(glyph->size.y) >> 6;
+
 
         // Convert the glyph points into curves
         TTY_uint32 numCurves;
@@ -1207,20 +1197,18 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
     }
     
 
-    // TODO: y offset is relative
-    // y = image->h - y;
-    // TODO: handle y
-    TTY_F26Dot6 yRel    = tty_min(tty_f26dot6_ceil(max.y), image->h << 6);
-    TTY_F26Dot6 yAbs    = tty_min(yRel - (y << 6), image->h << 6);
+    // TODO: check if height fits in image.
+    TTY_F26Dot6 yRel    = tty_f26dot6_ceil(max.y);
+    TTY_F26Dot6 yAbs    = yRel  - (y << 6);
     TTY_F26Dot6 yEndAbs = min.y - (y << 6);
     TTY_uint32  edgeIdx = 0;
-
-    printf("yRel = %d, yAbs = %d\n", yRel, yAbs);
     
     while (yAbs >= yEndAbs) {
         {
             // If an edge is no longer active, remove it from the list, else
             // update its x-intersection with the current scanline
+
+            // TODO: replace xMin with xIntersection when applicable
 
             TTY_Active_Edge* activeEdge     = activeEdgeList.headEdge;
             TTY_Active_Edge* prevActiveEdge = NULL;
@@ -1325,13 +1313,12 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
             TTY_int32        windingNumber = 0;
             TTY_F26Dot6      weightedAlpha = TTY_FIX_MUL(0x3FC0, TTY_PIXELS_PER_SCANLINE, 6);
             
-            TTY_F26Dot6 xRel = tty_f26dot6_ceil(activeEdge->xIntersection);
-            if (xRel == 0) {
-                xRel += 0x40;
-            }
+            TTY_F26Dot6 xRel = 
+                activeEdge->xIntersection == 0 ?
+                0x40 :
+                tty_f26dot6_ceil(activeEdge->xIntersection);
 
-            TTY_int32 xIdx = (xRel >> 6) - 1;
-            TTY_ASSERT(xIdx >= 0);
+            TTY_uint32 xIdx = foo_map(xRel, min.x, 0, tty_f26dot6_ceil(max.x), (glyph->size.x - 1) << 6) >> 6;
 
             while (TTY_TRUE) {
                 {
@@ -1376,7 +1363,7 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
                 }
 
                 xRel += 0x40;
-                xIdx += 1;
+                xIdx  = foo_map(xRel, min.x, 0, tty_f26dot6_ceil(max.x), (glyph->size.x - 1) << 6) >> 6;
 
                 if (xRel < activeEdge->xIntersection) {
                     // Handle pixels that are either fully covered or fully 
@@ -1384,14 +1371,14 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
 
                     if (windingNumber == 0) {
                         xRel = tty_f26dot6_ceil(activeEdge->xIntersection);
-                        xIdx = (xRel >> 6) - 1;
+                        xIdx = foo_map(xRel, min.x, 0, tty_f26dot6_ceil(max.x), (glyph->size.x - 1) << 6) >> 6;
                     }
                     else {
                         do {
                             TTY_ASSERT(xIdx < glyph->size.x);
                             pixelRow[xIdx] += weightedAlpha;
                             xRel           += 0x40;
-                            xIdx           += 1;
+                            xIdx            = foo_map(xRel, min.x, 0, tty_f26dot6_ceil(max.x), (glyph->size.x - 1) << 6) >> 6;
                         } while (xRel < activeEdge->xIntersection);
                     }
                 }
@@ -2761,10 +2748,6 @@ static void tty_IUP(TTY* font, TTY_uint8 ins) {
             }
         }
     }
-
-    for (int i = 0; i < TTY_TEMP.numPoints; i++) {
-        TTY_LOG_CUSTOM_F("%d) (%d, %d)", i, TTY_TEMP.zone1.cur[i].x, TTY_TEMP.zone1.cur[i].y);
-    }
 }
 
 static void tty_JROT(TTY* font, TTY_Ins_Stream* stream) {
@@ -3019,8 +3002,8 @@ static void tty_MIRP(TTY* font, TTY_uint8 ins) {
     }
 
     TTY_int32 distNew;
-
-    if (ins & 0x04) {
+    
+    if (ins & 0x4) {
         if (font->gState.zp0 == font->gState.zp1) {
             if (labs(cvtVal - distOrg) > font->gState.controlValueCutIn) {
                 cvtVal = distOrg;
