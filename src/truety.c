@@ -1425,7 +1425,11 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
     
     if (!tty_get_glyf_data_block(font, &glyphData.glyfBlock, glyph->idx)) {
         // The glyph is an emtpy glyph
-        // TODO: still calculate advance width
+        // TODO: x-advance off by 1?
+        // TODO: y-advance?
+        glyph->advance.x = tty_get_glyph_x_advance(font, glyph->idx);
+        glyph->advance.x = tty_rounded_div((TTY_int64)glyph->advance.x * instance->scale, 64);
+        glyph->advance.x >>= 16;
         return TTY_TRUE;
     }
 
@@ -1436,12 +1440,6 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
     }
 
     return tty_render_simple_glyph(font, instance, &glyphData, image, x, y);
-}
-
-static TTY_F26Dot6 foo_map(TTY_F26Dot6 x, TTY_F26Dot6 x0, TTY_F26Dot6 y0, TTY_F26Dot6 x1, TTY_F26Dot6 y1) {
-    TTY_F16Dot16 m = TTY_F16DOT16_DIV(y1 - y0, x1 - x0);
-    TTY_F26Dot6  b = y0 - TTY_F16DOT16_MUL(m, x0);
-    return TTY_F16DOT16_MUL(m, x) + b;
 }
 
 static TTY_bool tty_render_simple_glyph(TTY*            font, 
@@ -1666,7 +1664,12 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
                 0x40 :
                 tty_f26dot6_ceil(activeEdge->xIntersection);
 
-            TTY_uint32 xIdx = foo_map(xRel, min.x, 0, tty_f26dot6_ceil(max.x), (glyphData->glyph->size.x - 1) << 6) >> 6;
+            TTY_F16Dot16 mMap = TTY_F16DOT16_DIV(
+                (glyphData->glyph->size.x - 1) << 6, tty_f26dot6_ceil(max.x) - min.x);
+
+            TTY_F26Dot6 bMap = -TTY_F16DOT16_MUL(mMap, min.x);
+
+            TTY_uint32 xIdx = (TTY_F16DOT16_MUL(mMap, xRel) + bMap) >> 6;
 
             while (TTY_TRUE) {
                 {
@@ -1711,7 +1714,7 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
                 }
 
                 xRel += 0x40;
-                xIdx  = foo_map(xRel, min.x, 0, tty_f26dot6_ceil(max.x), (glyphData->glyph->size.x - 1) << 6) >> 6;
+                xIdx  = (TTY_F16DOT16_MUL(mMap, xRel) + bMap) >> 6;
 
                 if (xRel < activeEdge->xIntersection) {
                     // Handle pixels that are either fully covered or fully 
@@ -1719,14 +1722,14 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
 
                     if (windingNumber == 0) {
                         xRel = tty_f26dot6_ceil(activeEdge->xIntersection);
-                        xIdx = foo_map(xRel, min.x, 0, tty_f26dot6_ceil(max.x), (glyphData->glyph->size.x - 1) << 6) >> 6;
+                        xIdx = (TTY_F16DOT16_MUL(mMap, xRel) + bMap) >> 6;
                     }
                     else {
                         do {
                             TTY_ASSERT(xIdx < glyphData->glyph->size.x);
                             pixelRow[xIdx] += weightedAlpha;
                             xRel           += 0x40;
-                            xIdx            = foo_map(xRel, min.x, 0, tty_f26dot6_ceil(max.x), (glyphData->glyph->size.x - 1) << 6) >> 6;
+                            xIdx            = (TTY_F16DOT16_MUL(mMap, xRel) + bMap) >> 6;
                         } while (xRel < activeEdge->xIntersection);
                     }
                 }
