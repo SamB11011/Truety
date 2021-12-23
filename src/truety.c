@@ -1800,7 +1800,7 @@ static void tty_set_hinted_glyph_metrics(TTY_Glyph*      glyph,
             glyph->offset.x = min->x >> 6;
         }
         else if (min->x < 0) {
-            glyph->offset.x = -tty_f26dot6_ceil(labs(min->x) >> 6); // TODO: just floor?
+            glyph->offset.x = -tty_f26dot6_ceil(labs(min->x)) >> 6; // TODO: just floor?
         }
     }
 
