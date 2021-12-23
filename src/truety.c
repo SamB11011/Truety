@@ -1540,10 +1540,11 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
     }
 
 
-    TTY_F26Dot6 yRel    = tty_f26dot6_ceil(max.y);
-    TTY_F26Dot6 yAbs    = yRel  - (y << 6);
-    TTY_F26Dot6 yEndAbs = min.y - (y << 6);
-    TTY_uint32  edgeIdx = 0;
+    TTY_F26Dot6 yRel     = tty_f26dot6_ceil(max.y);
+    TTY_F26Dot6 yAbs     = yRel  - (y << 6);
+    TTY_F26Dot6 yEndAbs  = min.y - (y << 6);
+    TTY_int32   yMaxCeil = tty_f26dot6_ceil(max.y) >> 6;
+    TTY_uint32  edgeIdx  = 0;
 
     if (glyphData->glyph->size.y > image->h) {
         // TODO: test
@@ -1741,7 +1742,7 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
 
         if ((yRel & 0x3F) == 0) {
             // A new row of pixels has been reached
-            TTY_uint32 startIdx = ((tty_f26dot6_ceil(max.y) >> 6) - (yAbs >> 6) - 1) * image->w + x; // TODO: simplify
+            TTY_uint32 startIdx = (yMaxCeil - (yAbs >> 6) - 1) * image->w + x;
             TTY_ASSERT(startIdx < image->w * image->h);
             
             for (TTY_uint32 i = 0; i < glyphData->glyph->size.x; i++) {
