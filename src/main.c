@@ -8,13 +8,13 @@
 
 int main() {
     TTY font;
-    if (!tty_init(&font, "./resources/fonts/LiberationSans-Regular.ttf")) {
+    if (!tty_init(&font, "./resources/fonts/Roboto-Regular.ttf")) {
         fprintf(stderr, "Failed to load font\n");
         return 1;
     }
 
     TTY_Instance instance;
-    if (!tty_instance_init(&font, &instance, 16)) {
+    if (!tty_instance_init(&font, &instance, 16, TTY_TRUE)) {
         fprintf(stderr, "Failed to create an instance\n");
         return 1;
     }
@@ -31,17 +31,20 @@ int main() {
         tty_glyph_init(&font, &glyph, tty_get_glyph_index(&font, cp));
 
         TTY_Image image;
-        if (!tty_render_glyph(&font, &instance, &image, &glyph)) {
+        // tty_image_init(&image, NULL, 100, 100);
+
+        if (!tty_render_glyph(&font, &instance, &glyph, &image)) {
             fprintf(stderr, "Failed to render glyph\n");
             return 1;
         }
 
-        tty_free_image(&image);
+        // stbi_write_png("./resources/output.png", image.w, image.h, 1, image.pixels, image.w);
+
+        tty_image_free(&image);
     }
 
-    // stbi_write_png("./resources/output.png", image.w, image.h, 1, image.pixels, image.w);
 
-    tty_free_instance(&font, &instance);
+    tty_instance_free(&instance);
     tty_free(&font);
 
     printf("Done\n");
