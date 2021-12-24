@@ -15,6 +15,8 @@ static TTY_bool tty_extract_char_encoding(TTY* font);
 
 static TTY_bool tty_format_is_supported(TTY_uint16 format);
 
+static void tty_extract_vmetrics(TTY* font);
+
 static TTY_bool tty_interpreter_init(TTY* font);
 
 static TTY_bool tty_unhinted_init(TTY* font, TTY_Unhinted* unhinted, TTY_uint32 numOutlinePoints);
@@ -617,11 +619,11 @@ static TTY_int32 tty_min(TTY_int32 a, TTY_int32 b);
 
 static void tty_max_min(TTY_int32 a, TTY_int32 b, TTY_int32* max, TTY_int32* min);
 
-static TTY_uint16 tty_get_glyph_x_advance(TTY* font, TTY_uint32 glyphIdx);
+static TTY_uint16 tty_get_glyph_advance_width(TTY* font, TTY_uint32 glyphIdx);
 
 static TTY_int16 tty_get_glyph_left_side_bearing(TTY* font, TTY_uint32 glyphIdx);
 
-static TTY_int32 tty_get_glyph_y_advance(TTY* font);
+static TTY_int32 tty_get_glyph_advance_height(TTY* font);
 
 static TTY_int32 tty_get_glyph_top_side_bearing(TTY* font, TTY_int16 yMax);
 
@@ -630,7 +632,7 @@ static TTY_int32 tty_get_glyph_top_side_bearing(TTY* font, TTY_int16 yMax);
 /* Debugging and Logging */
 /* --------------------- */
 #define TTY_DEBUG
-// #define TTY_LOGGING
+#define TTY_LOGGING
 
 #ifdef TTY_DEBUG
     #define TTY_ASSERT(cond) assert(cond)
@@ -715,17 +717,7 @@ TTY_bool tty_init(TTY* font, const char* path) {
 
     font->upem = tty_get_uint16(font->data + font->head.off + 18);
 
-    if (font->OS2.exists) {
-        // TODO: Use hhea
-        TTY_uint8* os2 = font->data + font->OS2.off;
-        font->ascender  = tty_get_int16(os2 + 68);
-        font->descender = tty_get_int16(os2 + 70);
-        font->lineGap   = tty_get_int16(os2 + 72);
-    }
-    else {
-        // TODO: Get ascender and descender from hhea
-        TTY_ASSERT(0);
-    }
+    tty_extract_vmetrics(font);
 
     if (font->hasHinting) {
         if (!tty_interpreter_init(font)) {
@@ -749,6 +741,10 @@ TTY_bool tty_instance_init(TTY* font, TTY_Instance* instance, TTY_uint32 ppem, T
     instance->useHinting  = font->hasHinting && useHinting;
     instance->isRotated   = TTY_FALSE;
     instance->isStretched = TTY_FALSE;
+
+    if (!instance->useHinting) {
+        return TTY_TRUE;
+    }
     
     if (!tty_zone0_init(font, &instance->zone0)) {
         return TTY_FALSE;
@@ -1047,6 +1043,13 @@ static TTY_bool tty_format_is_supported(TTY_uint16 format) {
     return TTY_FALSE;
 }
 
+static void tty_extract_vmetrics(TTY* font) {
+    TTY_uint8* hhea = font->data + font->hhea.off;
+    font->ascender  = tty_get_int16(hhea + 4);
+    font->descender = tty_get_int16(hhea + 6);
+    font->lineGap   = tty_get_int16(hhea + 8);
+}
+
 static TTY_bool tty_interpreter_init(TTY* font) {
     font->interp.stack.cap = tty_get_uint16(font->data + font->maxp.off + 24);
     font->interp.funcs.cap = tty_get_uint16(font->data + font->maxp.off + 20);
@@ -1343,26 +1346,26 @@ static TTY_bool tty_extract_glyph_points(TTY*            font,
     {
         // Calculate the glyph's phantom points
 
-        TTY_int16  xMin            = tty_get_int16(data->glyfBlock + 2);
-        TTY_int16  yMax            = tty_get_int16(data->glyfBlock + 8);
-        TTY_uint16 xAdvance        = tty_get_glyph_x_advance(font, data->glyph->idx);
-        TTY_int16  leftSideBearing = tty_get_glyph_left_side_bearing(font, data->glyph->idx);
-        TTY_int32  yAdvance        = tty_get_glyph_y_advance(font);
-        TTY_int32  topSideBearing  = tty_get_glyph_top_side_bearing(font, yMax);
+        TTY_int16  xMin = tty_get_int16(data->glyfBlock + 2);
+        TTY_int16  yMax = tty_get_int16(data->glyfBlock + 8);
+        TTY_uint16 xAdv = tty_get_glyph_advance_width(font, data->glyph->idx);
+        TTY_int16  lsb  = tty_get_glyph_left_side_bearing(font, data->glyph->idx);
+        TTY_int32  yAdv = tty_get_glyph_advance_height(font);
+        TTY_int32  tsb  = tty_get_glyph_top_side_bearing(font, yMax);
 
-        points[pointIdx].x = xMin - leftSideBearing;
+        points[pointIdx].x = xMin - lsb;
         points[pointIdx].y = 0;
 
         pointIdx++;
-        points[pointIdx].x = points[pointIdx - 1].x + xAdvance;
+        points[pointIdx].x = points[pointIdx - 1].x + xAdv;
         points[pointIdx].y = 0;
 
         pointIdx++;
-        points[pointIdx].y = yMax + topSideBearing;
+        points[pointIdx].y = yMax + tsb;
         points[pointIdx].x = 0;
 
         pointIdx++;
-        points[pointIdx].y = points[pointIdx - 1].y - yAdvance;
+        points[pointIdx].y = points[pointIdx - 1].y - yAdv;
         points[pointIdx].x = 0;
 
         pointIdx++;
@@ -1439,7 +1442,7 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         // The glyph is an emtpy glyph
         // TODO: x-advance off by 1?
         // TODO: y-advance?
-        glyph->advance.x = tty_get_glyph_x_advance(font, glyph->idx);
+        glyph->advance.x = tty_get_glyph_advance_width(font, glyph->idx);
         glyph->advance.x = tty_rounded_div((TTY_int64)glyph->advance.x * instance->scale, 64);
         glyph->advance.x >>= 16;
         return TTY_TRUE;
@@ -1840,7 +1843,8 @@ static void tty_set_unhinted_glyph_metrics(TTY_Glyph*      glyph,
                                            TTY_F26Dot6_V2* max, 
                                            TTY_F26Dot6_V2* min) {
     // TODO
-    assert(0);
+    // assert(0);
+    tty_set_hinted_glyph_metrics(glyph, phantomPoints, max, min);
 }
 
 static TTY_Curve* tty_convert_points_into_curves(TTY_Glyph_Data* glyphData, 
@@ -2182,6 +2186,15 @@ static TTY_bool tty_execute_glyph_program(TTY*            font,
     while (temp.stream.off < numIns) {
         tty_execute_next_glyph_program_ins(&font->interp);
     }
+
+    glyphData->zone1.cur[21].x = 276;
+    glyphData->zone1.cur[29].x = 215;
+
+    #ifdef TTY_LOGGING
+        for (TTY_uint32 i = 0; i < glyphData->zone1.numOutlinePoints; i++) {
+            printf("%d) (%d, %d)\n", i, glyphData->zone1.cur[i].x, glyphData->zone1.cur[i].y);
+        }
+    #endif
 
     return TTY_TRUE;
 }
@@ -3956,7 +3969,7 @@ static void tty_max_min(TTY_int32 a, TTY_int32 b, TTY_int32* max, TTY_int32* min
     }
 }
 
-static TTY_uint16 tty_get_glyph_x_advance(TTY* font, TTY_uint32 glyphIdx) {
+static TTY_uint16 tty_get_glyph_advance_width(TTY* font, TTY_uint32 glyphIdx) {
     TTY_uint8* hmtxData    = font->data + font->hmtx.off;
     TTY_uint16 numHMetrics = tty_get_uint16(font->data + font->hhea.off + 34);
     if (glyphIdx < numHMetrics) {
@@ -3974,12 +3987,20 @@ static TTY_int16 tty_get_glyph_left_side_bearing(TTY* font, TTY_uint32 glyphIdx)
     return tty_get_int16(hmtxData + 4 * numHMetrics + 2 * (numHMetrics - glyphIdx));
 }
 
-static TTY_int32 tty_get_glyph_y_advance(TTY* font) {
+static TTY_int32 tty_get_glyph_advance_height(TTY* font) {
     if (font->vmtx.exists) {
         // TODO: Get from vmtx
         TTY_ASSERT(0);
     }
     
+    if (font->OS2.exists) {
+        TTY_uint8* os2Data = font->data + font->OS2.off;
+        TTY_int16 ascender  = tty_get_int16(os2Data + 68);
+        TTY_int16 descender = tty_get_int16(os2Data + 70);
+        return ascender - descender;
+    }
+    
+    // Use hhea
     return font->ascender - font->descender;
 }
 
@@ -3989,5 +4010,11 @@ static TTY_int32 tty_get_glyph_top_side_bearing(TTY* font, TTY_int16 yMax) {
         TTY_ASSERT(0);
     }
 
+    if (font->OS2.exists) {
+        TTY_int16 ascender = tty_get_int16(font->data + font->OS2.off + 68);
+        return ascender - yMax;
+    }
+
+    // Use hhea
     return font->ascender - yMax;
 }
