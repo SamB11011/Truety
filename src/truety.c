@@ -716,8 +716,11 @@ TTY_bool tty_init(TTY* font, const char* path) {
     font->upem = tty_get_uint16(font->data + font->head.off + 18);
 
     if (font->OS2.exists) {
-        font->ascender  = tty_get_int16(font->data + font->OS2.off + 68);
-        font->descender = tty_get_int16(font->data + font->OS2.off + 70);
+        // TODO: Use hhea
+        TTY_uint8* os2 = font->data + font->OS2.off;
+        font->ascender  = tty_get_int16(os2 + 68);
+        font->descender = tty_get_int16(os2 + 70);
+        font->lineGap   = tty_get_int16(os2 + 72);
     }
     else {
         // TODO: Get ascender and descender from hhea
@@ -858,6 +861,15 @@ TTY_uint16 tty_get_num_glyphs(TTY* font) {
 
 TTY_int32 tty_get_ascender(TTY* font, TTY_Instance* instance) {
     return tty_f26dot6_ceil(TTY_F10DOT22_MUL(font->ascender << 6, instance->scale)) >> 6;
+}
+
+TTY_int32 tty_get_line_gap(TTY* font, TTY_Instance* instance) {
+    return tty_f26dot6_ceil(TTY_F10DOT22_MUL(font->lineGap << 6, instance->scale)) >> 6;
+}
+
+TTY_int32 tty_get_new_line_offset(TTY* font, TTY_Instance* instance) {
+    TTY_int32 offset = font->lineGap + font->ascender - font->descender;
+    return tty_f26dot6_ceil(TTY_F10DOT22_MUL(offset << 6, instance->scale)) >> 6;
 }
 
 TTY_bool tty_render_glyph(TTY*          font,

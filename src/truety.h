@@ -211,6 +211,7 @@ typedef struct {
     TTY_uint16   upem;
     TTY_int16    ascender;
     TTY_int16    descender;
+    TTY_int16    lineGap;
     TTY_Interp   interp;
 } TTY;
 
@@ -233,6 +234,8 @@ TTY_uint32 tty_get_glyph_index(TTY* font, TTY_uint32 cp);
 TTY_uint16 tty_get_num_glyphs(TTY* font);
 
 TTY_int32 tty_get_ascender(TTY* font, TTY_Instance* instance);
+
+TTY_int32 tty_get_line_gap(TTY* font, TTY_Instance* instance);
 
 TTY_bool tty_render_glyph(TTY*          font,
                           TTY_Instance* instance,
