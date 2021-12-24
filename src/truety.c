@@ -1528,10 +1528,10 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
     }
 
 
-    // Use this array when calculating the alpha values for each row of pixels.
-    // The image's pixels are not used directly because a loss of precision
-    // would result. This is due to the fact that the image's pixels are one 
-    // byte each and cannot store fractional values.
+    // Use a separate array when calculating the alpha values for each row of 
+    // pixels. The image's pixels are not used directly because a loss of 
+    // precision would result. This is due to the fact that the image's pixels 
+    // are one byte each and cannot store fractional values.
     TTY_F26Dot6* pixelRow = calloc(glyphData->glyph->size.x, sizeof(TTY_F26Dot6));
     if (pixelRow == NULL) {
         tty_active_edge_list_free(&activeEdgeList);
@@ -1540,15 +1540,20 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
     }
 
 
+    TTY_uint32 pixelsPerRow =
+        x + glyphData->glyph->size.x > image->w ?
+        glyphData->glyph->size.x - image->w + x :
+        glyphData->glyph->size.x;
+
     TTY_F26Dot6 yRel     = tty_f26dot6_ceil(max.y);
     TTY_F26Dot6 yAbs     = yRel  - (y << 6);
     TTY_F26Dot6 yEndAbs  = min.y - (y << 6);
     TTY_int32   yMaxCeil = tty_f26dot6_ceil(max.y) >> 6;
     TTY_uint32  edgeIdx  = 0;
 
-    if (glyphData->glyph->size.y > image->h) {
+    if (y + glyphData->glyph->size.y > image->h) {
         // TODO: test
-        yEndAbs += (glyphData->glyph->size.y - image->h) << 6;
+        yEndAbs += (glyphData->glyph->size.y - image->h + y) << 6;
     }
 
     while (yAbs >= yEndAbs) {
@@ -1654,27 +1659,29 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
 
 
         if (activeEdgeList.headEdge != NULL) {
-            // Set the opacity of the pixels along the scanline
-
             TTY_Active_Edge* activeEdge    = activeEdgeList.headEdge;
             TTY_int32        windingNumber = 0;
             TTY_F26Dot6      weightedAlpha = TTY_F26DOT6_MUL(0x3FC0, TTY_PIXELS_PER_SCANLINE);
+
+            TTY_F16Dot16 mMap = TTY_F16DOT16_DIV(
+                (glyphData->glyph->size.x - 1) << 6, tty_f26dot6_ceil(max.x) - min.x);
+
+            TTY_F26Dot6 bMap = -TTY_F16DOT16_MUL(mMap, min.x);
             
             TTY_F26Dot6 xRel = 
                 activeEdge->xIntersection == 0 ?
                 0x40 :
                 tty_f26dot6_ceil(activeEdge->xIntersection);
 
-            TTY_F16Dot16 mMap = TTY_F16DOT16_DIV(
-                (glyphData->glyph->size.x - 1) << 6, tty_f26dot6_ceil(max.x) - min.x);
-
-            TTY_F26Dot6 bMap = -TTY_F16DOT16_MUL(mMap, min.x);
-
             TTY_uint32 xIdx = (TTY_F16DOT16_MUL(mMap, xRel) + bMap) >> 6;
 
             while (TTY_TRUE) {
+                // Set the opacity of the pixels along the scanline
+
                 {
-                    // Handle pixels that are only partially covered by a contour
+                    // Handle pixels that are only partially covered by the 
+                    // glyph outline
+
                     TTY_ASSERT(xIdx < glyphData->glyph->size.x);
 
                     TTY_F26Dot6 coverage =
@@ -1719,7 +1726,7 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
 
                 if (xRel < activeEdge->xIntersection) {
                     // Handle pixels that are either fully covered or fully 
-                    // not covered by a contour
+                    // not covered by the glyph outline
 
                     if (windingNumber == 0) {
                         xRel = tty_f26dot6_ceil(activeEdge->xIntersection);
@@ -1741,11 +1748,13 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
         yRel -= TTY_PIXELS_PER_SCANLINE;
 
         if ((yRel & 0x3F) == 0) {
-            // A new row of pixels has been reached
+            // A new row of pixels has been reached, transfer the accumulated
+            // alpha values of the previous row to the image
+
             TTY_uint32 startIdx = (yMaxCeil - (yAbs >> 6) - 1) * image->w + x;
             TTY_ASSERT(startIdx < image->w * image->h);
             
-            for (TTY_uint32 i = 0; i < glyphData->glyph->size.x; i++) {
+            for (TTY_uint32 i = 0; i < pixelsPerRow; i++) {
                 TTY_ASSERT(pixelRow[i] >= 0);
                 TTY_ASSERT(pixelRow[i] >> 6 <= 255);
                 image->pixels[startIdx + i] = pixelRow[i] >> 6;
@@ -3876,9 +3885,9 @@ static void tty_iup_interpolate_or_shift(TTY_Zone*      zone1,
 static TTY_Zone* tty_get_zone_pointer(TTY_Interp* interp, TTY_uint32 zone) {
     switch (zone) {
         case 0:
-            return &interp->temp->glyphData->zone1;
-        case 1:
             return &interp->temp->instance->zone0;
+        case 1:
+            return &interp->temp->glyphData->zone1;
     }
     TTY_ASSERT(0);
     return NULL;
