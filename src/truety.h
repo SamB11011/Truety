@@ -235,7 +235,13 @@ TTY_uint16 tty_get_num_glyphs(TTY* font);
 
 TTY_int32 tty_get_ascender(TTY* font, TTY_Instance* instance);
 
+TTY_int32 tty_get_descender(TTY* font, TTY_Instance* instance);
+
 TTY_int32 tty_get_line_gap(TTY* font, TTY_Instance* instance);
+
+TTY_int32 tty_get_new_line_offset(TTY* font, TTY_Instance* instance);
+
+TTY_int32 tty_get_max_horizontal_extent(TTY* font, TTY_Instance* instance);
 
 TTY_bool tty_render_glyph(TTY*          font,
                           TTY_Instance* instance,

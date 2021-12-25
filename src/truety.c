@@ -859,6 +859,10 @@ TTY_int32 tty_get_ascender(TTY* font, TTY_Instance* instance) {
     return tty_f26dot6_ceil(TTY_F10DOT22_MUL(font->ascender << 6, instance->scale)) >> 6;
 }
 
+TTY_int32 tty_get_descender(TTY* font, TTY_Instance* instance) {
+    return tty_f26dot6_ceil(TTY_F10DOT22_MUL(font->descender << 6, instance->scale)) >> 6;
+}
+
 TTY_int32 tty_get_line_gap(TTY* font, TTY_Instance* instance) {
     return tty_f26dot6_ceil(TTY_F10DOT22_MUL(font->lineGap << 6, instance->scale)) >> 6;
 }
@@ -866,6 +870,11 @@ TTY_int32 tty_get_line_gap(TTY* font, TTY_Instance* instance) {
 TTY_int32 tty_get_new_line_offset(TTY* font, TTY_Instance* instance) {
     TTY_int32 offset = font->lineGap + font->ascender - font->descender;
     return tty_f26dot6_ceil(TTY_F10DOT22_MUL(offset << 6, instance->scale)) >> 6;
+}
+
+TTY_int32 tty_get_max_horizontal_extent(TTY* font, TTY_Instance* instance) {
+    TTY_int32 extent = tty_get_int16(font->data + font->hhea.off + 16);
+    return tty_f26dot6_ceil(TTY_F10DOT22_MUL(extent << 6, instance->scale)) >> 6;
 }
 
 TTY_bool tty_render_glyph(TTY*          font,
