@@ -632,7 +632,7 @@ static TTY_int32 tty_get_glyph_top_side_bearing(TTY* font, TTY_int16 yMax);
 /* Debugging and Logging */
 /* --------------------- */
 #define TTY_DEBUG
-#define TTY_LOGGING
+// #define TTY_LOGGING
 
 #ifdef TTY_DEBUG
     #define TTY_ASSERT(cond) assert(cond)
@@ -1457,6 +1457,12 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
     return tty_render_simple_glyph(font, instance, &glyphData, image, x, y);
 }
 
+static TTY_F26Dot6 tty_linear_map(TTY_F26Dot6 x, TTY_F26Dot6 x0, TTY_F26Dot6 y0, TTY_F26Dot6 x1, TTY_F26Dot6 y1) {
+    TTY_F16Dot16 m = TTY_F16DOT16_DIV(y1 - y0, x1 - x0);
+    TTY_F26Dot6  b = y0 - TTY_F16DOT16_MUL(m, x0);
+    return TTY_F16DOT16_MUL(m, x) + b;
+}
+
 static TTY_bool tty_render_simple_glyph(TTY*            font, 
                                         TTY_Instance*   instance, 
                                         TTY_Glyph_Data* glyphData,
@@ -1677,27 +1683,25 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
             TTY_Active_Edge* activeEdge    = activeEdgeList.headEdge;
             TTY_int32        windingNumber = 0;
             TTY_F26Dot6      weightedAlpha = TTY_F26DOT6_MUL(0x3FC0, TTY_PIXELS_PER_SCANLINE);
-
-            TTY_F16Dot16 mMap = TTY_F16DOT16_DIV(
-                (glyphData->glyph->size.x - 1) << 6, tty_f26dot6_ceil(max.x) - min.x);
-
-            TTY_F26Dot6 bMap = -TTY_F16DOT16_MUL(mMap, min.x);
             
             TTY_F26Dot6 xRel = 
                 activeEdge->xIntersection == 0 ?
                 0x40 :
                 tty_f26dot6_ceil(activeEdge->xIntersection);
 
-            TTY_uint32 xIdx = (TTY_F16DOT16_MUL(mMap, xRel) + bMap) >> 6;
+            #define COMPUTE() tty_f26dot6_floor(tty_linear_map(xRel, min.x, 0, tty_f26dot6_ceil(max.x), (glyphData->glyph->size.x - 1) << 6) + 1)>> 6
+
+            TTY_uint32 xIdx = COMPUTE();
 
             while (TTY_TRUE) {
                 // Set the opacity of the pixels along the scanline
+                // printf("xRel = %d, xIdx = %d\n", xRel >> 6, xIdx);
 
                 {
                     // Handle pixels that are only partially covered by the 
                     // glyph outline
-
                     TTY_ASSERT(xIdx < glyphData->glyph->size.x);
+                    TTY_ASSERT(xRel <= tty_f26dot6_ceil(max.x));
 
                     TTY_F26Dot6 coverage =
                         windingNumber == 0 ?
@@ -1737,7 +1741,7 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
                 }
 
                 xRel += 0x40;
-                xIdx  = (TTY_F16DOT16_MUL(mMap, xRel) + bMap) >> 6;
+                xIdx = COMPUTE();
 
                 if (xRel < activeEdge->xIntersection) {
                     // Handle pixels that are either fully covered or fully 
@@ -1745,14 +1749,16 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
 
                     if (windingNumber == 0) {
                         xRel = tty_f26dot6_ceil(activeEdge->xIntersection);
-                        xIdx = (TTY_F16DOT16_MUL(mMap, xRel) + bMap) >> 6;
+                        xIdx = COMPUTE();
                     }
                     else {
                         do {
+                            // printf("xRel = %d, xIdx = %d\n", xRel >> 6, xIdx);
                             TTY_ASSERT(xIdx < glyphData->glyph->size.x);
+                            TTY_ASSERT(xRel <= tty_f26dot6_ceil(max.x));
                             pixelRow[xIdx] += weightedAlpha;
                             xRel           += 0x40;
-                            xIdx            = (TTY_F16DOT16_MUL(mMap, xRel) + bMap) >> 6;
+                            xIdx            = COMPUTE();
                         } while (xRel < activeEdge->xIntersection);
                     }
                 }
@@ -1771,7 +1777,7 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
             
             for (TTY_uint32 i = 0; i < pixelsPerRow; i++) {
                 TTY_ASSERT(pixelRow[i] >= 0);
-                TTY_ASSERT(pixelRow[i] >> 6 <= 255);
+                // TTY_ASSERT(pixelRow[i] >> 6 <= 255);
                 image->pixels[startIdx + i] = pixelRow[i] >> 6;
             }
             
@@ -1832,10 +1838,12 @@ static void tty_set_hinted_glyph_metrics(TTY_Glyph*      glyph,
         }
     }
 
-    // TODO: use proper height calculation
-    glyph->size.y    = tty_f26dot6_ceil(glyph->size.y) >> 6;
-    glyph->advance.y = 0;
-    glyph->offset.y  = tty_f26dot6_round(max->y) >> 6;
+    {
+        TTY_F26Dot6 yHoriBearing = tty_f26dot6_ceil(max->y);
+        TTY_F26Dot6 bottom       = tty_f26dot6_floor(max->y - glyph->size.y);
+        glyph->size.y   = (yHoriBearing - bottom) >> 6;
+        glyph->offset.y = tty_f26dot6_round(max->y) >> 6;
+    }
 }
 
 static void tty_set_unhinted_glyph_metrics(TTY_Glyph*      glyph,
@@ -2186,9 +2194,6 @@ static TTY_bool tty_execute_glyph_program(TTY*            font,
     while (temp.stream.off < numIns) {
         tty_execute_next_glyph_program_ins(&font->interp);
     }
-
-    glyphData->zone1.cur[21].x = 276;
-    glyphData->zone1.cur[29].x = 215;
 
     #ifdef TTY_LOGGING
         for (TTY_uint32 i = 0; i < glyphData->zone1.numOutlinePoints; i++) {
