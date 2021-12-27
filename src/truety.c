@@ -1722,36 +1722,45 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
             
             TTY_F26Dot6 curPixel  = tty_f26dot6_floor(activeEdge->xIntersection);
             TTY_F26Dot6 nextPixel = curPixel + 0x40;
+            TTY_uint32  idx       = curPixel >> 6;
             
             while (TTY_TRUE) {
-            next_active_edge:
-                if (activeEdge->next != NULL && activeEdge->next->xIntersection == activeEdge->xIntersection) {
-                    // ignore one of them
-                }
-                else if (activeEdge->next != NULL && activeEdge->next->xIntersection < nextPixel) {
-                    if (windingNumber != 0) {
-                        TTY_F26Dot6 coverage = activeEdge->xIntersection - curPixel;
-                        if (curPixel >> 6 >= pixelsPerRow) {
-                            printf("A) %d\n", curPixel >> 6);
-                            assert(0);
+            partial_coverage:
+                // Handle a pixel that is partially covered by the glyph
+                // outline
+
+                if (activeEdge->next != NULL) {
+                    if (activeEdge->next->xIntersection != activeEdge->xIntersection) {
+                        // When two consecutive intersections are the same, one
+                        // of them can be ignored
+
+                        if (activeEdge->next->xIntersection < nextPixel) {
+                            // There are two or more intersections in the same pixel
+                            
+                            if (windingNumber != 0) {
+                                TTY_ASSERT(idx < pixelsPerRow);
+                                TTY_F26Dot6 coverage = activeEdge->xIntersection - curPixel;
+                                pixelRow[idx] += TTY_F26DOT6_MUL(weightedAlpha, coverage);
+                            }
                         }
-                        pixelRow[curPixel >> 6] += TTY_F26DOT6_MUL(weightedAlpha, coverage);
+                        else {
+                            goto apply_coverage_from_intersection_to_next_pixel;
+                        }
                     }
                 }
                 else {
-                    if (curPixel >> 6 >= pixelsPerRow) {
-                        printf("B) %d\n", curPixel >> 6);
-                        assert(0);
-                    }
+                apply_coverage_from_intersection_to_next_pixel:
+
+                    TTY_ASSERT(idx < pixelsPerRow);
 
                     TTY_F26Dot6 coverage = 
                         windingNumber == 0 ?
                         nextPixel - activeEdge->xIntersection :
                         activeEdge->xIntersection - nextPixel + 0x40;
                     
-                    pixelRow[curPixel >> 6] += TTY_F26DOT6_MUL(weightedAlpha, coverage);
+                    pixelRow[idx] += TTY_F26DOT6_MUL(weightedAlpha, coverage);
                 }
-                
+
                 windingNumber += activeEdge->edge->dir;
                 activeEdge     = activeEdge->next;
                 
@@ -1760,26 +1769,29 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
                 }
                 
                 if (activeEdge->xIntersection < nextPixel) {
-                    goto next_active_edge;
+                    goto partial_coverage;
                 }
 
                 curPixel  += 0x40;
                 nextPixel += 0x40;
+                idx       += 1;
                 
                 if (nextPixel < activeEdge->xIntersection) {
+                    // Handle one or more consecutive pixels that are fully
+                    // covered or fully not covered by the glyph outline
+
                     if (windingNumber == 0) {
                         curPixel  = tty_f26dot6_floor(activeEdge->xIntersection);
                         nextPixel = curPixel + 0x40;
+                        idx       = curPixel >> 6;
                     }
                     else {
                         do {
-                            if (curPixel >> 6 >= pixelsPerRow) {
-                                printf("C) %d\n", curPixel >> 6);
-                                assert(0);
-                            }
-                            pixelRow[curPixel >> 6] += weightedAlpha;
+                            TTY_ASSERT(idx < pixelsPerRow);
+                            pixelRow[idx] += weightedAlpha;
                             curPixel  += 0x40;
                             nextPixel += 0x40;
+                            idx       += 1;
                         } while (nextPixel < activeEdge->xIntersection);
                     }
                 }
