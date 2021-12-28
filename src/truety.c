@@ -49,7 +49,21 @@ enum {
     TTY_GLYF_X_DUAL         = 0x10, /* X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR */
     TTY_GLYF_Y_DUAL         = 0x20, /* Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR */
     TTY_GLYF_OVERLAP_SIMPLE = 0x40,
-    TTY_GLYF_RESERVED       = 0x80,
+};
+
+enum {
+    TTY_GLYF_ARG_1_AND_2_ARE_WORDS     = 0x01  ,
+    TTY_GLYF_ARGS_ARE_XY_VALUES        = 0x02  ,
+    TTY_GLYF_ROUND_XY_TO_GRID          = 0x04  ,
+    TTY_GLYF_WE_HAVE_A_SCALE           = 0x08  ,
+    TTY_GLYF_MORE_COMPONENTS           = 0x20  ,
+    TTY_GLYF_WE_HAVE_AN_X_AND_Y_SCALE  = 0x40  ,
+    TTY_GLYF_WE_HAVE_A_TWO_BY_TWO      = 0x80  ,
+    TTY_GLYF_WE_HAVE_INSTRUCTIONS      = 0x100 ,
+    TTY_GLYF_USE_MY_METRICS            = 0x200 ,
+    TTY_GLYF_OVERLAP_COMPOUND          = 0x400 ,
+    TTY_GLYF_SCALED_COMPONENT_OFFSET   = 0x800 ,
+    TTY_GLYF_UNSCALED_COMPONENT_OFFSET = 0x1000,
 };
 
 static TTY_bool tty_get_glyf_data_block(TTY* font, TTY_uint8** block, TTY_uint32 glyphIdx);
@@ -118,6 +132,13 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
                                           TTY_Image*    image,
                                           TTY_uint32    x,
                                           TTY_uint32    y);
+
+static TTY_bool tty_render_composite_glyph(TTY*            font, 
+                                           TTY_Instance*   instance, 
+                                           TTY_Glyph_Data* glyphData, 
+                                           TTY_Image*      image, 
+                                           TTY_uint32      x, 
+                                           TTY_uint32      y);
 
 static TTY_bool tty_render_simple_glyph(TTY*            font, 
                                         TTY_Instance*   instance, 
@@ -1468,12 +1489,94 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
     }
 
     glyphData.numContours = tty_get_int16(glyphData.glyfBlock);
+
     if (glyphData.numContours < 0) {
-        // TODO: handle composite glyphs
-        TTY_ASSERT(0);
+        return tty_render_composite_glyph(font, instance, &glyphData, image, x, y);
     }
 
     return tty_render_simple_glyph(font, instance, &glyphData, image, x, y);
+}
+
+static TTY_bool tty_render_composite_glyph(TTY*            font, 
+                                           TTY_Instance*   instance, 
+                                           TTY_Glyph_Data* glyphData, 
+                                           TTY_Image*      image, 
+                                           TTY_uint32      x, 
+                                           TTY_uint32      y) {
+    TTY_uint16 flags = tty_get_uint16(glyphData->glyfBlock);
+    TTY_uint16 idx   = tty_get_uint16(glyphData->glyfBlock + 2);
+
+    TTY_int32 arg1, arg2;
+
+    // TODO: I'm assuming that the parent glyph doesn't incorporate any child's
+    //       phantom points. (The parent glyph just has its own 4 phantom 
+    //       points at the end like a simple glyph).
+
+    if (flags & TTY_GLYF_ARGS_ARE_XY_VALUES) {
+        if (flags & TTY_GLYF_ARG_1_AND_2_ARE_WORDS) {
+            arg1 = tty_get_int16(glyphData->glyfBlock + 4);
+            arg2 = tty_get_int16(glyphData->glyfBlock + 6);
+        }
+        else {
+            arg1 = glyphData->glyfBlock[4];
+            arg2 = glyphData->glyfBlock[5];
+        }
+
+        arg1 = TTY_F10DOT22_MUL(arg1 << 6, instance->scale);
+        arg2 = TTY_F10DOT22_MUL(arg2 << 6, instance->scale);
+
+        if (flags & TTY_GLYF_ROUND_XY_TO_GRID) {
+            arg1 = tty_f26dot6_round(arg1);
+            arg2 = tty_f26dot6_round(arg2);
+        }
+    }
+    else {
+        if (flags & TTY_GLYF_ARG_1_AND_2_ARE_WORDS) {
+            arg1 = tty_get_uint16(glyphData->glyfBlock + 4);
+            arg2 = tty_get_uint16(glyphData->glyfBlock + 6);
+        }
+        else {
+            arg1 = glyphData->glyfBlock[4];
+            arg2 = glyphData->glyfBlock[5];
+        }
+
+        // TODO: If a scale or transform matrix is provided, the transformation
+        //       is applied to the child’s point before the points are aligned.
+    }
+
+    if (flags & TTY_GLYF_WE_HAVE_A_SCALE) {
+        // The x direction will use a different scale from the y direction.
+        if (flags & TTY_GLYF_SCALED_COMPONENT_OFFSET) {
+            // the composite offset is scaled
+        }
+    }
+    else if (flags & TTY_GLYF_WE_HAVE_AN_X_AND_Y_SCALE) {
+        // The x direction will use a different scale from the y direction.
+        if (flags & TTY_GLYF_SCALED_COMPONENT_OFFSET) {
+            // the composite offset is scaled
+        }
+    }
+    else if (flags & TTY_GLYF_WE_HAVE_A_TWO_BY_TWO) {
+        // There is a 2 by 2 transformation that will be used to scale the component.
+        if (flags & TTY_GLYF_SCALED_COMPONENT_OFFSET) {
+            // the composite offset is scaled
+        }
+    }
+
+    if (flags & TTY_GLYF_USE_MY_METRICS) {
+        // The aw and lsb (and rsb) for the composite to be equal to those from this component glyph. 
+    }
+
+    if (flags & TTY_GLYF_WE_HAVE_INSTRUCTIONS) {
+        // Following the last component are instructions for the composite character.
+        // It seems there is a leading uint16 that indicates the number of instructions
+    }
+
+    if (flags & TTY_GLYF_MORE_COMPONENTS) {
+        // There is at least one more glyph after this one
+    }
+
+    return TTY_FALSE;
 }
 
 static TTY_bool tty_render_simple_glyph(TTY*            font, 
@@ -1736,7 +1839,7 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
 
                         if (activeEdge->next->xIntersection < nextPixel) {
                             // There are two or more intersections in the same pixel
-                            
+
                             if (windingNumber != 0) {
                                 TTY_ASSERT(idx < pixelsPerRow);
                                 TTY_F26Dot6 coverage = activeEdge->xIntersection - curPixel;
@@ -1990,10 +2093,11 @@ static TTY_bool tty_subdivide_curves_into_edges(TTY_Curve*  curves,
         if (curves[i].p1.x == curves[i].p2.x && curves[i].p1.y == curves[i].p2.y) {
             // The curve is a straight line, no need to flatten it 
 
-            // if (curves[i].p0.y != curves[i].p2.y) {
+            if (curves[i].p0.y != curves[i].p2.y) {
+                // Horizontal lines can be ignored
                 (*numEdges)++;
                 continue;
-            // }
+            }
         }
         else {
             tty_subdivide_curve_into_edges(
@@ -2017,10 +2121,11 @@ static TTY_bool tty_subdivide_curves_into_edges(TTY_Curve*  curves,
         if (curves[i].p1.x == curves[i].p2.x && curves[i].p1.y == curves[i].p2.y) {
             // The curve is a straight line, no need to flatten it
 
-            // if (curves[i].p0.y != curves[i].p2.y) {
+            if (curves[i].p0.y != curves[i].p2.y) {
+                // Horizontal lines can be ignored
                 tty_edge_init(*edges + *numEdges, &curves[i].p0, &curves[i].p2, dir);
                 (*numEdges)++;
-            // }
+            }
         }
         else {
             tty_subdivide_curve_into_edges(
@@ -2240,6 +2345,8 @@ static TTY_bool tty_execute_glyph_program(TTY*            font,
     if (!tty_extract_glyph_points(font, instance, glyphData)) {
         return TTY_FALSE;
     }
+
+    printf("%d points\n", glyphData->zone1.numOutlinePoints);
 
     TTY_uint32 insOff = 10 + glyphData->numContours * 2;
     TTY_uint16 numIns = tty_get_int16(glyphData->glyfBlock + insOff);
