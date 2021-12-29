@@ -147,7 +147,8 @@ typedef struct {
 typedef struct {
     TTY_Glyph* glyph;
     TTY_uint8* glyfBlock;
-    TTY_int16  numContours;
+    TTY_bool   isComposite;
+    TTY_uint32 numContours;
 
     union {
         TTY_Unhinted unhinted;
@@ -219,7 +220,7 @@ TTY_bool tty_init(TTY* font, const char* path);
 
 TTY_bool tty_instance_init(TTY* font, TTY_Instance* instance, TTY_uint32 ppem, TTY_bool useHinting);
 
-void tty_glyph_init(TTY* font, TTY_Glyph* glyph, TTY_uint32 glyphIdx);
+void tty_glyph_init(TTY_Glyph* glyph, TTY_uint32 glyphIdx);
 
 TTY_bool tty_image_init(TTY_Image* image, TTY_uint8* pixels, TTY_uint32 w, TTY_uint32 h);
 

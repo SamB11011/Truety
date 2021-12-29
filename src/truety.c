@@ -19,11 +19,11 @@ static void tty_extract_vmetrics(TTY* font);
 
 static TTY_bool tty_interpreter_init(TTY* font);
 
-static TTY_bool tty_unhinted_init(TTY* font, TTY_Unhinted* unhinted, TTY_uint32 numOutlinePoints);
+static TTY_bool tty_unhinted_init(TTY_Unhinted* unhinted, TTY_uint32 numOutlinePoints);
 
 static TTY_bool tty_zone0_init(TTY* font, TTY_Zone* zone);
 
-static TTY_bool tty_zone1_init(TTY* font, TTY_Zone* zone, TTY_uint32 numOutlinePoints);
+static TTY_bool tty_zone1_init(TTY_Zone* zone, TTY_uint32 numOutlinePoints);
 
 static void tty_interpreter_free(TTY_Interp* interp);
 
@@ -66,7 +66,20 @@ enum {
     TTY_GLYF_UNSCALED_COMPONENT_OFFSET = 0x1000,
 };
 
-static TTY_bool tty_get_glyf_data_block(TTY* font, TTY_uint8** block, TTY_uint32 glyphIdx);
+static TTY_bool tty_get_glyf_data_block(TTY* font, TTY_uint32 glyphIdx, TTY_uint8** block);
+
+static TTY_bool tty_get_next_child_glyf_data_block(TTY*        font,
+                                                   TTY_uint8*  parentBlock, 
+                                                   TTY_uint32* parentOff,
+                                                   TTY_uint8** childBlock);
+
+static TTY_bool tty_extract_composite_glyph_points(TTY*            font, 
+                                                   TTY_Instance*   instance, 
+                                                   TTY_Glyph_Data* glyphData);
+
+static TTY_uint32 tty_get_num_composite_glyph_outline_points(TTY* font, TTY_uint8* glyfBlock);
+
+static TTY_uint32 tty_get_num_glyph_outline_points(TTY_uint8* glyfBlock, TTY_uint32 numContours);
 
 static TTY_bool tty_extract_glyph_points(TTY*            font, 
                                          TTY_Instance*   instance, 
@@ -76,6 +89,8 @@ static TTY_int32 tty_get_next_coord_off(TTY_uint8** data,
                                         TTY_uint8   dualFlag, 
                                         TTY_uint8   shortFlag, 
                                         TTY_uint8   flags);
+
+static void tty_set_phantom_points(TTY* font, TTY_Glyph_Data* data, TTY_V2* phantomPoints);
 
 static void tty_scale_glyph_points(TTY_F26Dot6_V2* scaledPoints, 
                                    TTY_V2*         points, 
@@ -133,19 +148,9 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
                                           TTY_uint32    x,
                                           TTY_uint32    y);
 
-static TTY_bool tty_render_composite_glyph(TTY*            font, 
-                                           TTY_Instance*   instance, 
-                                           TTY_Glyph_Data* glyphData, 
-                                           TTY_Image*      image, 
-                                           TTY_uint32      x, 
-                                           TTY_uint32      y);
+static TTY_bool tty_glyph_data_init(TTY* font, TTY_Glyph* glyph, TTY_Glyph_Data* data);
 
-static TTY_bool tty_render_simple_glyph(TTY*            font, 
-                                        TTY_Instance*   instance, 
-                                        TTY_Glyph_Data* glyphData,
-                                        TTY_Image*      image,
-                                        TTY_uint32      x,
-                                        TTY_uint32      y);
+static TTY_uint32 tty_get_num_composite_glyph_contours(TTY* font, TTY_uint8* glyfBlock);
 
 static void tty_get_max_and_min_points(TTY_F26Dot6_V2* points, 
                                        TTY_uint32      numPoints, 
@@ -332,9 +337,11 @@ static void tty_execute_font_program(TTY* font);
 
 static void tty_execute_cv_program(TTY* font, TTY_Instance* instance);
 
-static TTY_bool tty_execute_glyph_program(TTY*            font, 
-                                          TTY_Instance*   instance, 
-                                          TTY_Glyph_Data* glyphData);
+static void tty_execute_glyph_program(TTY*            font, 
+                                      TTY_Instance*   instance, 
+                                      TTY_Glyph_Data* glyphData,
+                                      TTY_Ins_Stream* stream,
+                                      TTY_uint32      insCount);
 
 static void tty_execute_next_font_program_ins(TTY_Interp* interp);
 
@@ -813,7 +820,7 @@ TTY_bool tty_instance_init(TTY* font, TTY_Instance* instance, TTY_uint32 ppem, T
     return TTY_TRUE;
 }
 
-void tty_glyph_init(TTY* font, TTY_Glyph* glyph, TTY_uint32 glyphIdx) {
+void tty_glyph_init(TTY_Glyph* glyph, TTY_uint32 glyphIdx) {
     memset(glyph, 0, sizeof(TTY_Glyph));
     glyph->idx = glyphIdx;
 }
@@ -1107,7 +1114,7 @@ static TTY_bool tty_interpreter_init(TTY* font) {
     return TTY_TRUE;
 }
 
-static TTY_bool tty_unhinted_init(TTY* font, TTY_Unhinted* unhinted, TTY_uint32 numOutlinePoints) {
+static TTY_bool tty_unhinted_init(TTY_Unhinted* unhinted, TTY_uint32 numOutlinePoints) {
     unhinted->numOutlinePoints = numOutlinePoints;
     unhinted->numPoints        = numOutlinePoints + TTY_NUM_PHANTOM_POINTS;
 
@@ -1149,7 +1156,7 @@ static TTY_bool tty_zone0_init(TTY* font, TTY_Zone* zone) {
     return TTY_TRUE;
 }
 
-static TTY_bool tty_zone1_init(TTY* font, TTY_Zone* zone, TTY_uint32 numOutlinePoints) {
+static TTY_bool tty_zone1_init(TTY_Zone* zone, TTY_uint32 numOutlinePoints) {
     zone->numOutlinePoints = numOutlinePoints;
     zone->numPoints        = zone->numOutlinePoints + TTY_NUM_PHANTOM_POINTS;
     
@@ -1235,7 +1242,7 @@ static TTY_uint16 tty_get_glyph_index_format_4(TTY_uint8* subtable, TTY_uint32 c
 /* ---------------- */
 /* glyf Table Stuff */
 /* ---------------- */
-static TTY_bool tty_get_glyf_data_block(TTY* font, TTY_uint8** block, TTY_uint32 glyphIdx) {
+static TTY_bool tty_get_glyf_data_block(TTY* font, TTY_uint32 glyphIdx, TTY_uint8** block) {
     #define TTY_GET_OFF_16(idx)\
         (tty_get_offset16(font->data + font->loca.off + (2 * (idx))) * 2)
 
@@ -1274,155 +1281,316 @@ static TTY_bool tty_get_glyf_data_block(TTY* font, TTY_uint8** block, TTY_uint32
     #undef TTY_GET_OFF_32
 }
 
+static TTY_bool tty_get_next_child_glyf_data_block(TTY*        font,
+                                                   TTY_uint8*  parentBlock, 
+                                                   TTY_uint32* parentOff,
+                                                   TTY_uint8** childBlock) {
+    TTY_uint16 flags = tty_get_uint16(parentBlock + *parentOff);
+    TTY_uint16 idx   = tty_get_uint16(parentBlock + *parentOff + 2);
+
+    // TODO: Does an empty glyph indicate an error?
+    #ifdef TTY_DEBUG
+        TTY_ASSERT(tty_get_glyf_data_block(font, idx, childBlock));
+    #else
+        tty_get_glyf_data_block(font, idx, childBlock);
+    #endif
+
+    if ((flags & TTY_GLYF_MORE_COMPONENTS) == 0) {
+        return TTY_FALSE;
+    }
+
+    (*parentOff) += 4 + (flags & TTY_GLYF_ARG_1_AND_2_ARE_WORDS ? 4 : 2);
+
+    if (flags & TTY_GLYF_WE_HAVE_A_SCALE) {
+        (*parentOff) += 2;
+    }
+    else if (flags & TTY_GLYF_WE_HAVE_AN_X_AND_Y_SCALE) {
+        (*parentOff) += 4;
+    }
+    else if (flags & TTY_GLYF_WE_HAVE_A_TWO_BY_TWO) {
+        (*parentOff) += 8;
+    }
+
+    return TTY_TRUE;
+}
+
+static TTY_bool tty_extract_composite_glyph_points(TTY*            font, 
+                                                   TTY_Instance*   instance, 
+                                                   TTY_Glyph_Data* data) {
+    // TODO: fix IUP for composite glyphs
+
+    {
+        TTY_uint32 numOutlinePoints = 
+            tty_get_num_composite_glyph_outline_points(font, data->glyfBlock);
+
+        if (instance->useHinting) {
+            if (!tty_zone1_init(&data->zone1, numOutlinePoints)) {
+                return TTY_FALSE;
+            }
+            
+            tty_set_phantom_points(font, data, data->zone1.org + numOutlinePoints);
+
+            tty_scale_glyph_points(
+                data->zone1.orgScaled + numOutlinePoints, data->zone1.org + numOutlinePoints, 
+                TTY_NUM_PHANTOM_POINTS, instance->scale);
+
+            memcpy(
+                data->zone1.cur + numOutlinePoints, data->zone1.orgScaled + numOutlinePoints,
+                TTY_NUM_PHANTOM_POINTS * sizeof(TTY_F26Dot6_V2));
+
+            tty_round_phantom_points(data->zone1.cur + numOutlinePoints);
+        }
+        else {
+            if (!tty_unhinted_init(&data->unhinted, numOutlinePoints)) {
+                return TTY_FALSE;
+            }
+            
+            tty_set_phantom_points(font, data, data->unhinted.points + numOutlinePoints);
+
+            tty_scale_glyph_points(
+                data->unhinted.points + numOutlinePoints, data->unhinted.points + numOutlinePoints,
+                TTY_NUM_PHANTOM_POINTS, instance->scale);
+        }
+    }
+
+
+    TTY_uint32 off            = 0;
+    TTY_uint32 numChildPoints = 0;
+
+    while (TTY_TRUE) {
+        TTY_uint16 flags = tty_get_uint16(data->glyfBlock + off);
+        TTY_uint16 idx   = tty_get_uint16(data->glyfBlock + off + 2);
+        
+        TTY_Glyph childGlyph;
+        tty_glyph_init(&childGlyph, idx);
+
+        TTY_Glyph_Data childData;
+        tty_glyph_data_init(font, &childGlyph, &childData);
+
+        if (childData.isComposite) {
+            if (!tty_extract_composite_glyph_points(font, instance, &childData)) {
+                return TTY_FALSE;
+            }
+        }
+        else if (!tty_extract_glyph_points(font, instance, &childData)) {
+            return TTY_FALSE;
+        }
+
+        off += 4;
+
+        TTY_int32 arg1, arg2;
+
+        if (flags & TTY_GLYF_ARGS_ARE_XY_VALUES) {
+            if (flags & TTY_GLYF_ARG_1_AND_2_ARE_WORDS) {
+                arg1 = tty_get_int16(data->glyfBlock);
+                arg2 = tty_get_int16(data->glyfBlock + off + 2);
+                off += 4;
+            }
+            else {
+                arg1 = data->glyfBlock[off];
+                arg2 = data->glyfBlock[off + 1];
+                off += 2;
+            }
+
+            arg1 = TTY_F10DOT22_MUL(arg1 << 6, instance->scale);
+            arg2 = TTY_F10DOT22_MUL(arg2 << 6, instance->scale);
+
+            if (flags & TTY_GLYF_ROUND_XY_TO_GRID) {
+                arg1 = tty_f26dot6_round(arg1);
+                arg2 = tty_f26dot6_round(arg2);
+            }
+
+            TTY_ASSERT(0 && "FINE");
+        }
+        else {
+            // TODO: Handle
+            TTY_ASSERT(0);
+        }
+
+        if (instance->useHinting) {
+            tty_zone_free(&childData.zone1);
+        }
+        else {
+            tty_unhinted_free(&childData.unhinted);
+        }
+    }
+
+    return TTY_FALSE;
+}
+
+static TTY_uint32 tty_get_num_composite_glyph_outline_points(TTY* font, TTY_uint8* glyfBlock) {
+    TTY_uint32 off       = 0;
+    TTY_uint32 numPoints = 0;
+
+    while (TTY_TRUE) {
+        TTY_uint8* childBlock;
+
+        TTY_bool isLastBlock = 
+            !tty_get_next_child_glyf_data_block(font, glyfBlock, &off, &childBlock);
+
+        TTY_int16 numContours = tty_get_int16(childBlock);
+
+        numPoints += 
+            numContours < 0 ?
+            tty_get_num_composite_glyph_outline_points(font, childBlock) :
+            tty_get_num_glyph_outline_points(childBlock, numContours);
+
+        if (isLastBlock) {
+            break;
+        }
+    }
+
+    return numPoints;
+}
+
+static TTY_uint32 tty_get_num_glyph_outline_points(TTY_uint8* glyfBlock, TTY_uint32 numContours) {
+    return tty_get_uint16(glyfBlock + 8 + 2 * numContours) + 1;
+}
+
 static TTY_bool tty_extract_glyph_points(TTY*            font, 
                                          TTY_Instance*   instance, 
                                          TTY_Glyph_Data* data) {
-    TTY_uint32 pointIdx         = 0;
-    TTY_uint32 numOutlinePoints = 1 + tty_get_uint16(data->glyfBlock + 8 + 2 * data->numContours);
-
-    TTY_V2*         points;
-    TTY_Point_Type* pointTypes;
-
-
-    // Allocate memory for the glyph points
-
-    if (instance->useHinting) {
-        if (!tty_zone1_init(font, &data->zone1, numOutlinePoints)) {
-            return TTY_FALSE;
-        }
-        points     = data->zone1.org;
-        pointTypes = data->zone1.pointTypes;
-    }
-    else {
-        if (!tty_unhinted_init(font, &data->unhinted, numOutlinePoints)) {
-            return TTY_FALSE;
-        }
-        points     = data->unhinted.points;
-        pointTypes = data->unhinted.pointTypes;
-    }
-
-
     {
-        // Calculate pointers to the glyph's coordinate and flag data
+        TTY_uint32 pointIdx = 0;
 
-        TTY_uint8* flagData, *xData, *yData;
+        TTY_uint32 numOutlinePoints = 
+            tty_get_num_glyph_outline_points(data->glyfBlock, data->numContours);
 
-        TTY_uint32 flagsSize = 0;
-        TTY_uint32 xDataSize = 0;
-        
-        flagData  = data->glyfBlock + (10 + 2 * data->numContours);
-        flagData += 2 + tty_get_uint16(flagData);
-        
-        for (TTY_uint32 i = 0; i < numOutlinePoints;) {
-            TTY_uint8 flags = flagData[flagsSize];
-            
-            TTY_uint8 xSize = 
-                flags & TTY_GLYF_X_SHORT_VECTOR ? 1 : flags & TTY_GLYF_X_DUAL ? 0 : 2;
-            
-            TTY_uint8 flagsReps;
+        TTY_V2*         points;
+        TTY_Point_Type* pointTypes;
 
-            if (flags & TTY_GLYF_REPEAT_FLAG) {
-                flagsReps = 1 + flagData[flagsSize + 1];
-                flagsSize += 2;
+
+        // Allocate memory for the glyph points
+
+        if (instance->useHinting) {
+            if (!tty_zone1_init(&data->zone1, numOutlinePoints)) {
+                return TTY_FALSE;
             }
-            else {
-                flagsReps = 1;
-                flagsSize++;
-            }
-
-            i += flagsReps;
-
-            while (flagsReps > 0) {
-                xDataSize += xSize;
-                flagsReps--;
-            }
+            points     = data->zone1.org;
+            pointTypes = data->zone1.pointTypes;
         }
-        
-        xData = flagData + flagsSize;
-        yData = xData    + xDataSize;
-
-
-        // Extract the glyph's points
-
-        TTY_V2 absPos = { 0 };
-
-        while (pointIdx < numOutlinePoints) {
-            TTY_uint8 flags = *flagData;
-
-            TTY_uint8 flagsReps;
-            if (flags & TTY_GLYF_REPEAT_FLAG) {
-                flagsReps = 1 + flagData[1];
-                flagData += 2;
+        else {
+            if (!tty_unhinted_init(&data->unhinted, numOutlinePoints)) {
+                return TTY_FALSE;
             }
-            else {
-                flagsReps = 1;
-                flagData++;
-            }
+            points     = data->unhinted.points;
+            pointTypes = data->unhinted.pointTypes;
+        }
 
-            while (flagsReps > 0) {
-                TTY_int32 xOff = tty_get_next_coord_off(
-                    &xData, TTY_GLYF_X_DUAL, TTY_GLYF_X_SHORT_VECTOR, flags);
 
-                TTY_int32 yOff = tty_get_next_coord_off(
-                    &yData, TTY_GLYF_Y_DUAL, TTY_GLYF_Y_SHORT_VECTOR, flags);
+        {
+            // Calculate pointers to the glyph's coordinate and flag data
 
-                if (flags & TTY_GLYF_ON_CURVE_POINT) {
-                    pointTypes[pointIdx] = TTY_ON_CURVE_POINT;
+            TTY_uint8* flagData, *xData, *yData;
+
+            TTY_uint32 flagsSize = 0;
+            TTY_uint32 xDataSize = 0;
+            
+            flagData  = data->glyfBlock + (10 + 2 * data->numContours);
+            flagData += 2 + tty_get_uint16(flagData);
+            
+            for (TTY_uint32 i = 0; i < numOutlinePoints;) {
+                TTY_uint8 flags = flagData[flagsSize];
+                
+                TTY_uint8 xSize = 
+                    flags & TTY_GLYF_X_SHORT_VECTOR ? 1 : flags & TTY_GLYF_X_DUAL ? 0 : 2;
+                
+                TTY_uint8 flagsReps;
+
+                if (flags & TTY_GLYF_REPEAT_FLAG) {
+                    flagsReps = 1 + flagData[flagsSize + 1];
+                    flagsSize += 2;
                 }
                 else {
-                    pointTypes[pointIdx] = TTY_OFF_CURVE_POINT;
+                    flagsReps = 1;
+                    flagsSize++;
                 }
 
-                points[pointIdx].x = absPos.x + xOff;
-                points[pointIdx].y = absPos.y + yOff;
-                absPos             = points[pointIdx];
+                i += flagsReps;
 
-                pointIdx++;
-                flagsReps--;
+                while (flagsReps > 0) {
+                    xDataSize += xSize;
+                    flagsReps--;
+                }
+            }
+            
+            xData = flagData + flagsSize;
+            yData = xData    + xDataSize;
+
+
+            // Extract the glyph's points
+
+            TTY_V2 absPos = { 0 };
+
+            while (pointIdx < numOutlinePoints) {
+                TTY_uint8 flags = *flagData;
+
+                TTY_uint8 flagsReps;
+                if (flags & TTY_GLYF_REPEAT_FLAG) {
+                    flagsReps = 1 + flagData[1];
+                    flagData += 2;
+                }
+                else {
+                    flagsReps = 1;
+                    flagData++;
+                }
+
+                while (flagsReps > 0) {
+                    TTY_int32 xOff = tty_get_next_coord_off(
+                        &xData, TTY_GLYF_X_DUAL, TTY_GLYF_X_SHORT_VECTOR, flags);
+
+                    TTY_int32 yOff = tty_get_next_coord_off(
+                        &yData, TTY_GLYF_Y_DUAL, TTY_GLYF_Y_SHORT_VECTOR, flags);
+
+                    if (flags & TTY_GLYF_ON_CURVE_POINT) {
+                        pointTypes[pointIdx] = TTY_ON_CURVE_POINT;
+                    }
+                    else {
+                        pointTypes[pointIdx] = TTY_OFF_CURVE_POINT;
+                    }
+
+                    points[pointIdx].x = absPos.x + xOff;
+                    points[pointIdx].y = absPos.y + yOff;
+                    absPos             = points[pointIdx];
+
+                    pointIdx++;
+                    flagsReps--;
+                }
             }
         }
+
+
+        TTY_ASSERT(pointIdx == numOutlinePoints);
+        tty_set_phantom_points(font, data, points + pointIdx);
+
+
+        if (!instance->useHinting) {
+            tty_scale_glyph_points(points, points, data->unhinted.numPoints, instance->scale);
+            tty_round_phantom_points(points + numOutlinePoints);
+            return TTY_TRUE;
+        }
+
+
+        tty_scale_glyph_points(
+            data->zone1.orgScaled, points, data->zone1.numPoints, instance->scale);
+
+        memcpy(
+            data->zone1.cur, data->zone1.orgScaled, 
+            data->zone1.numPoints * sizeof(TTY_F26Dot6_V2));
+
+        tty_round_phantom_points(data->zone1.cur + numOutlinePoints);
     }
 
+
+    TTY_Ins_Stream stream;
+    TTY_uint32     insCount;
     {
-        // Calculate the glyph's phantom points
-
-        TTY_int16  xMin = tty_get_int16(data->glyfBlock + 2);
-        TTY_int16  yMax = tty_get_int16(data->glyfBlock + 8);
-        TTY_uint16 xAdv = tty_get_glyph_advance_width(font, data->glyph->idx);
-        TTY_int16  lsb  = tty_get_glyph_left_side_bearing(font, data->glyph->idx);
-        TTY_int32  yAdv = tty_get_glyph_advance_height(font);
-        TTY_int32  tsb  = tty_get_glyph_top_side_bearing(font, yMax);
-
-        points[pointIdx].x = xMin - lsb;
-        points[pointIdx].y = 0;
-
-        pointIdx++;
-        points[pointIdx].x = points[pointIdx - 1].x + xAdv;
-        points[pointIdx].y = 0;
-
-        pointIdx++;
-        points[pointIdx].y = yMax + tsb;
-        points[pointIdx].x = 0;
-
-        pointIdx++;
-        points[pointIdx].y = points[pointIdx - 1].y - yAdv;
-        points[pointIdx].x = 0;
-
-        pointIdx++;
-        TTY_ASSERT(pointIdx == numOutlinePoints + TTY_NUM_PHANTOM_POINTS);
+        TTY_uint32 insOff = 10 + data->numContours * 2;
+        insCount = tty_get_int16(data->glyfBlock + insOff);
+        tty_ins_stream_init(&stream, data->glyfBlock + insOff + 2);
     }
 
-
-    if (!instance->useHinting) {
-        tty_scale_glyph_points(points, points, data->unhinted.numPoints, instance->scale);
-        tty_round_phantom_points(points + numOutlinePoints);
-        return TTY_TRUE;
-    }
-
-
-    tty_scale_glyph_points(data->zone1.orgScaled, points, data->zone1.numPoints, instance->scale);
-    memcpy(data->zone1.cur, data->zone1.orgScaled, data->zone1.numPoints * sizeof(TTY_F26Dot6_V2));
-    tty_round_phantom_points(data->zone1.cur + numOutlinePoints);
+    tty_execute_glyph_program(font, instance, data, &stream, insCount);
 
     return TTY_TRUE;
 }
@@ -1446,6 +1614,27 @@ static TTY_int32 tty_get_next_coord_off(TTY_uint8** data,
     }
 
     return coord;
+}
+
+static void tty_set_phantom_points(TTY* font, TTY_Glyph_Data* data, TTY_V2* phantomPoints) {
+    TTY_int16  xMin = tty_get_int16(data->glyfBlock + 2);
+    TTY_int16  yMax = tty_get_int16(data->glyfBlock + 8);
+    TTY_uint16 xAdv = tty_get_glyph_advance_width(font, data->glyph->idx);
+    TTY_int16  lsb  = tty_get_glyph_left_side_bearing(font, data->glyph->idx);
+    TTY_int32  yAdv = tty_get_glyph_advance_height(font);
+    TTY_int32  tsb  = tty_get_glyph_top_side_bearing(font, yMax);
+
+    phantomPoints[0].x = xMin - lsb;
+    phantomPoints[0].y = 0;
+
+    phantomPoints[1].x = phantomPoints[0].x + xAdv;
+    phantomPoints[1].y = 0;
+
+    phantomPoints[2].y = yMax + tsb;
+    phantomPoints[2].x = 0;
+
+    phantomPoints[3].y = phantomPoints[2].y - yAdv;
+    phantomPoints[3].x = 0;
 }
 
 static void tty_scale_glyph_points(TTY_F26Dot6_V2* scaledPoints, 
@@ -1475,116 +1664,17 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
                                           TTY_Image*    image, 
                                           TTY_uint32    x, 
                                           TTY_uint32    y) {
-    TTY_Glyph_Data glyphData;
-    glyphData.glyph = glyph;
-    
-    if (!tty_get_glyf_data_block(font, &glyphData.glyfBlock, glyph->idx)) {
+    TTY_Glyph_Data data;
+    if (!tty_glyph_data_init(font, glyph, &data)) {
         // The glyph is an emtpy glyph
         // TODO: x-advance off by 1?
-        // TODO: y-advance?
         glyph->advance.x = tty_get_glyph_advance_width(font, glyph->idx);
         glyph->advance.x = tty_rounded_div((TTY_int64)glyph->advance.x * instance->scale, 64);
         glyph->advance.x >>= 16;
         return TTY_TRUE;
     }
 
-    glyphData.numContours = tty_get_int16(glyphData.glyfBlock);
 
-    if (glyphData.numContours < 0) {
-        return tty_render_composite_glyph(font, instance, &glyphData, image, x, y);
-    }
-
-    return tty_render_simple_glyph(font, instance, &glyphData, image, x, y);
-}
-
-static TTY_bool tty_render_composite_glyph(TTY*            font, 
-                                           TTY_Instance*   instance, 
-                                           TTY_Glyph_Data* glyphData, 
-                                           TTY_Image*      image, 
-                                           TTY_uint32      x, 
-                                           TTY_uint32      y) {
-    TTY_uint16 flags = tty_get_uint16(glyphData->glyfBlock);
-    TTY_uint16 idx   = tty_get_uint16(glyphData->glyfBlock + 2);
-
-    TTY_int32 arg1, arg2;
-
-    // TODO: I'm assuming that the parent glyph doesn't incorporate any child's
-    //       phantom points. (The parent glyph just has its own 4 phantom 
-    //       points at the end like a simple glyph).
-
-    if (flags & TTY_GLYF_ARGS_ARE_XY_VALUES) {
-        if (flags & TTY_GLYF_ARG_1_AND_2_ARE_WORDS) {
-            arg1 = tty_get_int16(glyphData->glyfBlock + 4);
-            arg2 = tty_get_int16(glyphData->glyfBlock + 6);
-        }
-        else {
-            arg1 = glyphData->glyfBlock[4];
-            arg2 = glyphData->glyfBlock[5];
-        }
-
-        arg1 = TTY_F10DOT22_MUL(arg1 << 6, instance->scale);
-        arg2 = TTY_F10DOT22_MUL(arg2 << 6, instance->scale);
-
-        if (flags & TTY_GLYF_ROUND_XY_TO_GRID) {
-            arg1 = tty_f26dot6_round(arg1);
-            arg2 = tty_f26dot6_round(arg2);
-        }
-    }
-    else {
-        if (flags & TTY_GLYF_ARG_1_AND_2_ARE_WORDS) {
-            arg1 = tty_get_uint16(glyphData->glyfBlock + 4);
-            arg2 = tty_get_uint16(glyphData->glyfBlock + 6);
-        }
-        else {
-            arg1 = glyphData->glyfBlock[4];
-            arg2 = glyphData->glyfBlock[5];
-        }
-
-        // TODO: If a scale or transform matrix is provided, the transformation
-        //       is applied to the child’s point before the points are aligned.
-    }
-
-    if (flags & TTY_GLYF_WE_HAVE_A_SCALE) {
-        // The x direction will use a different scale from the y direction.
-        if (flags & TTY_GLYF_SCALED_COMPONENT_OFFSET) {
-            // the composite offset is scaled
-        }
-    }
-    else if (flags & TTY_GLYF_WE_HAVE_AN_X_AND_Y_SCALE) {
-        // The x direction will use a different scale from the y direction.
-        if (flags & TTY_GLYF_SCALED_COMPONENT_OFFSET) {
-            // the composite offset is scaled
-        }
-    }
-    else if (flags & TTY_GLYF_WE_HAVE_A_TWO_BY_TWO) {
-        // There is a 2 by 2 transformation that will be used to scale the component.
-        if (flags & TTY_GLYF_SCALED_COMPONENT_OFFSET) {
-            // the composite offset is scaled
-        }
-    }
-
-    if (flags & TTY_GLYF_USE_MY_METRICS) {
-        // The aw and lsb (and rsb) for the composite to be equal to those from this component glyph. 
-    }
-
-    if (flags & TTY_GLYF_WE_HAVE_INSTRUCTIONS) {
-        // Following the last component are instructions for the composite character.
-        // It seems there is a leading uint16 that indicates the number of instructions
-    }
-
-    if (flags & TTY_GLYF_MORE_COMPONENTS) {
-        // There is at least one more glyph after this one
-    }
-
-    return TTY_FALSE;
-}
-
-static TTY_bool tty_render_simple_glyph(TTY*            font, 
-                                        TTY_Instance*   instance, 
-                                        TTY_Glyph_Data* glyphData,
-                                        TTY_Image*      image,
-                                        TTY_uint32      x,
-                                        TTY_uint32      y) {
     TTY_F26Dot6_V2 max;
     TTY_F26Dot6_V2 min;
     TTY_Edge*      edges;
@@ -1597,7 +1687,7 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
         TTY_uint32      numPoints;
 
         if (!tty_get_glyph_points(
-                font, instance, glyphData, &points, &phantomPoints, &pointTypes, &numPoints)) {
+                font, instance, &data, &points, &phantomPoints, &pointTypes, &numPoints)) {
             return TTY_FALSE;
         }
 
@@ -1607,25 +1697,25 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
         TTY_Curve* curves;
         TTY_uint32 numCurves;
         if (!tty_convert_points_into_curves(
-                glyphData, points, pointTypes, numPoints, &curves, &numCurves)) {
+                &data, points, pointTypes, numPoints, &curves, &numCurves)) {
             
             if (instance->useHinting) {
-                tty_zone_free(&glyphData->zone1);
+                tty_zone_free(&data.zone1);
             }
             else {
-                tty_unhinted_free(&glyphData->unhinted);
+                tty_unhinted_free(&data.unhinted);
             }
             return TTY_FALSE;
         }
 
 
         if (instance->useHinting) {
-            tty_set_hinted_glyph_metrics(glyphData->glyph, phantomPoints, &max, &min);
-            tty_zone_free(&glyphData->zone1);
+            tty_set_hinted_glyph_metrics(data.glyph, phantomPoints, &max, &min);
+            tty_zone_free(&data.zone1);
         }
         else {
-            tty_set_unhinted_glyph_metrics(glyphData->glyph, phantomPoints, &max, &min);
-            tty_unhinted_free(&glyphData->unhinted);
+            tty_set_unhinted_glyph_metrics(data.glyph, phantomPoints, &max, &min);
+            tty_unhinted_free(&data.unhinted);
         }
 
 
@@ -1641,7 +1731,7 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
     if (image->pixels == NULL) {
         // The image's pixels have not been allocated so create an image that
         // is a tight bounding box of the glyph
-        if (!tty_image_init(image, NULL, glyphData->glyph->size.x, glyphData->glyph->size.y)) {
+        if (!tty_image_init(image, NULL, data.glyph->size.x, data.glyph->size.y)) {
             free(edges);
             return TTY_FALSE;
         }
@@ -1689,9 +1779,9 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
 
     // TODO: Test
     TTY_uint32 pixelsPerImageRow =
-        x + glyphData->glyph->size.x > image->w ?
-        glyphData->glyph->size.x - image->w + x :
-        glyphData->glyph->size.x;
+        x + data.glyph->size.x > image->w ?
+        data.glyph->size.x - image->w + x :
+        data.glyph->size.x;
 
     TTY_F26Dot6 yRel     = tty_f26dot6_ceil(max.y);
     TTY_F26Dot6 yAbs     = yRel  - (y << 6);
@@ -1699,9 +1789,9 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
     TTY_int32   yMaxCeil = tty_f26dot6_ceil(max.y) >> 6;
     TTY_uint32  edgeIdx  = 0;
 
-    if (y + glyphData->glyph->size.y > image->h) {
+    if (y + data.glyph->size.y > image->h) {
         // TODO: Test
-        yEndAbs += (glyphData->glyph->size.y - image->h + y) << 6;
+        yEndAbs += (data.glyph->size.y - image->h + y) << 6;
     }
 
     while (yAbs >= yEndAbs) {
@@ -1928,6 +2018,52 @@ static TTY_bool tty_render_simple_glyph(TTY*            font,
     return TTY_TRUE;
 }
 
+static TTY_bool tty_glyph_data_init(TTY* font, TTY_Glyph* glyph, TTY_Glyph_Data* data) {
+    if (!tty_get_glyf_data_block(font, glyph->idx, &data->glyfBlock)) {
+        // The glyph is an emtpy glyph
+        return TTY_FALSE;
+    }
+
+    TTY_int16 numContours = tty_get_int16(data->glyfBlock);
+
+    if (numContours < 0) {
+        data->numContours = tty_get_num_composite_glyph_contours(font, data->glyfBlock);
+        data->isComposite = TTY_TRUE;
+    }
+    else {
+        data->numContours = numContours;
+        data->isComposite = TTY_FALSE;
+    }
+
+    data->glyph = glyph;
+    return TTY_TRUE;
+}
+
+static TTY_uint32 tty_get_num_composite_glyph_contours(TTY* font, TTY_uint8* glyfBlock) {
+    TTY_uint32 off         = 0;
+    TTY_uint32 numContours = 0;
+
+    while (TTY_TRUE) {
+        TTY_uint8* childBlock;
+        
+        TTY_bool isLastBlock = 
+            !tty_get_next_child_glyf_data_block(font, glyfBlock, &off, &childBlock);
+
+        TTY_int16 numChildContours = tty_get_int16(childBlock);
+
+        numContours +=
+            numChildContours < 0 ? 
+            tty_get_num_composite_glyph_contours(font, childBlock) :
+            numChildContours;
+
+        if (isLastBlock) {
+            break;
+        }
+    }
+
+    return numContours;
+}
+
 static TTY_bool tty_get_glyph_points(TTY*             font, 
                                      TTY_Instance*    instance, 
                                      TTY_Glyph_Data*  glyphData, 
@@ -1935,19 +2071,22 @@ static TTY_bool tty_get_glyph_points(TTY*             font,
                                      TTY_F26Dot6_V2** phantomPoints, 
                                      TTY_Point_Type** pointTypes, 
                                      TTY_uint32*      numPoints) {
-    if (instance->useHinting) {
-        if (!tty_execute_glyph_program(font, instance, glyphData)) {
+    if (glyphData->isComposite) {
+        if (!tty_extract_composite_glyph_points(font, instance, glyphData)) {
             return TTY_FALSE;
         }
+    }
+    else if (!tty_extract_glyph_points(font, instance, glyphData)) {
+        return TTY_FALSE;
+    }
+
+    if (instance->useHinting) {
         *points        = glyphData->zone1.cur;
         *phantomPoints = *points + glyphData->zone1.numOutlinePoints;
         *pointTypes    = glyphData->zone1.pointTypes;
         *numPoints     = glyphData->zone1.numOutlinePoints;
     }
     else {
-        if (!tty_extract_glyph_points(font, instance, glyphData)) {
-            return TTY_FALSE;
-        }
         *points        = glyphData->unhinted.points;
         *phantomPoints = *points + glyphData->unhinted.numOutlinePoints;
         *pointTypes    = glyphData->unhinted.pointTypes;
@@ -2337,42 +2476,33 @@ static void tty_execute_cv_program(TTY* font, TTY_Instance* instance) {
     }
 }
 
-static TTY_bool tty_execute_glyph_program(TTY*            font, 
-                                          TTY_Instance*   instance, 
-                                          TTY_Glyph_Data* glyphData) {
+static void tty_execute_glyph_program(TTY*            font, 
+                                      TTY_Instance*   instance, 
+                                      TTY_Glyph_Data* data,
+                                      TTY_Ins_Stream* stream,
+                                      TTY_uint32      insCount) {
     TTY_LOG_PROGRAM("Glyph Program");
-
-    if (!tty_extract_glyph_points(font, instance, glyphData)) {
-        return TTY_FALSE;
-    }
-
-    printf("%d points\n", glyphData->zone1.numOutlinePoints);
-
-    TTY_uint32 insOff = 10 + glyphData->numContours * 2;
-    TTY_uint16 numIns = tty_get_int16(glyphData->glyfBlock + insOff);
 
     TTY_Temp_Interp_Data temp;
     temp.instance         = instance;
-    temp.glyphData        = glyphData;
+    temp.glyphData        = data;
     temp.execute_next_ins = tty_execute_next_glyph_program_ins;
-    tty_ins_stream_init(&temp.stream, glyphData->glyfBlock + insOff + 2);
+    temp.stream           = *stream;
 
     font->interp.temp = &temp;
 
     tty_stack_clear(&font->interp.stack);
     tty_reset_graphics_state(&font->interp);
 
-    while (temp.stream.off < numIns) {
+    while (temp.stream.off < insCount) {
         tty_execute_next_glyph_program_ins(&font->interp);
     }
 
     #ifdef TTY_LOGGING
-        for (TTY_uint32 i = 0; i < glyphData->zone1.numOutlinePoints; i++) {
-            printf("%d) (%d, %d)\n", i, glyphData->zone1.cur[i].x, glyphData->zone1.cur[i].y);
+        for (TTY_uint32 i = 0; i < data->zone1.numOutlinePoints; i++) {
+            printf("%d) (%d, %d)\n", i, data->zone1.cur[i].x, data->zone1.cur[i].y);
         }
     #endif
-
-    return TTY_TRUE;
 }
 
 static void tty_execute_next_font_program_ins(TTY_Interp* interp) {
