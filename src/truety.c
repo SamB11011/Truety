@@ -311,6 +311,8 @@ enum {
     TTY_SDPVTL     = 0x86,
     TTY_SDPVTL_MAX = 0x87,
     TTY_SDS        = 0x5F,
+    TTY_SFVTCA     = 0x04,
+    TTY_SFVTCA_MAX = 0x05,
     TTY_SHP        = 0x32,
     TTY_SHP_MAX    = 0x33,
     TTY_SHPIX      = 0x38,
@@ -506,6 +508,8 @@ static void tty_SDB(TTY_Interp* interp);
 static void tty_SDPVTL(TTY_Interp* interp, TTY_uint8 ins);
 
 static void tty_SDS(TTY_Interp* interp);
+
+static void tty_SFVTCA(TTY_Interp* interp, TTY_uint8 ins);
 
 static void tty_SHP(TTY_Interp* interp, TTY_uint8 ins);
 
@@ -3000,6 +3004,9 @@ static TTY_bool tty_try_execute_shared_ins(TTY_Interp* interp, TTY_uint8 ins) {
     else if (ins >= TTY_SDPVTL && ins <= TTY_SDPVTL_MAX) {
         tty_SDPVTL(interp, ins);
     }
+    else if (ins >= TTY_SFVTCA && ins <= TTY_SFVTCA_MAX) {
+        tty_SFVTCA(interp, ins);
+    }
     else if (ins >= TTY_SPVTCA && ins <= TTY_SPVTCA_MAX) {
         tty_SPVTCA(interp, ins);
     }
@@ -3951,6 +3958,14 @@ static void tty_SDPVTL(TTY_Interp* interp, TTY_uint8 ins) {
     interp->gState.dualProjVec.x = p2->x - p1->x;
     interp->gState.dualProjVec.y = p2->y - p1->y;
 
+    if (interp->gState.dualProjVec.x == 0) {
+        if (interp->gState.dualProjVec.y == 0) {
+            interp->gState.dualProjVec.x = 0x4000;
+            ins                          = 0;
+        }
+    }
+
+
     if (ins & 0x1) {
         // Perpendicular (counter clockwise rotation)
         TTY_F26Dot6 temp = interp->gState.dualProjVec.y;
@@ -3975,8 +3990,7 @@ static void tty_SDPVTL(TTY_Interp* interp, TTY_uint8 ins) {
     }
 
     tty_normalize(&interp->gState.projVec);
-
-
+    
     interp->gState.projDotFree =
         TTY_F2DOT30_MUL(interp->gState.projVec.x << 16, interp->gState.freedomVec.x << 16) +
         TTY_F2DOT30_MUL(interp->gState.projVec.y << 16, interp->gState.freedomVec.y << 16);
@@ -3991,6 +4005,24 @@ static void tty_SDS(TTY_Interp* interp) {
     TTY_LOG_INS();
     interp->gState.deltaShift = tty_stack_pop(&interp->stack);
     TTY_LOG_VALUE(interp->gState.deltaShift);
+}
+
+static void tty_SFVTCA(TTY_Interp* interp, TTY_uint8 ins) {
+    TTY_LOG_INS();
+
+    if (ins & 0x1) {
+        interp->gState.freedomVec.x = 0x4000;
+        interp->gState.freedomVec.y = 0;
+        interp->gState.projDotFree  = interp->gState.projVec.x << 16;
+    }
+    else {
+        interp->gState.freedomVec.x = 0;
+        interp->gState.freedomVec.y = 0x4000;
+        interp->gState.projDotFree  = interp->gState.projVec.y << 16;
+    }
+
+    TTY_LOG_POINT(interp->gState.freedomVec);
+    TTY_LOG_VALUE(interp->gState.projDotFree);
 }
 
 static void tty_SHP(TTY_Interp* interp, TTY_uint8 ins) {
