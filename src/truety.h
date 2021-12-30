@@ -84,6 +84,8 @@ typedef struct {
     TTY_F26Dot6_V2* cur;
     TTY_Touch_Flag* touchFlags;
     TTY_Point_Type* pointTypes;
+    TTY_uint32*     endPointIndices;
+    TTY_uint32      numEndPoints;
     TTY_uint32      numOutlinePoints; /* Non-phantom points */
     TTY_uint32      numPoints;
 } TTY_Zone;
@@ -121,6 +123,8 @@ typedef struct {
     TTY_uint8*      mem;
     TTY_V2*         points;
     TTY_Point_Type* pointTypes;
+    TTY_uint32*     endPointIndices;
+    TTY_uint32      numEndPoints;
     TTY_uint32      numOutlinePoints;
     TTY_uint32      numPoints;
 } TTY_Unhinted;
@@ -147,8 +151,7 @@ typedef struct {
 typedef struct {
     TTY_Glyph* glyph;
     TTY_uint8* glyfBlock;
-    TTY_bool   isComposite;
-    TTY_uint32 numContours;
+    TTY_int16  numContours;
 
     union {
         TTY_Unhinted unhinted;
