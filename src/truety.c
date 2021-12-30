@@ -233,99 +233,103 @@ static void tty_swap_active_edge_with_next(TTY_Active_Edge_List* list,
 #define TTY_NUM_PHANTOM_POINTS  4
 
 enum {
-    TTY_ABS       = 0x64,
-    TTY_ADD       = 0x60,
-    TTY_ALIGNRP   = 0x3C,
-    TTY_AND       = 0x5A,
-    TTY_CALL      = 0x2B,
-    TTY_CINDEX    = 0x25,
-    TTY_DELTAC1   = 0x73,
-    TTY_DELTAC2   = 0x74,
-    TTY_DELTAC3   = 0x75,
-    TTY_DELTAP1   = 0x5D,
-    TTY_DELTAP2   = 0x71,
-    TTY_DELTAP3   = 0x72,
-    TTY_DEPTH     = 0x24,
-    TTY_DIV       = 0x62,
-    TTY_DUP       = 0x20,
-    TTY_EIF       = 0x59,
-    TTY_ELSE      = 0x1B,
-    TTY_ENDF      = 0x2D,
-    TTY_EQ        = 0x54,
-    TTY_FDEF      = 0x2C,
-    TTY_FLOOR     = 0x66,
-    TTY_GC        = 0x46,
-    TTY_GC_MAX    = 0x47,
-    TTY_GETINFO   = 0x88,
-    TTY_GPV       = 0x0C,
-    TTY_GT        = 0x52,
-    TTY_GTEQ      = 0x53,
-    TTY_IDEF      = 0x89,
-    TTY_IF        = 0x58,
-    TTY_IP        = 0x39,
-    TTY_IUP       = 0x30,
-    TTY_IUP_MAX   = 0x31,
-    TTY_JROT      = 0x78,
-    TTY_JMPR      = 0x1C,
-    TTY_LOOPCALL  = 0x2A,
-    TTY_LT        = 0x50,
-    TTY_LTEQ      = 0x51,
-    TTY_MD        = 0x49,
-    TTY_MD_MAX    = 0x4A,
-    TTY_MDAP      = 0x2E,
-    TTY_MDAP_MAX  = 0x2F,
-    TTY_MDRP      = 0xC0,
-    TTY_MDRP_MAX  = 0xDF,
-    TTY_MIAP      = 0x3E,
-    TTY_MIAP_MAX  = 0x3F,
-    TTY_MINDEX    = 0x26,
-    TTY_MIRP      = 0xE0,
-    TTY_MIRP_MAX  = 0xFF,
-    TTY_MPPEM     = 0x4B,
-    TTY_MUL       = 0x63,
-    TTY_NEG       = 0x65,
-    TTY_NEQ       = 0x55,
-    TTY_NPUSHB    = 0x40,
-    TTY_NPUSHW    = 0x41,
-    TTY_OR        = 0x5B,
-    TTY_POP       = 0x21,
-    TTY_PUSHB     = 0xB0,
-    TTY_PUSHB_MAX = 0xB7,
-    TTY_PUSHW     = 0xB8,
-    TTY_PUSHW_MAX = 0xBF,
-    TTY_RCVT      = 0x45,
-    TTY_RDTG      = 0x7D,
-    TTY_ROLL      = 0x8A,
-    TTY_ROUND     = 0x68,
-    TTY_ROUND_MAX = 0x6B,
-    TTY_RS        = 0x43,
-    TTY_RTG       = 0x18,
-    TTY_RTHG      = 0x19,
-    TTY_RUTG      = 0x7C,
-    TTY_SCANCTRL  = 0x85,
-    TTY_SCANTYPE  = 0x8D,
-    TTY_SCVTCI    = 0x1D,
-    TTY_SDB       = 0x5E,
-    TTY_SDS       = 0x5F,
-    TTY_SHP       = 0x32,
-    TTY_SHP_MAX   = 0x33,
-    TTY_SHPIX     = 0x38,
-    TTY_SLOOP     = 0x17,
-    TTY_SMD       = 0x1A,
-    TTY_SRP0      = 0x10,
-    TTY_SRP1      = 0x11,
-    TTY_SRP2      = 0x12,
-    TTY_SUB       = 0x61,
-    TTY_SVTCA     = 0x00,
-    TTY_SVTCA_MAX = 0x01,
-    TTY_SWAP      = 0x23,
-    TTY_SZPS      = 0x16,
-    TTY_SZP0      = 0x13,
-    TTY_SZP1      = 0x14,
-    TTY_SZP2      = 0x15,
-    TTY_WCVTF     = 0x70,
-    TTY_WCVTP     = 0x44,
-    TTY_WS        = 0x42,
+    TTY_ABS        = 0x64,
+    TTY_ADD        = 0x60,
+    TTY_ALIGNRP    = 0x3C,
+    TTY_AND        = 0x5A,
+    TTY_CALL       = 0x2B,
+    TTY_CINDEX     = 0x25,
+    TTY_DELTAC1    = 0x73,
+    TTY_DELTAC2    = 0x74,
+    TTY_DELTAC3    = 0x75,
+    TTY_DELTAP1    = 0x5D,
+    TTY_DELTAP2    = 0x71,
+    TTY_DELTAP3    = 0x72,
+    TTY_DEPTH      = 0x24,
+    TTY_DIV        = 0x62,
+    TTY_DUP        = 0x20,
+    TTY_EIF        = 0x59,
+    TTY_ELSE       = 0x1B,
+    TTY_ENDF       = 0x2D,
+    TTY_EQ         = 0x54,
+    TTY_FDEF       = 0x2C,
+    TTY_FLOOR      = 0x66,
+    TTY_GC         = 0x46,
+    TTY_GC_MAX     = 0x47,
+    TTY_GETINFO    = 0x88,
+    TTY_GPV        = 0x0C,
+    TTY_GT         = 0x52,
+    TTY_GTEQ       = 0x53,
+    TTY_IDEF       = 0x89,
+    TTY_IF         = 0x58,
+    TTY_IP         = 0x39,
+    TTY_IUP        = 0x30,
+    TTY_IUP_MAX    = 0x31,
+    TTY_JROT       = 0x78,
+    TTY_JMPR       = 0x1C,
+    TTY_LOOPCALL   = 0x2A,
+    TTY_LT         = 0x50,
+    TTY_LTEQ       = 0x51,
+    TTY_MAX        = 0x8B,
+    TTY_MD         = 0x49,
+    TTY_MD_MAX     = 0x4A,
+    TTY_MDAP       = 0x2E,
+    TTY_MDAP_MAX   = 0x2F,
+    TTY_MDRP       = 0xC0,
+    TTY_MDRP_MAX   = 0xDF,
+    TTY_MIAP       = 0x3E,
+    TTY_MIAP_MAX   = 0x3F,
+    TTY_MIN        = 0x8C,
+    TTY_MINDEX     = 0x26,
+    TTY_MIRP       = 0xE0,
+    TTY_MIRP_MAX   = 0xFF,
+    TTY_MPPEM      = 0x4B,
+    TTY_MUL        = 0x63,
+    TTY_NEG        = 0x65,
+    TTY_NEQ        = 0x55,
+    TTY_NPUSHB     = 0x40,
+    TTY_NPUSHW     = 0x41,
+    TTY_OR         = 0x5B,
+    TTY_POP        = 0x21,
+    TTY_PUSHB      = 0xB0,
+    TTY_PUSHB_MAX  = 0xB7,
+    TTY_PUSHW      = 0xB8,
+    TTY_PUSHW_MAX  = 0xBF,
+    TTY_RCVT       = 0x45,
+    TTY_RDTG       = 0x7D,
+    TTY_ROLL       = 0x8A,
+    TTY_ROUND      = 0x68,
+    TTY_ROUND_MAX  = 0x6B,
+    TTY_RS         = 0x43,
+    TTY_RTG        = 0x18,
+    TTY_RTHG       = 0x19,
+    TTY_RUTG       = 0x7C,
+    TTY_SCANCTRL   = 0x85,
+    TTY_SCANTYPE   = 0x8D,
+    TTY_SCVTCI     = 0x1D,
+    TTY_SDB        = 0x5E,
+    TTY_SDS        = 0x5F,
+    TTY_SHP        = 0x32,
+    TTY_SHP_MAX    = 0x33,
+    TTY_SHPIX      = 0x38,
+    TTY_SLOOP      = 0x17,
+    TTY_SMD        = 0x1A,
+    TTY_SPVTCA     = 0x02,
+    TTY_SPVTCA_MAX = 0x03,
+    TTY_SRP0       = 0x10,
+    TTY_SRP1       = 0x11,
+    TTY_SRP2       = 0x12,
+    TTY_SUB        = 0x61,
+    TTY_SVTCA      = 0x00,
+    TTY_SVTCA_MAX  = 0x01,
+    TTY_SWAP       = 0x23,
+    TTY_SZPS       = 0x16,
+    TTY_SZP0       = 0x13,
+    TTY_SZP1       = 0x14,
+    TTY_SZP2       = 0x15,
+    TTY_WCVTF      = 0x70,
+    TTY_WCVTP      = 0x44,
+    TTY_WS         = 0x42,
 };
 
 enum {
@@ -437,6 +441,8 @@ static void tty_LT(TTY_Interp* interp);
 
 static void tty_LTEQ(TTY_Interp* interp);
 
+static void tty_MAX(TTY_Interp* interp);
+
 static void tty_MD(TTY_Interp* interp, TTY_uint8 ins);
 
 static void tty_MDAP(TTY_Interp* interp, TTY_uint8 ins);
@@ -444,6 +450,8 @@ static void tty_MDAP(TTY_Interp* interp, TTY_uint8 ins);
 static void tty_MDRP(TTY_Interp* interp, TTY_uint8 ins);
 
 static void tty_MIAP(TTY_Interp* interp, TTY_uint8 ins);
+
+static void tty_MIN(TTY_Interp* interp);
 
 static void tty_MINDEX(TTY_Interp* interp);
 
@@ -502,6 +510,8 @@ static void tty_SHPIX(TTY_Interp* interp);
 static void tty_SLOOP(TTY_Interp* interp);
 
 static void tty_SMD(TTY_Interp* interp);
+
+static void tty_SPVTCA(TTY_Interp* interp, TTY_uint8 ins);
 
 static void tty_SRP0(TTY_Interp* interp);
 
@@ -677,7 +687,7 @@ static TTY_int32 tty_get_glyph_top_side_bearing(TTY* font, TTY_int16 yMax);
 /* Debugging and Logging */
 /* --------------------- */
 #define TTY_DEBUG
-// #define TTY_LOGGING
+#define TTY_LOGGING
 
 #ifdef TTY_DEBUG
     #define TTY_ASSERT(cond) assert(cond)
@@ -2877,6 +2887,12 @@ static TTY_bool tty_try_execute_shared_ins(TTY_Interp* interp, TTY_uint8 ins) {
         case TTY_LTEQ:
             tty_LTEQ(interp);
             return TTY_TRUE;
+        case TTY_MAX:
+            tty_MAX(interp);
+            return TTY_TRUE;
+        case TTY_MIN:
+            tty_MIN(interp);
+            return TTY_TRUE;
         case TTY_MINDEX:
             tty_MINDEX(interp);
             return TTY_TRUE;
@@ -2968,6 +2984,9 @@ static TTY_bool tty_try_execute_shared_ins(TTY_Interp* interp, TTY_uint8 ins) {
     }
     else if (ins >= TTY_ROUND && ins <= TTY_ROUND_MAX) {
         tty_ROUND(interp, ins);
+    }
+    else if (ins >= TTY_SPVTCA && ins <= TTY_SPVTCA_MAX) {
+        tty_SPVTCA(interp, ins);
     }
     else if (ins >= TTY_SVTCA && ins <= TTY_SVTCA_MAX) {
         tty_SVTCA(interp, ins);
@@ -3465,6 +3484,14 @@ static void tty_LTEQ(TTY_Interp* interp) {
     TTY_LOG_PUSHED_VALUE(interp->stack);
 }
 
+static void tty_MAX(TTY_Interp* interp) {
+    TTY_LOG_INS();
+    TTY_int32 e1 = tty_stack_pop(&interp->stack);
+    TTY_int32 e2 = tty_stack_pop(&interp->stack);
+    tty_stack_push(&interp->stack, e1 > e2 ? e1 : e2);
+    TTY_LOG_PUSHED_VALUE(interp->stack);
+}
+
 static void tty_MD(TTY_Interp* interp, TTY_uint8 ins) {
     TTY_LOG_INS();
     
@@ -3615,6 +3642,14 @@ static void tty_MIAP(TTY_Interp* interp, TTY_uint8 ins) {
     interp->gState.rp1 = pointIdx;
 
     TTY_LOG_POINT(interp->gState.zp0->cur[pointIdx]);
+}
+
+static void tty_MIN(TTY_Interp* interp) {
+    TTY_LOG_INS();
+    TTY_int32 e1 = tty_stack_pop(&interp->stack);
+    TTY_int32 e2 = tty_stack_pop(&interp->stack);
+    tty_stack_push(&interp->stack, e1 < e2 ? e1 : e2);
+    TTY_LOG_PUSHED_VALUE(interp->stack);
 }
 
 static void tty_MINDEX(TTY_Interp* interp) {
@@ -3963,6 +3998,24 @@ static void tty_SMD(TTY_Interp* interp) {
     TTY_LOG_INS();
     interp->gState.minDist = tty_stack_pop(&interp->stack);
     TTY_LOG_VALUE(interp->gState.minDist);
+}
+
+static void tty_SPVTCA(TTY_Interp* interp, TTY_uint8 ins) {
+    TTY_LOG_INS();
+
+    if (ins & 0x1) {
+        interp->gState.projVec.x        = 0x4000;
+        interp->gState.projVec.y        = 0;
+        interp->gState.activeTouchFlags = TTY_TOUCH_X;
+    }
+    else {
+        interp->gState.projVec.x        = 0;
+        interp->gState.projVec.y        = 0x4000;
+        interp->gState.activeTouchFlags = TTY_TOUCH_Y;
+    }
+
+    interp->gState.dualProjVec = interp->gState.projVec;
+    interp->gState.projDotFree = 0x40000000;
 }
 
 static void tty_SRP0(TTY_Interp* interp) {
