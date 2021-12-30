@@ -25,15 +25,10 @@ static void test_font(const char* path) {
         }
 
         for (int cp = ' '; cp <= '~'; cp++) {
-            if (cp == ';' || cp == ':') {
-                // TODO: Handle composite glyphs
-                continue;
-            }
-
             printf("Rendering %c\n", cp);
 
             TTY_Glyph glyph;
-            tty_glyph_init(&font, &glyph, tty_get_glyph_index(&font, cp));
+            tty_glyph_init(&glyph, tty_get_glyph_index(&font, cp));
 
             TTY_Image image;
             if (!tty_render_glyph(&font, &instance, &glyph, &image)) {
@@ -70,7 +65,7 @@ static void save_glyph(const char* path, int cp, int ppem) {
     printf("Rendering %c\n", cp);
 
     TTY_Glyph glyph;
-    tty_glyph_init(&font, &glyph, tty_get_glyph_index(&font, cp));
+    tty_glyph_init(&glyph, tty_get_glyph_index(&font, cp));
 
     TTY_Image image;
     if (!tty_render_glyph(&font, &instance, &glyph, &image)) {
@@ -89,7 +84,7 @@ int main() {
     // test_font("./resources/fonts/Roboto-Regular.ttf");
     // test_font("./resources/fonts/LiberationSans-Regular.ttf");
     // test_font("./resources/fonts/BakbakOne-Regular.ttf");
-    save_glyph("./resources/fonts/Roboto-Regular.ttf", 'g', 25);
+    save_glyph("./resources/fonts/segoeui.ttf", 'g', 25);
     printf("Done\n");
     return 0;
 }
