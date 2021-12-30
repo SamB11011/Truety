@@ -308,6 +308,8 @@ enum {
     TTY_SCANTYPE   = 0x8D,
     TTY_SCVTCI     = 0x1D,
     TTY_SDB        = 0x5E,
+    TTY_SDPVTL     = 0x86,
+    TTY_SDPVTL_MAX = 0x87,
     TTY_SDS        = 0x5F,
     TTY_SHP        = 0x32,
     TTY_SHP_MAX    = 0x33,
@@ -501,6 +503,8 @@ static void tty_SCVTCI(TTY_Interp* interp);
 
 static void tty_SDB(TTY_Interp* interp);
 
+static void tty_SDPVTL(TTY_Interp* interp, TTY_uint8 ins);
+
 static void tty_SDS(TTY_Interp* interp);
 
 static void tty_SHP(TTY_Interp* interp, TTY_uint8 ins);
@@ -581,6 +585,9 @@ static void tty_iup_interpolate_or_shift(TTY_Zone*      zone1,
 
 static TTY_Zone* tty_get_zone_pointer(TTY_Interp* interp, TTY_uint32 zone);
 
+/* 26.6 => 2.14 */
+static void tty_normalize(TTY_Fix_V2* v);
+
 
 /* ---------------- */
 /* Fixed-point Math */
@@ -619,6 +626,9 @@ static TTY_Zone* tty_get_zone_pointer(TTY_Interp* interp, TTY_uint32 zone);
 #define TTY_F10DOT22_MUL(a, b)\
     TTY_FIX_MUL(a, b, 0x200000, 22)
 
+#define TTY_F2DOT30_MUL(a, b)\
+    TTY_FIX_MUL(a, b, 0x20000000, 30)
+
 
 #define TTY_FIX_V2_ADD(a, b, result)  \
     {                                 \
@@ -649,6 +659,8 @@ static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val);
 
 /* Note: Result may have more than 2 integer bits */
 static TTY_F2Dot14 tty_f2dot14_round(TTY_F2Dot14 val);
+
+static TTY_int32 tty_fix_v2_mag(TTY_Fix_V2* v);
 
 
 /* ---- */
@@ -2985,6 +2997,9 @@ static TTY_bool tty_try_execute_shared_ins(TTY_Interp* interp, TTY_uint8 ins) {
     else if (ins >= TTY_ROUND && ins <= TTY_ROUND_MAX) {
         tty_ROUND(interp, ins);
     }
+    else if (ins >= TTY_SDPVTL && ins <= TTY_SDPVTL_MAX) {
+        tty_SDPVTL(interp, ins);
+    }
     else if (ins >= TTY_SPVTCA && ins <= TTY_SPVTCA_MAX) {
         tty_SPVTCA(interp, ins);
     }
@@ -3917,6 +3932,61 @@ static void tty_SDB(TTY_Interp* interp) {
     TTY_LOG_VALUE(interp->gState.deltaBase);
 }
 
+static void tty_SDPVTL(TTY_Interp* interp, TTY_uint8 ins) {
+    TTY_LOG_INS();
+
+    TTY_uint32 p1Idx = tty_stack_pop(&interp->stack);
+    TTY_uint32 p2Idx = tty_stack_pop(&interp->stack);
+
+    TTY_ASSERT(p1Idx < interp->gState.zp2->numPoints);
+    TTY_ASSERT(p2Idx < interp->gState.zp1->numPoints);
+
+    TTY_F26Dot6_V2* p1;
+    TTY_F26Dot6_V2* p2;
+
+
+    p1 = interp->gState.zp2->orgScaled + p1Idx;
+    p2 = interp->gState.zp1->orgScaled + p2Idx;
+
+    interp->gState.dualProjVec.x = p2->x - p1->x;
+    interp->gState.dualProjVec.y = p2->y - p1->y;
+
+    if (ins & 0x1) {
+        // Perpendicular (counter clockwise rotation)
+        TTY_F26Dot6 temp = interp->gState.dualProjVec.y;
+        interp->gState.dualProjVec.y = interp->gState.dualProjVec.x;
+        interp->gState.dualProjVec.x = -temp;
+    }
+
+    tty_normalize(&interp->gState.dualProjVec);
+
+
+    p1 = interp->gState.zp2->cur + p1Idx;
+    p2 = interp->gState.zp1->cur + p2Idx;
+
+    interp->gState.projVec.x = p2->x - p1->x;
+    interp->gState.projVec.y = p2->y - p1->y;
+
+    if (ins & 0x1) {
+        // Perpendicular (counter clockwise rotation)
+        TTY_F26Dot6 temp = interp->gState.projVec.y;
+        interp->gState.projVec.y = interp->gState.projVec.x;
+        interp->gState.projVec.x = -temp;
+    }
+
+    tty_normalize(&interp->gState.projVec);
+
+
+    interp->gState.projDotFree =
+        TTY_F2DOT30_MUL(interp->gState.projVec.x << 16, interp->gState.freedomVec.x << 16) +
+        TTY_F2DOT30_MUL(interp->gState.projVec.y << 16, interp->gState.freedomVec.y << 16);
+
+
+    TTY_LOG_POINT(interp->gState.dualProjVec);
+    TTY_LOG_POINT(interp->gState.projVec);
+    TTY_LOG_VALUE(interp->gState.projDotFree);
+}
+
 static void tty_SDS(TTY_Interp* interp) {
     TTY_LOG_INS();
     interp->gState.deltaShift = tty_stack_pop(&interp->stack);
@@ -4438,6 +4508,74 @@ static TTY_Zone* tty_get_zone_pointer(TTY_Interp* interp, TTY_uint32 zone) {
     return NULL;
 }
 
+static void tty_normalize(TTY_Fix_V2* v) {
+    if (labs(v->x) < 0x10000 && labs(v->y) < 0x10000) {
+        v->x <<= 8;
+        v->y <<= 8;
+
+        TTY_F2Dot14 w = tty_fix_v2_mag(v);
+        if (w != 0) {
+            v->x = TTY_F2DOT14_DIV(v->x, w);
+            v->y = TTY_F2DOT14_DIV(v->y, w);
+        }
+
+        return;
+    }
+
+    TTY_F26Dot6 w = tty_fix_v2_mag(v);
+    v->x = TTY_F2DOT14_DIV(v->x, w);
+    v->y = TTY_F2DOT14_DIV(v->y, w);
+    w    = v->x * v->x + v->y * v->y;
+
+    TTY_bool xIsNeg, yIsNeg;
+
+    if (v->x < 0) {
+        v->x = -v->x;
+        xIsNeg = TTY_TRUE;
+    }
+    else {
+        xIsNeg = TTY_FALSE;
+    }
+
+    if (v->y < 0) {
+        v->y = -v->y;
+        yIsNeg = TTY_TRUE;
+    }
+    else {
+        yIsNeg = TTY_FALSE;
+    }
+
+    while (w < 0x10000000) {
+        if (v->x < v->y) {
+            v->x++;
+        }
+        else {
+            v->y++;
+        }
+
+        w = v->x * v->x + v->y * v->y;
+    }
+
+    while (w >= 0x10004000) {
+        if (v->x < v->y) {
+            v->x--;
+        }
+        else {
+            v->y--;
+        }
+
+        w = v->x * v->x + v->y * v->y;
+    }
+
+    if (xIsNeg) {
+        v->x = -v->x;
+    }
+
+    if (yIsNeg) {
+        v->y = -v->y;
+    }
+}
+
 
 /* ---------------- */
 /* Fixed-point Math */
@@ -4460,6 +4598,57 @@ static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val) {
 
 static TTY_F2Dot14 tty_f2dot14_round(TTY_F2Dot14 val) {
     return ((val & 0x2000) << 1) + (val & 0xFFFFC000);
+}
+
+static TTY_int32 tty_fix_v2_mag(TTY_Fix_V2* v) {
+    // Compute x*x as 64-bit value
+    TTY_uint32 lo = (TTY_uint32)(v->x & 0xFFFF);
+    TTY_int32  hi = v->x >> 16;
+
+    TTY_uint32 l = lo * lo;
+    TTY_int32  m = hi * lo;
+    
+    hi = hi * hi;
+
+    TTY_uint32 lo1 = l  + (TTY_uint32)(m << 17);
+    TTY_int32  hi1 = hi + (m >> 15) + (lo1 < l);
+
+    // Compute y*y as 64-bit value
+    lo = (TTY_uint32)(v->y & 0xFFFF);
+    hi = v->y >> 16;
+
+    l  = lo * lo;
+    m  = hi * lo;
+    hi = hi * hi;
+
+    TTY_uint32 lo2 = l  + (TTY_uint32)(m << 17);
+    TTY_int32  hi2 = hi + (m >> 15) + (lo2 < l);
+
+    // Add them to get x*x + y*y as 64-bit value
+    lo = lo1 + lo2;
+    hi = hi1 + hi2 + (lo < lo1);
+
+    // Compute the square root of this value
+    TTY_uint32 root  = 0;
+    TTY_uint32 rem   = 0;
+    TTY_int32  count = 32;
+    TTY_uint32 testDiv;
+
+    do {
+        rem       = (rem << 2) | ((TTY_uint32)hi >> 30);
+        hi        = (hi  << 2) | (            lo >> 30);
+        lo      <<= 2;
+        root    <<= 1;
+        testDiv   = (root << 1) + 1;
+
+        if (rem >= testDiv) {
+            rem  -= testDiv;
+            root += 1;
+        }
+    }
+    while (--count);
+
+    return root;
 }
 
 
