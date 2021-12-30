@@ -313,6 +313,7 @@ enum {
     TTY_SDS        = 0x5F,
     TTY_SFVTCA     = 0x04,
     TTY_SFVTCA_MAX = 0x05,
+    TTY_SFVTPV     = 0x0E,
     TTY_SHP        = 0x32,
     TTY_SHP_MAX    = 0x33,
     TTY_SHPIX      = 0x38,
@@ -510,6 +511,8 @@ static void tty_SDPVTL(TTY_Interp* interp, TTY_uint8 ins);
 static void tty_SDS(TTY_Interp* interp);
 
 static void tty_SFVTCA(TTY_Interp* interp, TTY_uint8 ins);
+
+static void tty_SFVTPV(TTY_Interp* interp);
 
 static void tty_SHP(TTY_Interp* interp, TTY_uint8 ins);
 
@@ -2972,6 +2975,9 @@ static TTY_bool tty_try_execute_shared_ins(TTY_Interp* interp, TTY_uint8 ins) {
         case TTY_SDS:
             tty_SDS(interp);
             return TTY_TRUE;
+        case TTY_SFVTPV:
+            tty_SFVTPV(interp);
+            return TTY_TRUE;
         case TTY_SLOOP:
             tty_SLOOP(interp);
             return TTY_TRUE;
@@ -3990,10 +3996,14 @@ static void tty_SDPVTL(TTY_Interp* interp, TTY_uint8 ins) {
     }
 
     tty_normalize(&interp->gState.projVec);
-    
+
     interp->gState.projDotFree =
         TTY_F2DOT30_MUL(interp->gState.projVec.x << 16, interp->gState.freedomVec.x << 16) +
         TTY_F2DOT30_MUL(interp->gState.projVec.y << 16, interp->gState.freedomVec.y << 16);
+
+    if (labs(interp->gState.projDotFree) < 0x4000000) {
+        interp->gState.projDotFree = 0x40000000;
+    }
 
 
     TTY_LOG_POINT(interp->gState.dualProjVec);
@@ -4023,6 +4033,13 @@ static void tty_SFVTCA(TTY_Interp* interp, TTY_uint8 ins) {
 
     TTY_LOG_POINT(interp->gState.freedomVec);
     TTY_LOG_VALUE(interp->gState.projDotFree);
+}
+
+static void tty_SFVTPV(TTY_Interp* interp) {
+    // TODO: For some reason FreeType ignores this instruction
+    TTY_LOG_INS();
+    // interp->gState.freedomVec = interp->gState.projVec;
+    TTY_LOG_POINT(interp->gState.freedomVec);
 }
 
 static void tty_SHP(TTY_Interp* interp, TTY_uint8 ins) {
@@ -4163,6 +4180,11 @@ static void tty_SVTCA(TTY_Interp* interp, TTY_uint8 ins) {
     interp->gState.projVec     = interp->gState.freedomVec;
     interp->gState.dualProjVec = interp->gState.freedomVec;
     interp->gState.projDotFree = 0x40000000;
+
+    TTY_LOG_POINT(interp->gState.projVec);
+    TTY_LOG_POINT(interp->gState.dualProjVec);
+    TTY_LOG_POINT(interp->gState.freedomVec);
+    TTY_LOG_VALUE(interp->gState.projDotFree);
 }
 
 static void tty_SWAP(TTY_Interp* interp) {
@@ -4365,9 +4387,7 @@ static TTY_F26Dot6 tty_round(TTY_Interp* interp, TTY_F26Dot6 val) {
         case TTY_ROUND_UP_TO_GRID:
             return tty_f26dot6_ceil(val);
         case TTY_ROUND_OFF:
-            // TODO
-            TTY_ASSERT(0);
-            break;
+            return val;
     }
 
     TTY_ASSERT(0);
