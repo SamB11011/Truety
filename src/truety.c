@@ -1424,8 +1424,8 @@ static TTY_bool tty_extract_composite_glyph_points(TTY*            font,
                     off += 4;
                 }
                 else {
-                    arg1 = data->glyfBlock[off];
-                    arg2 = data->glyfBlock[off + 1];
+                    arg1 = (TTY_int8)data->glyfBlock[off];
+                    arg2 = (TTY_int8)data->glyfBlock[off + 1];
                     off += 2;
                 }
 
@@ -1445,7 +1445,7 @@ static TTY_bool tty_extract_composite_glyph_points(TTY*            font,
                         off += 2;
                     }
                     else if (flags & TTY_GLYF_WE_HAVE_AN_X_AND_Y_SCALE) {
-                        transform[0] = tty_get_int16(data->glyfBlock + off);
+                        transform[0] = tty_get_int16(data->glyfBlock + off    );
                         transform[3] = tty_get_int16(data->glyfBlock + off + 2);
                         off += 4;
                     }
@@ -1467,6 +1467,15 @@ static TTY_bool tty_extract_composite_glyph_points(TTY*            font,
                     arg2 = TTY_F10DOT22_MUL(arg2, instance->scale);
                 }
                 else {
+                    if (flags & TTY_GLYF_WE_HAVE_A_SCALE) {
+                        off += 2;
+                    }
+                    else if (flags & TTY_GLYF_WE_HAVE_AN_X_AND_Y_SCALE) {
+                        off += 4;
+                    }
+                    else if (flags & TTY_GLYF_WE_HAVE_A_TWO_BY_TWO) {
+                        off += 8;
+                    }
                     arg1 = TTY_F10DOT22_MUL(arg1 << 14, instance->scale);
                     arg2 = TTY_F10DOT22_MUL(arg2 << 14, instance->scale);
                 }
@@ -1479,7 +1488,6 @@ static TTY_bool tty_extract_composite_glyph_points(TTY*            font,
                     arg1 = TTY_ROUNDED_DIV_POW2(arg1, 0x80, 8);
                     arg2 = TTY_ROUNDED_DIV_POW2(arg2, 0x80, 8);
                 }
-
 
                 for (TTY_uint32 i = 0; i < numPoints; i++) {
                     points[i].x += arg1;
