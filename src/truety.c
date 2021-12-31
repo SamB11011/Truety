@@ -773,7 +773,6 @@ TTY_bool tty_init(TTY* font, const char* path) {
     memset(font, 0, sizeof(TTY));
 
     if (!tty_read_file_into_buffer(font, path)) {
-        printf("Hello\n");
         goto init_failure;
     }
     
@@ -2293,7 +2292,7 @@ static void tty_set_hinted_glyph_metrics(TTY_Glyph*      glyph,
             glyph->offset.x = min->x >> 6;
         }
         else if (min->x < 0) {
-            glyph->offset.x = -tty_f26dot6_ceil(labs(min->x)) >> 6; // TODO: just floor?
+            glyph->offset.x = tty_f26dot6_floor(min->x) >> 6;
         }
     }
 
@@ -4620,6 +4619,11 @@ static TTY_int64 tty_rounded_div(TTY_int64 a, TTY_int64 b) {
 }
 
 static TTY_F26Dot6 tty_f26dot6_round(TTY_F26Dot6 val) {
+    // TODO: simplify?
+    if (val < 0) { 
+        val = -val;
+        return -(((val & 0x20) << 1) + (val & 0xFFFFFFC0));
+    }
     return ((val & 0x20) << 1) + (val & 0xFFFFFFC0);
 }
 
