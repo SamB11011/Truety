@@ -1955,17 +1955,6 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
             return TTY_FALSE;
         }
         free(curves);
-
-        // for (int i = 0; i < numEdges; i++) {
-        //     printf("%2d) (%f, %f) => (%f, %f), %2d\n",
-        //            i, 
-        //            tty_fix_to_float(edges[i].p0.x, 6),
-        //            tty_fix_to_float(edges[i].p0.y, 6),
-        //            tty_fix_to_float(edges[i].p1.x, 6),
-        //            tty_fix_to_float(edges[i].p1.y, 6),
-        //            edges[i].dir);
-        // }
-
         qsort(edges, numEdges, sizeof(TTY_Edge), tty_compare_edges);
     }
 
@@ -1997,19 +1986,25 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
     //      values. 
     //   2) This array may be larger than the the width of the image if the
     //      glyph's minimum x-value is non-zero.
-    TTY_F26Dot6 xIntersectionStart;
+    TTY_F26Dot6 xIntersectionOff;
     TTY_F26Dot6 xImageStart;
+
     if (min.x < 0) {
-        xIntersectionStart = tty_f26dot6_ceil(-min.x);
-        xImageStart        = 0;
+        xIntersectionOff = tty_f26dot6_ceil(-min.x);
+        xImageStart      = 0;
     }
     else {
-        xIntersectionStart = 0;
-        xImageStart        = tty_f26dot6_floor(min.x) >> 6;
+        xIntersectionOff = 0;
+        xImageStart      = tty_f26dot6_floor(min.x) >> 6;
     }
 
     TTY_uint32 pixelsPerRow = 
-        1 + (tty_f26dot6_floor(labs(max.x)) >> 6) + (xIntersectionStart >> 6);
+        1 + (tty_f26dot6_floor(labs(max.x)) >> 6) + (xIntersectionOff >> 6);
+
+    TTY_uint32 pixelsPerImageRow =
+        x + data.glyph->size.x > image->w ?
+        data.glyph->size.x - image->w + x : // TODO: Test
+        data.glyph->size.x;
 
     TTY_F26Dot6* pixelRow = calloc(pixelsPerRow, sizeof(TTY_F26Dot6));
     if (pixelRow == NULL) {
@@ -2018,12 +2013,6 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         return TTY_FALSE;
     }
 
-
-    // TODO: Test
-    TTY_uint32 pixelsPerImageRow =
-        x + data.glyph->size.x > image->w ?
-        data.glyph->size.x - image->w + x :
-        data.glyph->size.x;
 
     TTY_F26Dot6 yRel     = tty_f26dot6_ceil(max.y);
     TTY_F26Dot6 yAbs     = yRel  - (y << 6);
@@ -2056,7 +2045,7 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
 
                     // Prevent negative values to allow for easier calculations
                     // when rendering
-                    activeEdge->xIntersection += xIntersectionStart;
+                    activeEdge->xIntersection += xIntersectionOff;
                     
                     prevActiveEdge = activeEdge;
                 }
@@ -2099,22 +2088,6 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         }
 
 
-        // {
-        //     TTY_Active_Edge* itr = activeEdgeList.headEdge;
-        //     while (itr != NULL && itr->next != NULL) {
-        //         if (itr->xIntersection > itr->next->xIntersection) {
-        //             TTY_ASSERT(0);
-        //         }
-        //         else if (itr->xIntersection == itr->next->xIntersection) {
-        //             if (itr->edge->xMin > itr->next->edge->xMin) {
-        //                 TTY_ASSERT(0);
-        //             }
-        //         }
-        //         itr = itr->next;
-        //     }
-        // }
-
-
         // Find any edges that intersect the current scanline and insert them
         // into the active edge list
         while (edgeIdx < numEdges) {
@@ -2128,7 +2101,7 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
 
                 // Prevent negative values to allow for easier calculations
                 // when rendering
-                xIntersection += xIntersectionStart;
+                xIntersection += xIntersectionOff;
                 
                 TTY_Active_Edge* activeEdge     = activeEdgeList.headEdge;
                 TTY_Active_Edge* prevActiveEdge = NULL;
@@ -2176,38 +2149,51 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
             while (TTY_TRUE) {
                 windingNumber += activeEdge->edge->dir;
 
-                if (windingNumber != 0 && activeEdge->xIntersection != activeEdge->next->xIntersection) {
-                    TTY_F26Dot6 x     = 0x40 + tty_f26dot6_floor(activeEdge->xIntersection);
-                    TTY_F26Dot6 xPrev = activeEdge->xIntersection;
+                if (windingNumber == 0) {
+                    goto set_next_active_edge;
+                }
+                else if (activeEdge->xIntersection == activeEdge->next->xIntersection) {
+                    goto set_next_active_edge;
+                }
+
+                {
+                    TTY_F26Dot6 x = 0x40 + tty_f26dot6_floor(activeEdge->xIntersection);
                     TTY_F26Dot6 coverage;
+                    TTY_uint32  idx;
 
                     if (x >= activeEdge->next->xIntersection) {
+                        // The next x-intersection is in the same pixel as the 
+                        // current x-intersection
                         coverage = activeEdge->next->xIntersection - activeEdge->xIntersection;
                     }
                     else {
-                        do {
-                            TTY_uint32 idx = (x >> 6) - 1;
-                            TTY_ASSERT(idx < pixelsPerRow && "A");
-                            pixelRow[idx] += TTY_F26DOT6_MUL(weightedAlpha, x - xPrev);
-                            xPrev          = x;
-                            x             += 0x40;
-                        } while (x < activeEdge->next->xIntersection);
+                        // Calculate the coverage of the pixel containing the 
+                        // current x-intersection
+                        idx            = (x >> 6) - 1;
+                        coverage       = x - activeEdge->xIntersection;
+                        pixelRow[idx] += TTY_F26DOT6_MUL(weightedAlpha, coverage);
+                        x             += 0x40;
+                        idx           += 1;
 
+                        // All pixels after the current x-intersection and 
+                        // before the next x-intersection are fully covered
+                        while (x < activeEdge->next->xIntersection) {
+                            pixelRow[idx] += weightedAlpha;
+                            x             += 0x40;
+                            idx           += 1;
+                        }
+
+                        // Calculate the coverage of the pixel containing the 
+                        // next x-intersection
                         coverage = activeEdge->next->xIntersection - (x - 0x40);
                     }
 
-                    TTY_ASSERT(coverage <= 0x40);
-
-                    TTY_uint32 idx = (tty_f26dot6_ceil(activeEdge->next->xIntersection) >> 6) - 1;
-                    if (idx >= pixelsPerRow) {
-                        printf("%f\n", tty_fix_to_float(activeEdge->xIntersection, 6));
-                    }
-
-                    TTY_ASSERT(idx < pixelsPerRow && "B");
-
+                    idx            = (tty_f26dot6_ceil(activeEdge->next->xIntersection) >> 6) - 1;
                     pixelRow[idx] += TTY_F26DOT6_MUL(weightedAlpha, coverage);
                 }
 
+
+            set_next_active_edge:
                 activeEdge = activeEdge->next;
                 if (activeEdge->next == NULL) {
                     break;
