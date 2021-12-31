@@ -706,7 +706,7 @@ static TTY_int32 tty_get_glyph_top_side_bearing(TTY* font, TTY_int16 yMax);
 /* Debugging and Logging */
 /* --------------------- */
 #define TTY_DEBUG
-#define TTY_LOGGING
+// #define TTY_LOGGING
 
 #ifdef TTY_DEBUG
     #define TTY_ASSERT(cond) assert(cond)
@@ -773,6 +773,7 @@ TTY_bool tty_init(TTY* font, const char* path) {
     memset(font, 0, sizeof(TTY));
 
     if (!tty_read_file_into_buffer(font, path)) {
+        printf("Hello\n");
         goto init_failure;
     }
     
@@ -1952,8 +1953,19 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         if (!tty_subdivide_curves_into_edges(curves, numCurves, &edges, &numEdges)) {
             free(curves);
             return TTY_FALSE;
-        }        
+        }
         free(curves);
+
+        // for (int i = 0; i < numEdges; i++) {
+        //     printf("%2d) (%f, %f) => (%f, %f), %2d\n",
+        //            i, 
+        //            tty_fix_to_float(edges[i].p0.x, 6),
+        //            tty_fix_to_float(edges[i].p0.y, 6),
+        //            tty_fix_to_float(edges[i].p1.x, 6),
+        //            tty_fix_to_float(edges[i].p1.y, 6),
+        //            edges[i].dir);
+        // }
+
         qsort(edges, numEdges, sizeof(TTY_Edge), tty_compare_edges);
     }
 
@@ -2087,6 +2099,22 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         }
 
 
+        // {
+        //     TTY_Active_Edge* itr = activeEdgeList.headEdge;
+        //     while (itr != NULL && itr->next != NULL) {
+        //         if (itr->xIntersection > itr->next->xIntersection) {
+        //             TTY_ASSERT(0);
+        //         }
+        //         else if (itr->xIntersection == itr->next->xIntersection) {
+        //             if (itr->edge->xMin > itr->next->edge->xMin) {
+        //                 TTY_ASSERT(0);
+        //             }
+        //         }
+        //         itr = itr->next;
+        //     }
+        // }
+
+
         // Find any edges that intersect the current scanline and insert them
         // into the active edge list
         while (edgeIdx < numEdges) {
@@ -2139,84 +2167,50 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
 
 
         if (activeEdgeList.headEdge != NULL) {
+            TTY_ASSERT(activeEdgeList.headEdge->next != NULL);
+
             TTY_Active_Edge* activeEdge    = activeEdgeList.headEdge;
-            TTY_int32        windingNumber = 0;
             TTY_F26Dot6      weightedAlpha = TTY_F26DOT6_MUL(0x3FC0, TTY_PIXELS_PER_SCANLINE);
-            
-            TTY_F26Dot6 curPixel  = tty_f26dot6_floor(activeEdge->xIntersection);
-            TTY_F26Dot6 nextPixel = curPixel + 0x40;
-            TTY_uint32  idx       = curPixel >> 6;
+            TTY_int32        windingNumber = 0;
             
             while (TTY_TRUE) {
-            partial_coverage:
-                // Handle a pixel that is partially covered by the glyph
-                // outline
-
-                if (activeEdge->next != NULL) {
-                    if (activeEdge->next->xIntersection != activeEdge->xIntersection) {
-                        // When two consecutive intersections are the same, one
-                        // of them can be ignored
-
-                        if (activeEdge->next->xIntersection < nextPixel) {
-                            // There are two or more intersections in the same pixel
-
-                            if (windingNumber != 0) {
-                                TTY_ASSERT(idx < pixelsPerRow);
-                                TTY_F26Dot6 coverage = activeEdge->xIntersection - curPixel;
-                                pixelRow[idx] += TTY_F26DOT6_MUL(weightedAlpha, coverage);
-                            }
-                        }
-                        else {
-                            goto apply_coverage_from_intersection_to_next_pixel;
-                        }
-                    }
-                }
-                else {
-                apply_coverage_from_intersection_to_next_pixel:
-
-                    TTY_ASSERT(idx < pixelsPerRow);
-
-                    TTY_F26Dot6 coverage = 
-                        windingNumber == 0 ?
-                        nextPixel - activeEdge->xIntersection :
-                        activeEdge->xIntersection - nextPixel + 0x40;
-                    
-                    pixelRow[idx] += TTY_F26DOT6_MUL(weightedAlpha, coverage);
-                }
-
                 windingNumber += activeEdge->edge->dir;
-                activeEdge     = activeEdge->next;
-                
-                if (activeEdge == NULL) {
-                    break;
-                }
-                
-                if (activeEdge->xIntersection < nextPixel) {
-                    goto partial_coverage;
-                }
 
-                curPixel  += 0x40;
-                nextPixel += 0x40;
-                idx       += 1;
-                
-                if (nextPixel < activeEdge->xIntersection) {
-                    // Handle one or more consecutive pixels that are fully
-                    // covered or fully not covered by the glyph outline
+                if (windingNumber != 0 && activeEdge->xIntersection != activeEdge->next->xIntersection) {
+                    TTY_F26Dot6 x     = 0x40 + tty_f26dot6_floor(activeEdge->xIntersection);
+                    TTY_F26Dot6 xPrev = activeEdge->xIntersection;
+                    TTY_F26Dot6 coverage;
 
-                    if (windingNumber == 0) {
-                        curPixel  = tty_f26dot6_floor(activeEdge->xIntersection);
-                        nextPixel = curPixel + 0x40;
-                        idx       = curPixel >> 6;
+                    if (x >= activeEdge->next->xIntersection) {
+                        coverage = activeEdge->next->xIntersection - activeEdge->xIntersection;
                     }
                     else {
                         do {
-                            TTY_ASSERT(idx < pixelsPerRow);
-                            pixelRow[idx] += weightedAlpha;
-                            curPixel  += 0x40;
-                            nextPixel += 0x40;
-                            idx       += 1;
-                        } while (nextPixel < activeEdge->xIntersection);
+                            TTY_uint32 idx = (x >> 6) - 1;
+                            TTY_ASSERT(idx < pixelsPerRow && "A");
+                            pixelRow[idx] += TTY_F26DOT6_MUL(weightedAlpha, x - xPrev);
+                            xPrev          = x;
+                            x             += 0x40;
+                        } while (x < activeEdge->next->xIntersection);
+
+                        coverage = activeEdge->next->xIntersection - (x - 0x40);
                     }
+
+                    TTY_ASSERT(coverage <= 0x40);
+
+                    TTY_uint32 idx = (tty_f26dot6_ceil(activeEdge->next->xIntersection) >> 6) - 1;
+                    if (idx >= pixelsPerRow) {
+                        printf("%f\n", tty_fix_to_float(activeEdge->xIntersection, 6));
+                    }
+
+                    TTY_ASSERT(idx < pixelsPerRow && "B");
+
+                    pixelRow[idx] += TTY_F26DOT6_MUL(weightedAlpha, coverage);
+                }
+
+                activeEdge = activeEdge->next;
+                if (activeEdge->next == NULL) {
+                    break;
                 }
             }
         }
@@ -2233,7 +2227,7 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
             
             for (TTY_uint32 i = 0; i < pixelsPerImageRow; i++) {
                 TTY_ASSERT(pixelRow[i] >= 0);
-                TTY_ASSERT(pixelRow[i] <= 0x3FC0);
+                TTY_ASSERT(pixelRow[i] >> 6 <= 255);
                 image->pixels[startIdx + i] = pixelRow[i + xImageStart] >> 6;
             }
             
@@ -2426,11 +2420,11 @@ static TTY_bool tty_subdivide_curves_into_edges(TTY_Curve*  curves,
         if (curves[i].p1.x == curves[i].p2.x && curves[i].p1.y == curves[i].p2.y) {
             // The curve is a straight line, no need to flatten it 
 
-            if (curves[i].p0.y != curves[i].p2.y) {
+            // if (curves[i].p0.y != curves[i].p2.y) {
                 // Horizontal lines can be ignored
                 (*numEdges)++;
                 continue;
-            }
+            // }
         }
         else {
             tty_subdivide_curve_into_edges(
@@ -2454,11 +2448,11 @@ static TTY_bool tty_subdivide_curves_into_edges(TTY_Curve*  curves,
         if (curves[i].p1.x == curves[i].p2.x && curves[i].p1.y == curves[i].p2.y) {
             // The curve is a straight line, no need to flatten it
 
-            if (curves[i].p0.y != curves[i].p2.y) {
+            // if (curves[i].p0.y != curves[i].p2.y) {
                 // Horizontal lines can be ignored
                 tty_edge_init(*edges + *numEdges, &curves[i].p0, &curves[i].p2, dir);
                 (*numEdges)++;
-            }
+            // }
         }
         else {
             tty_subdivide_curve_into_edges(
@@ -2615,6 +2609,9 @@ static void tty_swap_active_edge_with_next(TTY_Active_Edge_List* list,
     
     if (prev != NULL) {
         prev->next = edge->next;
+    }
+    else {
+        list->headEdge = edge->next;
     }
 
     TTY_Active_Edge* temp = edge->next->next;
