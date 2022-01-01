@@ -303,6 +303,7 @@ enum {
     TTY_ROUND      = 0x68,
     TTY_ROUND_MAX  = 0x6B,
     TTY_RS         = 0x43,
+    TTY_RTDG       = 0x3D,
     TTY_RTG        = 0x18,
     TTY_RTHG       = 0x19,
     TTY_RUTG       = 0x7C,
@@ -493,6 +494,8 @@ static void tty_ROLL(TTY_Interp* interp);
 static void tty_ROUND(TTY_Interp* interp, TTY_uint8 ins);
 
 static void tty_RS(TTY_Interp* interp);
+
+static void tty_RTDG(TTY_Interp* interp);
 
 static void tty_RTG(TTY_Interp* interp);
 
@@ -1465,6 +1468,7 @@ static TTY_bool tty_extract_composite_glyph_points(TTY*            font,
 
                 if (scaleOffset) {
                     // TODO: Test
+                    TTY_ASSERT(0);
 
                     TTY_F2Dot14 transform[4] = { 0 };
 
@@ -2948,6 +2952,9 @@ static TTY_bool tty_try_execute_shared_ins(TTY_Interp* interp, TTY_uint8 ins) {
         case TTY_RS:
             tty_RS(interp);
             return TTY_TRUE;
+        case TTY_RTDG:
+            tty_RTDG(interp);
+            return TTY_TRUE;
         case TTY_RTG:
             tty_RTG(interp);
             return TTY_TRUE;
@@ -3856,6 +3863,11 @@ static void tty_RS(TTY_Interp* interp) {
     TTY_LOG_VALUE(interp->temp->instance->storage.buffer[idx]);
 }
 
+static void tty_RTDG(TTY_Interp* interp) {
+    TTY_LOG_INS();
+    interp->gState.roundState = TTY_ROUND_TO_DOUBLE_GRID;
+}
+
 static void tty_RTG(TTY_Interp* interp) {
     TTY_LOG_INS();
     interp->gState.roundState = TTY_ROUND_TO_GRID;
@@ -4372,13 +4384,15 @@ static TTY_F26Dot6 tty_round(TTY_Interp* interp, TTY_F26Dot6 val) {
 
     switch (interp->gState.roundState) {
         case TTY_ROUND_TO_HALF_GRID:
+            TTY_ASSERT(val >= 0); // TODO: Test negatives
             return (val & 0xFFFFFFC0) | 0x20;
         case TTY_ROUND_TO_GRID:
             return tty_f26dot6_round(val);
         case TTY_ROUND_TO_DOUBLE_GRID:
-            // TODO
-            TTY_ASSERT(0);
-            break;
+            if ((val & 0x3F) <= 0xF) {
+                return val & 0xFFFFFFE0;
+            }
+            return tty_f26dot6_round(val);
         case TTY_ROUND_DOWN_TO_GRID:
             return tty_f26dot6_floor(val);
         case TTY_ROUND_UP_TO_GRID:
