@@ -581,9 +581,39 @@ static TTY_int32 tty_sub_proj(TTY_Interp* interp, TTY_Fix_V2* a, TTY_Fix_V2* b);
 
 static TTY_int32 tty_sub_dual_proj(TTY_Interp* interp, TTY_Fix_V2* a, TTY_Fix_V2* b);
 
+static void tty_update_proj_dot_free(TTY_Interp* interp);
+
+static void tty_update_move_point_func(TTY_Interp* interp);
+
+static void tty_move_point_x(TTY_Interp* interp, TTY_Zone* zone, TTY_uint32 idx, TTY_F26Dot6 dist);
+
+static void tty_move_point_y(TTY_Interp* interp, TTY_Zone* zone, TTY_uint32 idx, TTY_F26Dot6 dist);
+
 static void tty_move_point(TTY_Interp* interp, TTY_Zone* zone, TTY_uint32 idx, TTY_F26Dot6 dist);
 
+static TTY_F26Dot6 tty_mul_x_free_div_proj_dot_free(TTY_Interp* interp, TTY_F26Dot6 val);
+
+static TTY_F26Dot6 tty_mul_y_free_div_proj_dot_free(TTY_Interp* interp, TTY_F26Dot6 val);
+
 static TTY_F26Dot6 tty_round(TTY_Interp* interp, TTY_F26Dot6 val);
+
+static TTY_F26Dot6 tty_round_to_half_grid(TTY_F26Dot6 val);
+
+static TTY_F26Dot6 tty_round_to_grid(TTY_F26Dot6 val);
+
+static TTY_F26Dot6 tty_round_to_double_grid(TTY_F26Dot6 val);
+
+static TTY_F26Dot6 tty_round_down_to_grid(TTY_F26Dot6 val);
+
+static TTY_F26Dot6 tty_round_up_to_grid(TTY_F26Dot6 val);
+
+static TTY_F2Dot14 tty_f2dot14_round_to_grid(TTY_F2Dot14 val);
+
+static TTY_F26Dot6 tty_f26dot6_round(TTY_F26Dot6 val);
+
+static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val);
+
+static TTY_F26Dot6 tty_f26dot6_ceil(TTY_F26Dot6 val);
 
 static TTY_F26Dot6 tty_apply_single_width_cut_in(TTY_Interp* interp, TTY_F26Dot6 value);
 
@@ -604,10 +634,6 @@ static void tty_iup_interpolate_or_shift(TTY_Zone*      zone1,
                                          TTY_uint16     endPointIdx, 
                                          TTY_uint16     touch0, 
                                          TTY_uint16     touch1);
-
-static void tty_update_active_touch_flags(TTY_Interp* interp);
-
-static void tty_update_proj_dot_free(TTY_Interp* interp);
 
 static TTY_Zone* tty_get_zone_pointer(TTY_Interp* interp, TTY_uint32 zone);
 
@@ -677,14 +703,8 @@ static void tty_normalize(TTY_Fix_V2* v);
 
 static TTY_int64 tty_rounded_div(TTY_int64 a, TTY_int64 b);
 
-static TTY_F26Dot6 tty_f26dot6_round(TTY_F26Dot6 val);
-
-static TTY_F26Dot6 tty_f26dot6_ceil(TTY_F26Dot6 val);
-
-static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val);
-
 /* Note: Result may have more than 2 integer bits */
-static TTY_F2Dot14 tty_f2dot14_round(TTY_F2Dot14 val);
+static TTY_F2Dot14 tty_f2dot14_round_to_grid(TTY_F2Dot14 val);
 
 static TTY_int32 tty_fix_v2_mag(TTY_Fix_V2* v);
 
@@ -1528,8 +1548,8 @@ static TTY_bool tty_extract_composite_glyph_points(TTY*            font,
                 }
 
                 if (flags & TTY_GLYF_ROUND_XY_TO_GRID) {
-                    arg1 = tty_f2dot14_round(arg1) >> 8;
-                    arg2 = tty_f2dot14_round(arg2) >> 8;
+                    arg1 = tty_f2dot14_round_to_grid(arg1) >> 8;
+                    arg2 = tty_f2dot14_round_to_grid(arg2) >> 8;
                 }
                 else {
                     arg1 = TTY_ROUNDED_DIV_POW2(arg1, 0x80, 8);
@@ -2031,10 +2051,9 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         return TTY_FALSE;
     }
 
-
     TTY_F26Dot6 yRel     = tty_f26dot6_ceil(max.y);
     TTY_F26Dot6 yAbs     = yRel  - (y << 6);
-    TTY_F26Dot6 yEndAbs  = min.y - (y << 6);
+    TTY_F26Dot6 yEndAbs  = tty_f26dot6_floor(min.y - (y << 6));
     TTY_int32   yMaxCeil = tty_f26dot6_ceil(max.y) >> 6;
     TTY_uint32  edgeIdx  = 0;
 
@@ -2438,11 +2457,11 @@ static TTY_bool tty_subdivide_curves_into_edges(TTY_Curve*  curves,
         if (curves[i].p1.x == curves[i].p2.x && curves[i].p1.y == curves[i].p2.y) {
             // The curve is a straight line, no need to flatten it 
 
-            // if (curves[i].p0.y != curves[i].p2.y) {
+            if (curves[i].p0.y != curves[i].p2.y) {
                 // Horizontal lines can be ignored
                 (*numEdges)++;
                 continue;
-            // }
+            }
         }
         else {
             tty_subdivide_curve_into_edges(
@@ -2466,11 +2485,11 @@ static TTY_bool tty_subdivide_curves_into_edges(TTY_Curve*  curves,
         if (curves[i].p1.x == curves[i].p2.x && curves[i].p1.y == curves[i].p2.y) {
             // The curve is a straight line, no need to flatten it
 
-            // if (curves[i].p0.y != curves[i].p2.y) {
+            if (curves[i].p0.y != curves[i].p2.y) {
                 // Horizontal lines can be ignored
                 tty_edge_init(*edges + *numEdges, &curves[i].p0, &curves[i].p2, dir);
                 (*numEdges)++;
-            // }
+            }
         }
         else {
             tty_subdivide_curve_into_edges(
@@ -3121,8 +3140,8 @@ static void tty_reset_graphics_state(TTY_Interp* interp) {
         interp->gState.zp2 = NULL;
     }
 
-    interp->gState.activeTouchFlags = TTY_TOUCH_X;
-    interp->gState.projDotFree      = 0x40000000;
+    interp->gState.projDotFree = 0x40000000;
+    interp->gState.move_point  = tty_move_point_x;
 }
 
 static void tty_ABS(TTY_Interp* interp) {
@@ -3151,7 +3170,7 @@ static void tty_ALIGNRP(TTY_Interp* interp) {
         TTY_ASSERT(pointIdx < interp->gState.zp1->numPoints);
 
         TTY_F26Dot6 dist = tty_sub_proj(interp, rp0Cur, interp->gState.zp1->cur + pointIdx);
-        tty_move_point(interp, interp->gState.zp1, pointIdx, dist);
+        interp->gState.move_point(interp, interp->gState.zp1, pointIdx, dist);
 
         TTY_LOG_POINT(interp->gState.zp1->cur[pointIdx]);
     }
@@ -3429,7 +3448,7 @@ static void tty_IP(TTY_Interp* interp) {
         TTY_F26Dot6 distNew = 
             TTY_F26DOT6_DIV(TTY_F26DOT6_MUL(distOrg, totalDistCur), totalDistOrg);
 
-        tty_move_point(interp, interp->gState.zp2, pointIdx, distNew - distCur);
+        interp->gState.move_point(interp, interp->gState.zp2, pointIdx, distNew - distCur);
 
         TTY_LOG_POINT(*pointCur);
     }
@@ -3649,11 +3668,22 @@ static void tty_MDAP(TTY_Interp* interp, TTY_uint8 ins) {
     if (ins & 0x1) {
         TTY_F26Dot6 curDist     = tty_proj(interp, point);
         TTY_F26Dot6 roundedDist = tty_round(interp, curDist);
-        tty_move_point(interp, interp->gState.zp0, pointIdx, roundedDist - curDist);
+        interp->gState.move_point(interp, interp->gState.zp0, pointIdx, roundedDist - curDist);
     }
     else {
         // Don't move the point, just mark it as touched
-        interp->gState.zp0->touchFlags[pointIdx] |= interp->gState.activeTouchFlags;
+
+        if (interp->gState.freedomVec.x != 0) {
+            if (interp->gState.freedomVec.y != 0) {
+                interp->gState.zp0->touchFlags[pointIdx] = TTY_TOUCH_XY;
+            }
+            else {
+                interp->gState.zp0->touchFlags[pointIdx] |= TTY_TOUCH_X;
+            }
+        }
+        else {
+            interp->gState.zp0->touchFlags[pointIdx] |= TTY_TOUCH_Y;
+        }
     }
 
     interp->gState.rp0 = pointIdx;
@@ -3708,7 +3738,7 @@ static void tty_MDRP(TTY_Interp* interp, TTY_uint8 ins) {
         interp->gState.rp0 = pointIdx;
     }
 
-    tty_move_point(interp, interp->gState.zp1, pointIdx, distOrg - distCur);
+    interp->gState.move_point(interp, interp->gState.zp1, pointIdx, distOrg - distCur);
 
     interp->gState.rp1 = interp->gState.rp0;
     interp->gState.rp2 = pointIdx;
@@ -3745,7 +3775,7 @@ static void tty_MIAP(TTY_Interp* interp, TTY_uint8 ins) {
         newDist = tty_round(interp, newDist);
     }
 
-    tty_move_point(interp, interp->gState.zp0, pointIdx, newDist - curDist);
+    interp->gState.move_point(interp, interp->gState.zp0, pointIdx, newDist - curDist);
     
     interp->gState.rp0 = pointIdx;
     interp->gState.rp1 = pointIdx;
@@ -3824,7 +3854,7 @@ static void tty_MIRP(TTY_Interp* interp, TTY_uint8 ins) {
         distNew = tty_apply_min_dist(interp, distNew);
     }
 
-    tty_move_point(interp, interp->gState.zp1, pointIdx, distNew - distCur);
+    interp->gState.move_point(interp, interp->gState.zp1, pointIdx, distNew - distCur);
 
     interp->gState.rp1 = interp->gState.rp0;
     interp->gState.rp2 = pointIdx;
@@ -4088,6 +4118,7 @@ static void tty_SDPVTL(TTY_Interp* interp, TTY_uint8 ins) {
 
     tty_normalize(&interp->gState.projVec);
     tty_update_proj_dot_free(interp);
+    tty_update_move_point_func(interp);
 
     TTY_LOG_POINT(interp->gState.dualProjVec);
     TTY_LOG_POINT(interp->gState.projVec);
@@ -4119,8 +4150,8 @@ static void tty_SFVTL(TTY_Interp* interp, TTY_uint8 ins) {
         interp->gState.freedomVec.y = diff.y;
     }
 
-    tty_update_active_touch_flags(interp);
     tty_update_proj_dot_free(interp);
+    tty_update_move_point_func(interp);
 
     TTY_LOG_POINT(interp->gState.freedomVec);
     TTY_LOG_VALUE(interp->gState.projDotFree);
@@ -4136,17 +4167,16 @@ static void tty_SFVTCA(TTY_Interp* interp, TTY_uint8 ins) {
     TTY_LOG_INS();
 
     if (ins & 0x1) {
-        interp->gState.freedomVec.x     = 0x4000;
-        interp->gState.freedomVec.y     = 0;
-        interp->gState.projDotFree      = interp->gState.projVec.x << 16;
-        interp->gState.activeTouchFlags = TTY_TOUCH_X;
+        interp->gState.freedomVec.x = 0x4000;
+        interp->gState.freedomVec.y = 0;
     }
     else {
-        interp->gState.freedomVec.x     = 0;
-        interp->gState.freedomVec.y     = 0x4000;
-        interp->gState.projDotFree      = interp->gState.projVec.y << 16;
-        interp->gState.activeTouchFlags = TTY_TOUCH_Y;
+        interp->gState.freedomVec.x = 0;
+        interp->gState.freedomVec.y = 0x4000;
     }
+
+    tty_update_proj_dot_free(interp);
+    tty_update_move_point_func(interp);
 
     TTY_LOG_POINT(interp->gState.freedomVec);
     TTY_LOG_VALUE(interp->gState.projDotFree);
@@ -4157,7 +4187,8 @@ static void tty_SFVTPV(TTY_Interp* interp) {
     TTY_LOG_INS();
     
     // interp->gState.freedomVec = interp->gState.projVec;
-    // tty_update_active_touch_flags(&interp);
+    // tty_update_proj_dot_free(&interp);
+    // tty_update_move_point_func(&interp);
 
     TTY_LOG_POINT(interp->gState.freedomVec);
 }
@@ -4182,20 +4213,23 @@ static void tty_SHP(TTY_Interp* interp, TTY_uint8 ins) {
 
         TTY_F26Dot6 d = tty_sub_proj(interp, refPointCur, refPointOrg);
 
-        dist.x = tty_rounded_div(
-            (TTY_int64)d * (interp->gState.freedomVec.x << 16), interp->gState.projDotFree);
-
-        dist.y = tty_rounded_div(
-            (TTY_int64)d * (interp->gState.freedomVec.y << 16), interp->gState.projDotFree);
+        dist.x = tty_mul_x_free_div_proj_dot_free(interp, d);
+        dist.y = tty_mul_y_free_div_proj_dot_free(interp, d);
     }
 
     for (TTY_uint32 i = 0; i < interp->gState.loop; i++) {
         TTY_uint32 pointIdx = tty_stack_pop(&interp->stack);
         TTY_ASSERT(pointIdx < interp->gState.zp2->numPoints);
 
-        interp->gState.zp2->cur[pointIdx].x      += dist.x;
-        interp->gState.zp2->cur[pointIdx].y      += dist.y;
-        interp->gState.zp2->touchFlags[pointIdx] |= interp->gState.activeTouchFlags;
+        if (interp->gState.freedomVec.x != 0) {
+            interp->gState.zp2->cur[pointIdx].x      += dist.x;
+            interp->gState.zp2->touchFlags[pointIdx] |= TTY_TOUCH_X;
+        }
+
+        if (interp->gState.freedomVec.y != 0) {
+            interp->gState.zp2->cur[pointIdx].y      += dist.y;
+            interp->gState.zp2->touchFlags[pointIdx] |= TTY_TOUCH_Y;
+        }
 
         TTY_LOG_POINT(interp->gState.zp2->cur[pointIdx]);
     }
@@ -4217,9 +4251,15 @@ static void tty_SHPIX(TTY_Interp* interp) {
         TTY_uint32 pointIdx = tty_stack_pop(&interp->stack);
         TTY_ASSERT(pointIdx < interp->gState.zp2->numPoints);
 
-        interp->gState.zp2->cur[pointIdx].x      += dist.x;
-        interp->gState.zp2->cur[pointIdx].y      += dist.y;
-        interp->gState.zp2->touchFlags[pointIdx] |= interp->gState.activeTouchFlags;
+        if (interp->gState.freedomVec.x != 0) {
+            interp->gState.zp2->cur[pointIdx].x      += dist.x;
+            interp->gState.zp2->touchFlags[pointIdx] |= TTY_TOUCH_X;
+        }
+
+        if (interp->gState.freedomVec.y != 0) {
+            interp->gState.zp2->cur[pointIdx].y      += dist.y;
+            interp->gState.zp2->touchFlags[pointIdx] |= TTY_TOUCH_Y;
+        }
 
         TTY_LOG_POINT(interp->gState.zp2->cur[pointIdx]);
     }
@@ -4243,18 +4283,21 @@ static void tty_SPVTCA(TTY_Interp* interp, TTY_uint8 ins) {
     TTY_LOG_INS();
 
     if (ins & 0x1) {
-        interp->gState.projVec.x        = 0x4000;
-        interp->gState.projVec.y        = 0;
-        interp->gState.activeTouchFlags = TTY_TOUCH_X;
+        interp->gState.projVec.x = 0x4000;
+        interp->gState.projVec.y = 0;
     }
     else {
-        interp->gState.projVec.x        = 0;
-        interp->gState.projVec.y        = 0x4000;
-        interp->gState.activeTouchFlags = TTY_TOUCH_Y;
+        interp->gState.projVec.x = 0;
+        interp->gState.projVec.y = 0x4000;
     }
 
     interp->gState.dualProjVec = interp->gState.projVec;
-    interp->gState.projDotFree = 0x40000000;
+    tty_update_proj_dot_free(interp);
+    tty_update_move_point_func(interp);
+
+    TTY_LOG_POINT(interp->gState.projVec);
+    TTY_LOG_POINT(interp->gState.dualProjVec);
+    TTY_LOG_VALUE(interp->gState.projDotFree);
 }
 
 static void tty_SRP0(TTY_Interp* interp) {
@@ -4287,14 +4330,14 @@ static void tty_SVTCA(TTY_Interp* interp, TTY_uint8 ins) {
     TTY_LOG_INS();
 
     if (ins & 0x1) {
-        interp->gState.freedomVec.x     = 0x4000;
-        interp->gState.freedomVec.y     = 0;
-        interp->gState.activeTouchFlags = TTY_TOUCH_X;
+        interp->gState.freedomVec.x = 0x4000;
+        interp->gState.freedomVec.y = 0;
+        interp->gState.move_point   = tty_move_point_x;
     }
     else {
-        interp->gState.freedomVec.x     = 0;
-        interp->gState.freedomVec.y     = 0x4000;
-        interp->gState.activeTouchFlags = TTY_TOUCH_Y;
+        interp->gState.freedomVec.x = 0;
+        interp->gState.freedomVec.y = 0x4000;
+        interp->gState.move_point   = tty_move_point_y;
     }
 
     interp->gState.projVec     = interp->gState.freedomVec;
@@ -4484,10 +4527,61 @@ static TTY_int32 tty_sub_dual_proj(TTY_Interp* interp, TTY_Fix_V2* a, TTY_Fix_V2
     return tty_dual_proj(interp, &diff);
 }
 
+static void tty_update_proj_dot_free(TTY_Interp* interp) {
+    interp->gState.projDotFree =
+        TTY_F2DOT30_MUL(interp->gState.projVec.x << 16, interp->gState.freedomVec.x << 16) +
+        TTY_F2DOT30_MUL(interp->gState.projVec.y << 16, interp->gState.freedomVec.y << 16);
+
+    if (labs(interp->gState.projDotFree) < 0x4000000) {
+        interp->gState.projDotFree = 0x40000000;
+    }
+}
+
+static void tty_update_move_point_func(TTY_Interp* interp) {
+    interp->gState.move_point = tty_move_point;
+
+    if (interp->gState.projDotFree == 0x4000000) {
+        if (interp->gState.freedomVec.x == 0) {
+            interp->gState.move_point = tty_move_point_y;
+        }
+        else if (interp->gState.freedomVec.y == 0) {
+            interp->gState.move_point = tty_move_point_x;
+        }
+    }
+}
+
+static void tty_move_point_x(TTY_Interp* interp, TTY_Zone* zone, TTY_uint32 idx, TTY_F26Dot6 dist) {
+    // freedomVec = [1, 0] and projDotFree = 1
+    zone->cur[idx].x      += dist;
+    zone->touchFlags[idx] |= TTY_TOUCH_X;
+}
+
+static void tty_move_point_y(TTY_Interp* interp, TTY_Zone* zone, TTY_uint32 idx, TTY_F26Dot6 dist) {
+    // freedomVec = [0, 1] and projDotFree = 1
+    zone->cur[idx].y      += dist;
+    zone->touchFlags[idx] |= TTY_TOUCH_Y;
+}
+
 static void tty_move_point(TTY_Interp* interp, TTY_Zone* zone, TTY_uint32 idx, TTY_F26Dot6 dist) {
-    zone->cur[idx].x      += TTY_F2DOT14_MUL(dist, interp->gState.freedomVec.x);
-    zone->cur[idx].y      += TTY_F2DOT14_MUL(dist, interp->gState.freedomVec.y);
-    zone->touchFlags[idx] |= interp->gState.activeTouchFlags;
+    if (interp->gState.freedomVec.x != 0) {
+        zone->cur[idx].x      += tty_mul_x_free_div_proj_dot_free(interp, dist);
+        zone->touchFlags[idx] |= TTY_TOUCH_X;
+    }
+
+    if (interp->gState.freedomVec.y != 0) {
+        zone->cur[idx].y      += tty_mul_y_free_div_proj_dot_free(interp, dist);
+        zone->touchFlags[idx] |= TTY_TOUCH_Y;
+    }
+}
+
+static TTY_F26Dot6 tty_mul_x_free_div_proj_dot_free(TTY_Interp* interp, TTY_F26Dot6 val) {
+    return tty_rounded_div(
+        (TTY_int64)val * (interp->gState.freedomVec.x << 16), interp->gState.projDotFree);
+}
+
+static TTY_F26Dot6 tty_mul_y_free_div_proj_dot_free(TTY_Interp* interp, TTY_F26Dot6 val) {
+    return tty_rounded_div(
+        (TTY_int64)val * (interp->gState.freedomVec.y << 16), interp->gState.projDotFree);
 }
 
 static TTY_F26Dot6 tty_round(TTY_Interp* interp, TTY_F26Dot6 val) {
@@ -4495,25 +4589,80 @@ static TTY_F26Dot6 tty_round(TTY_Interp* interp, TTY_F26Dot6 val) {
 
     switch (interp->gState.roundState) {
         case TTY_ROUND_TO_HALF_GRID:
-            TTY_ASSERT(val >= 0); // TODO: Test negatives
-            return (val & 0xFFFFFFC0) | 0x20;
+            return tty_round_to_half_grid(val);
         case TTY_ROUND_TO_GRID:
-            return tty_f26dot6_round(val);
+            return tty_round_to_grid(val);
         case TTY_ROUND_TO_DOUBLE_GRID:
-            if ((val & 0x3F) <= 0xF) {
-                return val & 0xFFFFFFE0;
-            }
-            return tty_f26dot6_round(val);
+            return tty_round_to_double_grid(val);
         case TTY_ROUND_DOWN_TO_GRID:
-            return tty_f26dot6_floor(val);
+            return tty_round_down_to_grid(val);
         case TTY_ROUND_UP_TO_GRID:
-            return tty_f26dot6_ceil(val);
+            return tty_round_up_to_grid(val);
         case TTY_ROUND_OFF:
             return val;
     }
 
     TTY_ASSERT(0);
     return 0;
+}
+
+static TTY_F26Dot6 tty_round_to_half_grid(TTY_F26Dot6 val) {
+    if (val < 0) {
+        val = -val;
+        return -((val & 0xFFFFFFC0) | 0x20);
+    }
+    return (val & 0xFFFFFFC0) | 0x20;
+}
+
+static TTY_F26Dot6 tty_round_to_grid(TTY_F26Dot6 val) {
+    if (val < 0) { 
+        val = -val;
+        return -(((val & 0x20) << 1) + (val & 0xFFFFFFC0));
+    }
+    return ((val & 0x20) << 1) + (val & 0xFFFFFFC0);
+}
+
+static TTY_F26Dot6 tty_round_to_double_grid(TTY_F26Dot6 val) {
+    if ((val & 0x3F) <= 0xF) {
+        return val & 0xFFFFFFE0;
+    }
+    return tty_f26dot6_round(val);
+}
+
+static TTY_F26Dot6 tty_round_down_to_grid(TTY_F26Dot6 val) {
+    if (val < 0) {
+        val = -val;
+        return -(val & 0xFFFFFFC0);
+    }
+    return val & 0xFFFFFFC0;
+}
+
+static TTY_F26Dot6 tty_round_up_to_grid(TTY_F26Dot6 val) {
+    if (val < 0) {
+        val = -val;
+        return -((val & 0x3F) ? (val & 0xFFFFFFC0) + 0x40 : val);
+    }
+    return (val & 0x3F) ? (val & 0xFFFFFFC0) + 0x40 : val;
+}
+
+static TTY_F2Dot14 tty_f2dot14_round_to_grid(TTY_F2Dot14 val) {
+    if (val < 0) {
+        val = -val;
+        return -(((val & 0x2000) << 1) + (val & 0xFFFFC000));
+    }
+    return ((val & 0x2000) << 1) + (val & 0xFFFFC000);
+}
+
+static TTY_F26Dot6 tty_f26dot6_round(TTY_F26Dot6 val) {
+    return ((val & 0x20) << 1) + (val & 0xFFFFFFC0);
+}
+
+static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val) {
+    return val & 0xFFFFFFC0;
+}
+
+static TTY_F26Dot6 tty_f26dot6_ceil(TTY_F26Dot6 val) {
+    return (val & 0x3F) ? (val & 0xFFFFFFC0) + 0x40 : val;
 }
 
 static TTY_F26Dot6 tty_apply_single_width_cut_in(TTY_Interp* interp, TTY_F26Dot6 value) {
@@ -4567,7 +4716,7 @@ static void tty_deltap(TTY_Interp* interp, TTY_uint8 range) {
 
         TTY_F26Dot6 deltaVal;
         if (tty_get_delta_value(interp, exc, range, &deltaVal)) {
-            tty_move_point(interp, interp->gState.zp0, pointIdx, deltaVal);
+            interp->gState.move_point(interp, interp->gState.zp0, pointIdx, deltaVal);
             TTY_LOG_VALUE(deltaVal);
         }
 
@@ -4671,28 +4820,6 @@ static void tty_iup_interpolate_or_shift(TTY_Zone*      zone1,
     #undef TTY_IUP_INTERPOLATE_OR_SHIFT
 }
 
-static void tty_update_active_touch_flags(TTY_Interp* interp) {
-    interp->gState.activeTouchFlags = 0;
-
-    if (interp->gState.freedomVec.x != 0) {
-        interp->gState.activeTouchFlags |= TTY_TOUCH_X;
-    }
-
-    if (interp->gState.freedomVec.y != 0) {
-        interp->gState.activeTouchFlags |= TTY_TOUCH_Y;
-    }
-}
-
-static void tty_update_proj_dot_free(TTY_Interp* interp) {
-    interp->gState.projDotFree =
-        TTY_F2DOT30_MUL(interp->gState.projVec.x << 16, interp->gState.freedomVec.x << 16) +
-        TTY_F2DOT30_MUL(interp->gState.projVec.y << 16, interp->gState.freedomVec.y << 16);
-
-    if (labs(interp->gState.projDotFree) < 0x4000000) {
-        interp->gState.projDotFree = 0x40000000;
-    }
-}
-
 static TTY_Zone* tty_get_zone_pointer(TTY_Interp* interp, TTY_uint32 zone) {
     switch (zone) {
         case 0:
@@ -4778,27 +4905,6 @@ static void tty_normalize(TTY_Fix_V2* v) {
 /* ---------------- */
 static TTY_int64 tty_rounded_div(TTY_int64 a, TTY_int64 b) {
     return b == 0 ? 0 : (a < 0) ^ (b < 0) ? (a - b / 2) / b : (a + b / 2) / b;
-}
-
-static TTY_F26Dot6 tty_f26dot6_round(TTY_F26Dot6 val) {
-    // TODO: simplify?
-    if (val < 0) { 
-        val = -val;
-        return -(((val & 0x20) << 1) + (val & 0xFFFFFFC0));
-    }
-    return ((val & 0x20) << 1) + (val & 0xFFFFFFC0);
-}
-
-static TTY_F26Dot6 tty_f26dot6_ceil(TTY_F26Dot6 val) {
-    return (val & 0x3F) ? (val & 0xFFFFFFC0) + 0x40 : val;
-}
-
-static TTY_F26Dot6 tty_f26dot6_floor(TTY_F26Dot6 val) {
-    return val & 0xFFFFFFC0;
-}
-
-static TTY_F2Dot14 tty_f2dot14_round(TTY_F2Dot14 val) {
-    return ((val & 0x2000) << 1) + (val & 0xFFFFC000);
 }
 
 static TTY_int32 tty_fix_v2_mag(TTY_Fix_V2* v) {

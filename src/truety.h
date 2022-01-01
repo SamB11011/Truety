@@ -44,6 +44,8 @@ typedef enum {
 } TTY_Touch_Flag;
 
 
+struct TTY_Interp;
+
 typedef struct {
     TTY_int32 x, y;
 } TTY_V2,
@@ -116,8 +118,8 @@ typedef struct {
     TTY_Zone*      zp1;
     TTY_Zone*      zp2;
     
-    TTY_Touch_Flag activeTouchFlags; /* Helper variable */
-    TTY_F2Dot30    projDotFree;      /* Helper variable */
+    TTY_F2Dot30 projDotFree;
+    void (*move_point)(struct TTY_Interp*, TTY_Zone*, TTY_uint32, TTY_F26Dot6);
 } TTY_Graphics_State;
 
 typedef struct {
@@ -159,8 +161,6 @@ typedef struct {
         TTY_Zone     zone1;
     };
 } TTY_Glyph_Data;
-
-struct TTY_Interp;
 
 typedef struct {
     TTY_Ins_Stream  stream;
