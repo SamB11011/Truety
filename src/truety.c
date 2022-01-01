@@ -265,6 +265,7 @@ enum {
     TTY_IDEF       = 0x89,
     TTY_IF         = 0x58,
     TTY_IP         = 0x39,
+    TTY_ISECT      = 0x0F,
     TTY_IUP        = 0x30,
     TTY_IUP_MAX    = 0x31,
     TTY_JROT       = 0x78,
@@ -436,6 +437,8 @@ static void tty_IDEF(TTY_Interp* interp);
 static void tty_IF(TTY_Interp* interp);
 
 static void tty_IP(TTY_Interp* interp);
+
+static void tty_ISECT(TTY_Interp* interp);
 
 static void tty_IUP(TTY_Interp* interp, TTY_uint8 ins);
 
@@ -2776,6 +2779,9 @@ static void tty_execute_next_glyph_program_ins(TTY_Interp* interp) {
         case TTY_IP:
             tty_IP(interp);
             return;
+        case TTY_ISECT:
+            tty_ISECT(interp);
+            return;
         case TTY_SHPIX:
             tty_SHPIX(interp);
             return;
@@ -3416,6 +3422,62 @@ static void tty_IP(TTY_Interp* interp) {
     interp->gState.loop = 1;
 }
 
+static void tty_ISECT(TTY_Interp* interp) {
+    TTY_LOG_INS();
+
+    TTY_F26Dot6_V2* point;
+    TTY_F26Dot6 x1, y1;
+    TTY_F26Dot6 x2, y2;
+    TTY_F26Dot6 x3, y3;
+    TTY_F26Dot6 x4, y4;
+
+    {
+        TTY_uint32 a2Idx    = tty_stack_pop(&interp->stack);
+        TTY_uint32 a1Idx    = tty_stack_pop(&interp->stack);
+        TTY_uint32 b2Idx    = tty_stack_pop(&interp->stack);
+        TTY_uint32 b1Idx    = tty_stack_pop(&interp->stack);
+        TTY_uint32 pointIdx = tty_stack_pop(&interp->stack);
+
+        TTY_ASSERT(a2Idx    < interp->gState.zp1->numPoints);
+        TTY_ASSERT(a1Idx    < interp->gState.zp1->numPoints);
+        TTY_ASSERT(b2Idx    < interp->gState.zp0->numPoints);
+        TTY_ASSERT(b1Idx    < interp->gState.zp0->numPoints);
+        TTY_ASSERT(pointIdx < interp->gState.zp2->numPoints);
+
+        x1 = interp->gState.zp1->cur[a1Idx].x;
+        y1 = interp->gState.zp1->cur[a1Idx].y;
+
+        x2 = interp->gState.zp1->cur[a2Idx].x;
+        y2 = interp->gState.zp1->cur[a2Idx].y;
+
+        x3 = interp->gState.zp0->cur[b1Idx].x;
+        y3 = interp->gState.zp0->cur[b1Idx].y;
+
+        x4 = interp->gState.zp0->cur[b2Idx].x;
+        y4 = interp->gState.zp0->cur[b2Idx].y;
+
+        point = interp->gState.zp2->cur + pointIdx;
+        interp->gState.zp2->touchFlags[pointIdx] |= TTY_TOUCH_XY;
+    }
+
+    TTY_F26Dot6 denom  = TTY_F26DOT6_MUL(x1 - x2, y3 - y4) - TTY_F26DOT6_MUL(y1 - y2, x3 - x4);
+    TTY_F26Dot6 lShare = TTY_F26DOT6_MUL(x1, y2) - TTY_F26DOT6_MUL(y1, x2);
+    TTY_F26Dot6 rShare = TTY_F26DOT6_MUL(x3, y4) - TTY_F26DOT6_MUL(y3, x4);
+    TTY_F26Dot6 l, r;
+
+    TTY_ASSERT(denom != 0);
+
+    l = TTY_F26DOT6_MUL(lShare, x3 - x4);
+    r = TTY_F26DOT6_MUL(rShare, x1 - x2);
+    point->x = TTY_F26DOT6_DIV(l - r, denom);
+
+    l = TTY_F26DOT6_MUL(lShare, y3 - y4);
+    r = TTY_F26DOT6_MUL(rShare, y1 - y2);
+    point->y = TTY_F26DOT6_DIV(l - r, denom);
+
+    TTY_LOG_POINT(*point);
+}
+
 static void tty_IUP(TTY_Interp* interp, TTY_uint8 ins) {
     TTY_LOG_INS();
 
@@ -4030,14 +4092,16 @@ static void tty_SFVTCA(TTY_Interp* interp, TTY_uint8 ins) {
     TTY_LOG_INS();
 
     if (ins & 0x1) {
-        interp->gState.freedomVec.x = 0x4000;
-        interp->gState.freedomVec.y = 0;
-        interp->gState.projDotFree  = interp->gState.projVec.x << 16;
+        interp->gState.freedomVec.x     = 0x4000;
+        interp->gState.freedomVec.y     = 0;
+        interp->gState.projDotFree      = interp->gState.projVec.x << 16;
+        interp->gState.activeTouchFlags = TTY_TOUCH_X;
     }
     else {
-        interp->gState.freedomVec.x = 0;
-        interp->gState.freedomVec.y = 0x4000;
-        interp->gState.projDotFree  = interp->gState.projVec.y << 16;
+        interp->gState.freedomVec.x     = 0;
+        interp->gState.freedomVec.y     = 0x4000;
+        interp->gState.projDotFree      = interp->gState.projVec.y << 16;
+        interp->gState.activeTouchFlags = TTY_TOUCH_Y;
     }
 
     TTY_LOG_POINT(interp->gState.freedomVec);
@@ -4047,7 +4111,16 @@ static void tty_SFVTCA(TTY_Interp* interp, TTY_uint8 ins) {
 static void tty_SFVTPV(TTY_Interp* interp) {
     // TODO: For some reason FreeType ignores this instruction
     TTY_LOG_INS();
+    
     // interp->gState.freedomVec = interp->gState.projVec;
+    // 
+    // if (interp->gState.freedomVec.x != 0) {
+    //     interp->gState.activeTouchFlags |= TTY_TOUCH_X;
+    // }
+    // if (interp->gState.freedomVec.y != 0) {
+    //     interp->gState.activeTouchFlags |= TTY_TOUCH_Y;
+    // }
+
     TTY_LOG_POINT(interp->gState.freedomVec);
 }
 

@@ -40,6 +40,7 @@ typedef enum {
     TTY_UNTOUCHED = 0x0,
     TTY_TOUCH_X   = 0x1,
     TTY_TOUCH_Y   = 0x2,
+    TTY_TOUCH_XY  = 0x3,
 } TTY_Touch_Flag;
 
 
