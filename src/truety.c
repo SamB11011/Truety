@@ -745,7 +745,7 @@ static TTY_int32 tty_get_glyph_top_side_bearing(TTY* font, TTY_int16 yMax);
 /* Debugging and Logging */
 /* --------------------- */
 #define TTY_DEBUG
-#define TTY_LOGGING
+// #define TTY_LOGGING
 
 #ifdef TTY_DEBUG
     #define TTY_ASSERT(cond) assert(cond)
@@ -1415,13 +1415,13 @@ static TTY_bool tty_extract_composite_glyph_points(TTY*            font,
                 return TTY_FALSE;
             }
 
-            tty_set_phantom_points(font, data, data->zone1.org);
+            tty_set_phantom_points(font, data, data->zone1.org + numOutlinePoints);
 
             tty_scale_glyph_points(
-                data->zone1.orgScaled, data->zone1.org, TTY_NUM_PHANTOM_POINTS, instance->scale);
+                data->zone1.orgScaled, data->zone1.org, data->zone1.numPoints, instance->scale);
 
             memcpy(
-                data->zone1.cur, data->zone1.orgScaled, TTY_NUM_PHANTOM_POINTS * sizeof(TTY_V2));
+                data->zone1.cur, data->zone1.orgScaled, data->zone1.numPoints * sizeof(TTY_V2));
 
             tty_round_phantom_points(data->zone1.cur);
         }
@@ -1430,10 +1430,10 @@ static TTY_bool tty_extract_composite_glyph_points(TTY*            font,
                 return TTY_FALSE;
             }
             
-            tty_set_phantom_points(font, data, data->unhinted.points);
+            tty_set_phantom_points(font, data, data->unhinted.points + numOutlinePoints);
 
             tty_scale_glyph_points(
-                data->unhinted.points, data->unhinted.points, TTY_NUM_PHANTOM_POINTS, 
+                data->unhinted.points, data->unhinted.points, data->unhinted.numPoints, 
                 instance->scale);
 
             tty_round_phantom_points(data->unhinted.points);
