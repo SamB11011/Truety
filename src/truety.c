@@ -231,7 +231,7 @@ static void tty_swap_active_edge_with_next(TTY_Active_Edge_List* list,
 /* --------------------- */
 /* Instruction Execution */
 /* --------------------- */
-#define TTY_SCALAR_VERSION     35
+#define TTY_SCALAR_VERSION     40
 #define TTY_NUM_PHANTOM_POINTS  4
 
 enum {
@@ -290,6 +290,7 @@ enum {
     TTY_MUL        = 0x63,
     TTY_NEG        = 0x65,
     TTY_NEQ        = 0x55,
+    TTY_NOT        = 0x5C,
     TTY_NPUSHB     = 0x40,
     TTY_NPUSHW     = 0x41,
     TTY_OR         = 0x5B,
@@ -478,6 +479,8 @@ static void tty_MUL(TTY_Interp* interp);
 static void tty_NEG(TTY_Interp* interp);
 
 static void tty_NEQ(TTY_Interp* interp);
+
+static void tty_NOT(TTY_Interp* interp);
 
 static void tty_NPUSHB(TTY_Interp* interp);
 
@@ -2665,9 +2668,6 @@ static void tty_swap_active_edge_with_next(TTY_Active_Edge_List* list,
 /* --------------------- */
 /* Instruction Execution */
 /* --------------------- */
-#define TTY_SCALAR_VERSION     35
-#define TTY_NUM_PHANTOM_POINTS  4
-
 static void tty_execute_font_program(TTY* font) {
     TTY_LOG_PROGRAM("Font Program");
     
@@ -2975,6 +2975,9 @@ static TTY_bool tty_try_execute_shared_ins(TTY_Interp* interp, TTY_uint8 ins) {
             return TTY_TRUE;
         case TTY_NEQ:
             tty_NEQ(interp);
+            return TTY_TRUE;
+        case TTY_NOT:
+            tty_NOT(interp);
             return TTY_TRUE;
         case TTY_NPUSHB:
             tty_NPUSHB(interp);
@@ -3323,12 +3326,10 @@ static void tty_GC(TTY_Interp* interp, TTY_uint8 ins) {
 static void tty_GETINFO(TTY_Interp* interp) {
     TTY_LOG_INS();
 
-    // These are the only supported selector bits for scalar version 35
     enum {
-        TTY_VERSION                  = 0x01,
-        TTY_GLYPH_ROTATED            = 0x02,
-        TTY_GLYPH_STRETCHED          = 0x04,
-        TTY_FONT_SMOOTHING_GRAYSCALE = 0x20,
+        TTY_VERSION         = 0x01,
+        TTY_GLYPH_ROTATED   = 0x02,
+        TTY_GLYPH_STRETCHED = 0x04,
     };
 
     TTY_uint32 result   = 0;
@@ -3337,18 +3338,17 @@ static void tty_GETINFO(TTY_Interp* interp) {
     if (selector & TTY_VERSION) {
         result = TTY_SCALAR_VERSION;
     }
+
     if (selector & TTY_GLYPH_ROTATED) {
         if (interp->temp->instance->isRotated) {
             result |= 0x100;
         }
     }
+
     if (selector & TTY_GLYPH_STRETCHED) {
         if (interp->temp->instance->isStretched) {
             result |= 0x200;
         }
-    }
-    if (selector & TTY_FONT_SMOOTHING_GRAYSCALE) {
-        // result |= 0x1000;
     }
 
     tty_stack_push(&interp->stack, result);
@@ -3356,9 +3356,9 @@ static void tty_GETINFO(TTY_Interp* interp) {
 }
 
 static void tty_GPV(TTY_Interp* interp) {
-    // TODO
     TTY_LOG_INS();
-    TTY_ASSERT(0);
+    tty_stack_push(&interp->stack, interp->gState.projVec.x);
+    tty_stack_push(&interp->stack, interp->gState.projVec.y);
 }
 
 static void tty_GT(TTY_Interp* interp) {
@@ -3910,6 +3910,13 @@ static void tty_NEQ(TTY_Interp* interp) {
     TTY_int32 e2 = tty_stack_pop(&interp->stack);
     TTY_int32 e1 = tty_stack_pop(&interp->stack);
     tty_stack_push(&interp->stack, e1 != e2 ? 1 : 0);
+    TTY_LOG_PUSHED_VALUE(interp->stack);
+}
+
+static void tty_NOT(TTY_Interp* interp) {
+    TTY_LOG_INS();
+    TTY_int32 val = tty_stack_pop(&interp->stack);
+    tty_stack_push(&interp->stack, !val);
     TTY_LOG_PUSHED_VALUE(interp->stack);
 }
 
