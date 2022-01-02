@@ -4207,14 +4207,12 @@ static void tty_SFVTCA(TTY_Interp* interp, TTY_uint8 ins) {
 }
 
 static void tty_SFVTPV(TTY_Interp* interp) {
-    // TODO: For some reason FreeType ignores this instruction
     TTY_LOG_INS();
-    
-    // interp->gState.freedomVec = interp->gState.projVec;
-    // tty_update_proj_dot_free(&interp);
-    // tty_update_move_point_func(&interp);
-
+    interp->gState.freedomVec = interp->gState.projVec;
+    tty_update_proj_dot_free(interp);
+    tty_update_move_point_func(interp);
     TTY_LOG_POINT(interp->gState.freedomVec);
+    TTY_LOG_VALUE(interp->gState.projDotFree);
 }
 
 static void tty_SHP(TTY_Interp* interp, TTY_uint8 ins) {
