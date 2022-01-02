@@ -43,6 +43,13 @@ typedef enum {
     TTY_TOUCH_XY  = 0x3,
 } TTY_Touch_Flag;
 
+typedef enum {
+    TTY_IUP_STATE_DEFAULT = 0x0,
+    TTY_IUP_STATE_X       = 0x1,
+    TTY_IUP_STATE_Y       = 0x2,
+    TTY_IUP_STATE_XY      = 0x3,
+} TTY_IUP_State;
+
 
 struct TTY_Interp;
 
@@ -166,6 +173,7 @@ typedef struct {
     TTY_Ins_Stream  stream;
     TTY_Instance*   instance;
     TTY_Glyph_Data* glyphData;
+    TTY_IUP_State   iupState;
     void (*execute_next_ins)(struct TTY_Interp*);
 } TTY_Temp_Interp_Data;
 

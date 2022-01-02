@@ -591,6 +591,11 @@ static void tty_move_point_y(TTY_Interp* interp, TTY_Zone* zone, TTY_uint32 idx,
 
 static void tty_move_point(TTY_Interp* interp, TTY_Zone* zone, TTY_uint32 idx, TTY_F26Dot6 dist);
 
+static void tty_move_point_zp2(TTY_Interp*     interp, 
+                               TTY_uint32      idx, 
+                               TTY_F26Dot6_V2* dist, 
+                               TTY_bool        touch);
+
 static TTY_F26Dot6 tty_mul_x_free_div_proj_dot_free(TTY_Interp* interp, TTY_F26Dot6 val);
 
 static TTY_F26Dot6 tty_mul_y_free_div_proj_dot_free(TTY_Interp* interp, TTY_F26Dot6 val);
@@ -2669,6 +2674,7 @@ static void tty_execute_font_program(TTY* font) {
     TTY_Temp_Interp_Data temp;
     temp.instance         = NULL;
     temp.glyphData        = NULL;
+    temp.iupState         = TTY_IUP_STATE_DEFAULT;
     temp.execute_next_ins = NULL;
     tty_ins_stream_init(&temp.stream, font->data + font->fpgm.off);
 
@@ -2691,6 +2697,7 @@ static void tty_execute_cv_program(TTY* font, TTY_Instance* instance) {
     TTY_Temp_Interp_Data temp;
     temp.instance         = instance;
     temp.glyphData        = NULL;
+    temp.iupState         = TTY_IUP_STATE_DEFAULT;
     temp.execute_next_ins = tty_execute_next_cv_program_ins;
     tty_ins_stream_init(&temp.stream, font->data + font->prep.off);
 
@@ -2714,8 +2721,9 @@ static void tty_execute_glyph_program(TTY*            font,
     TTY_Temp_Interp_Data temp;
     temp.instance         = instance;
     temp.glyphData        = data;
-    temp.execute_next_ins = tty_execute_next_glyph_program_ins;
+    temp.iupState         = TTY_IUP_STATE_DEFAULT;
     temp.stream           = *stream;
+    temp.execute_next_ins = tty_execute_next_glyph_program_ins;
 
     font->interp.temp = &temp;
 
@@ -3518,9 +3526,18 @@ static void tty_IUP(TTY_Interp* interp, TTY_uint8 ins) {
     // Applying IUP to zone0 is an error
     TTY_ASSERT(interp->gState.gep2 == 1);
 
+    // In accordance with the backward compatability mode of FreeType's v40 
+    // interpreter, points cannot be moved on either axis post-IUP. Post-IUP
+    // occurs after IUP has been executed using both the x and y axes.
+    if (interp->temp->iupState == TTY_IUP_STATE_XY) {
+        return;
+    }
+
     TTY_Touch_Flag  touchFlag  = ins & 0x1 ? TTY_TOUCH_X : TTY_TOUCH_Y;
     TTY_Touch_Flag* touchFlags = interp->temp->glyphData->zone1.touchFlags;
     TTY_uint32      pointIdx   = 0;
+
+    interp->temp->iupState |= touchFlag;
 
     for (TTY_uint16 i = 0; i < interp->temp->glyphData->zone1.numEndPoints; i++) {
         TTY_uint16 startPointIdx = pointIdx;
@@ -4221,16 +4238,7 @@ static void tty_SHP(TTY_Interp* interp, TTY_uint8 ins) {
         TTY_uint32 pointIdx = tty_stack_pop(&interp->stack);
         TTY_ASSERT(pointIdx < interp->gState.zp2->numPoints);
 
-        if (interp->gState.freedomVec.x != 0) {
-            interp->gState.zp2->cur[pointIdx].x      += dist.x;
-            interp->gState.zp2->touchFlags[pointIdx] |= TTY_TOUCH_X;
-        }
-
-        if (interp->gState.freedomVec.y != 0) {
-            interp->gState.zp2->cur[pointIdx].y      += dist.y;
-            interp->gState.zp2->touchFlags[pointIdx] |= TTY_TOUCH_Y;
-        }
-
+        tty_move_point_zp2(interp, pointIdx, &dist, TTY_TRUE);
         TTY_LOG_POINT(interp->gState.zp2->cur[pointIdx]);
     }
 
@@ -4247,21 +4255,38 @@ static void tty_SHPIX(TTY_Interp* interp) {
         dist.y = TTY_F2DOT14_MUL(amt, interp->gState.freedomVec.y);
     }
 
+    TTY_bool isTwilightZone =
+        interp->gState.gep0 == 0 && interp->gState.gep1 == 0 && interp->gState.gep2 == 0;
+
     for (TTY_uint32 i = 0; i < interp->gState.loop; i++) {
         TTY_uint32 pointIdx = tty_stack_pop(&interp->stack);
         TTY_ASSERT(pointIdx < interp->gState.zp2->numPoints);
 
-        if (interp->gState.freedomVec.x != 0) {
-            interp->gState.zp2->cur[pointIdx].x      += dist.x;
-            interp->gState.zp2->touchFlags[pointIdx] |= TTY_TOUCH_X;
+        // In accordance with the backward compatability mode of FreeType's v40 
+        // interpreter, SHPIX can only move a point if one of the following is 
+        // true:
+        //     - The point is in the twilight zone
+        //     - The glyph is composite and being moved along the y-axis
+        //     - The point was previously touched on the y-axis
+
+        TTY_bool shouldMove = TTY_FALSE;
+
+        if (isTwilightZone) {
+            shouldMove = TTY_TRUE;
+        }
+        else if (interp->temp->iupState != TTY_IUP_STATE_XY) {
+            if (interp->temp->glyphData->numContours < 0 && interp->gState.freedomVec.y != 0) {
+                shouldMove = TTY_TRUE;
+            }
+            else if (interp->gState.zp2->touchFlags[pointIdx] & TTY_TOUCH_Y) {
+                shouldMove = TTY_TRUE;
+            }
         }
 
-        if (interp->gState.freedomVec.y != 0) {
-            interp->gState.zp2->cur[pointIdx].y      += dist.y;
-            interp->gState.zp2->touchFlags[pointIdx] |= TTY_TOUCH_Y;
+        if (shouldMove) {
+            tty_move_point_zp2(interp, pointIdx, &dist, TTY_TRUE);
+            TTY_LOG_POINT(interp->gState.zp2->cur[pointIdx]);
         }
-
-        TTY_LOG_POINT(interp->gState.zp2->cur[pointIdx]);
     }
 
     interp->gState.loop = 1;
@@ -4551,26 +4576,58 @@ static void tty_update_move_point_func(TTY_Interp* interp) {
 }
 
 static void tty_move_point_x(TTY_Interp* interp, TTY_Zone* zone, TTY_uint32 idx, TTY_F26Dot6 dist) {
-    // freedomVec = [1, 0] and projDotFree = 1
-    zone->cur[idx].x      += dist;
+    // In accordance with the backward compatability mode of FreeType's v40 
+    // interpreter, movement along the x-axis is disabled 
+
+    // zone->cur[idx].x      += dist;
     zone->touchFlags[idx] |= TTY_TOUCH_X;
 }
 
 static void tty_move_point_y(TTY_Interp* interp, TTY_Zone* zone, TTY_uint32 idx, TTY_F26Dot6 dist) {
-    // freedomVec = [0, 1] and projDotFree = 1
-    zone->cur[idx].y      += dist;
+    // In accordance with the backward compatability mode of FreeType's v40
+    // interpreter, movement along the y-axis cannot occur post-IUP
+
+    if (interp->temp->iupState != TTY_IUP_STATE_XY) {
+        zone->cur[idx].y += dist;
+    }
     zone->touchFlags[idx] |= TTY_TOUCH_Y;
 }
 
 static void tty_move_point(TTY_Interp* interp, TTY_Zone* zone, TTY_uint32 idx, TTY_F26Dot6 dist) {
     if (interp->gState.freedomVec.x != 0) {
-        zone->cur[idx].x      += tty_mul_x_free_div_proj_dot_free(interp, dist);
+        // zone->cur[idx].x      += tty_mul_x_free_div_proj_dot_free(interp, dist);
         zone->touchFlags[idx] |= TTY_TOUCH_X;
     }
 
     if (interp->gState.freedomVec.y != 0) {
-        zone->cur[idx].y      += tty_mul_y_free_div_proj_dot_free(interp, dist);
+        if (interp->temp->iupState != TTY_IUP_STATE_XY) {
+            zone->cur[idx].y += tty_mul_y_free_div_proj_dot_free(interp, dist);
+        }
+
         zone->touchFlags[idx] |= TTY_TOUCH_Y;
+    }
+}
+
+static void tty_move_point_zp2(TTY_Interp*     interp, 
+                               TTY_uint32      idx, 
+                               TTY_F26Dot6_V2* dist, 
+                               TTY_bool        touch) {
+    if (interp->gState.freedomVec.x != 0) {
+        // zone->cur[idx].x += dist->x;
+
+        if (touch) {
+            interp->gState.zp2->touchFlags[idx] |= TTY_TOUCH_X;
+        }
+    }
+
+    if (interp->gState.freedomVec.y != 0) {
+        if (interp->temp->iupState != TTY_IUP_STATE_XY) {
+            interp->gState.zp2->cur[idx].y += dist->y;
+        }
+
+        if (touch) {
+            interp->gState.zp2->touchFlags[idx] |= TTY_TOUCH_Y;
+        }
     }
 }
 
@@ -4713,11 +4770,30 @@ static void tty_deltap(TTY_Interp* interp, TTY_uint8 range) {
         TTY_ASSERT(pointIdx < interp->gState.zp0->numPoints);
 
         TTY_uint32 exc = tty_stack_pop(&interp->stack);
-
         TTY_F26Dot6 deltaVal;
+
         if (tty_get_delta_value(interp, exc, range, &deltaVal)) {
-            interp->gState.move_point(interp, interp->gState.zp0, pointIdx, deltaVal);
-            TTY_LOG_VALUE(deltaVal);
+            // In accordance with the backward compatability mode of FreeType's
+            // v40 interpreter, SHPIX can only move a point if one of the 
+            // following is true:
+            //     - The glyph is composite and being moved along the y-axis
+            //     - The point was previously touched on the y-axis
+
+            TTY_bool shouldMove = TTY_FALSE;
+
+            if (interp->temp->iupState != TTY_IUP_STATE_XY) {
+                if (interp->temp->glyphData->numContours < 0 && interp->gState.freedomVec.y != 0) {
+                    shouldMove = TTY_TRUE;
+                }
+                else if (interp->gState.zp0->touchFlags[pointIdx] & TTY_TOUCH_Y) {
+                    shouldMove = TTY_TRUE;
+                }
+            }
+
+            if (shouldMove) {
+                interp->gState.move_point(interp, interp->gState.zp0, pointIdx, deltaVal);
+                TTY_LOG_VALUE(deltaVal);
+            }
         }
 
         count--;
