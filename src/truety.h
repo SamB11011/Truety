@@ -30,6 +30,10 @@ typedef TTY_int32  TTY_F26Dot6;
 
 typedef TTY_uint8* TTY_Func;
 
+typedef enum {
+    TTY_INSTANCE_DEFAULT    = 0x0,
+    TTY_INSTANCE_NO_HINTING = 0x1,
+} TTY_Instance_Flag;
 
 typedef enum {
     TTY_ON_CURVE_POINT ,
@@ -230,7 +234,10 @@ typedef struct {
 
 TTY_bool tty_init(TTY* font, const char* path);
 
-TTY_bool tty_instance_init(TTY* font, TTY_Instance* instance, TTY_uint32 ppem, TTY_bool useHinting);
+TTY_bool tty_instance_init(TTY*              font, 
+                           TTY_Instance*     instance, 
+                           TTY_uint32        ppem, 
+                           TTY_Instance_Flag flags);
 
 void tty_glyph_init(TTY_Glyph* glyph, TTY_uint32 glyphIdx);
 

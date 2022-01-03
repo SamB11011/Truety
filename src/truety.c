@@ -171,7 +171,9 @@ static void tty_get_max_and_min_points(TTY_F26Dot6_V2* points,
                                        TTY_F26Dot6_V2* max, 
                                        TTY_F26Dot6_V2* min);
 
-static void tty_set_hinted_glyph_metrics(TTY_Glyph*      glyph,
+static void tty_set_hinted_glyph_metrics(TTY*            font,
+                                         TTY_Instance*   instance,
+                                         TTY_Glyph*      glyph,
                                          TTY_F26Dot6_V2* phantomPoints,
                                          TTY_F26Dot6_V2* max, 
                                          TTY_F26Dot6_V2* min);
@@ -748,6 +750,10 @@ static TTY_int32 tty_get_glyph_advance_height(TTY* font);
 
 static TTY_int32 tty_get_glyph_top_side_bearing(TTY* font, TTY_int16 yMax);
 
+static void tty_set_unhinted_glyph_x_advance(TTY* font, TTY_Instance* instance, TTY_Glyph* glyph);
+
+static void tty_set_unhinted_glyph_y_advance(TTY* font, TTY_Instance* instance, TTY_Glyph* glyph);
+
 
 /* --------------------- */
 /* Debugging and Logging */
@@ -854,12 +860,15 @@ init_failure:
     return TTY_FALSE;
 }
 
-TTY_bool tty_instance_init(TTY* font, TTY_Instance* instance, TTY_uint32 ppem, TTY_bool useHinting) {
+TTY_bool tty_instance_init(TTY*              font, 
+                           TTY_Instance*     instance, 
+                           TTY_uint32        ppem, 
+                           TTY_Instance_Flag flags) {
     memset(instance, 0, sizeof(TTY_Instance));
     
     instance->scale       = tty_rounded_div((TTY_int64)ppem << 22, font->upem);
     instance->ppem        = ppem;
-    instance->useHinting  = font->hasHinting && useHinting;
+    instance->useHinting  = font->hasHinting && (flags ^ TTY_INSTANCE_NO_HINTING);
     instance->isRotated   = TTY_FALSE;
     instance->isStretched = TTY_FALSE;
 
@@ -1944,10 +1953,8 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         }
 
         if (isEmpty) {
-            // TODO: x-advance off by 1?
-            glyph->advance.x = tty_get_glyph_advance_width(font, glyph->idx);
-            glyph->advance.x = tty_rounded_div((TTY_int64)glyph->advance.x * instance->scale, 64);
-            glyph->advance.x >>= 16;
+            tty_set_unhinted_glyph_x_advance(font, instance, glyph);
+            tty_set_unhinted_glyph_y_advance(font, instance, glyph);
             return TTY_TRUE;
         }
     }
@@ -1963,7 +1970,8 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
             tty_get_max_and_min_points(data.zone1.cur, data.zone1.numOutlinePoints, &max, &min);
             
             tty_set_hinted_glyph_metrics(
-                data.glyph, data.zone1.cur + data.zone1.numOutlinePoints, &max, &min);
+                font, instance, data.glyph, data.zone1.orgScaled + data.zone1.numOutlinePoints, 
+                &max, &min);
         }
         else {
             tty_get_max_and_min_points(
@@ -2320,24 +2328,37 @@ static void tty_get_max_and_min_points(TTY_F26Dot6_V2* points,
     }
 }
 
-static void tty_set_hinted_glyph_metrics(TTY_Glyph*      glyph,
+static void tty_set_hinted_glyph_metrics(TTY*            font,
+                                         TTY_Instance*   instance,
+                                         TTY_Glyph*      glyph,
                                          TTY_F26Dot6_V2* phantomPoints,
                                          TTY_F26Dot6_V2* max, 
                                          TTY_F26Dot6_V2* min) {
-    glyph->size.x = labs(max->x - min->x);
-    glyph->size.y = labs(max->y - min->y);
+    if (font->vmtx.exists) {
+        glyph->advance.y =
+            phantomPoints[2].y > phantomPoints[3].y ? 
+            phantomPoints[2].y - phantomPoints[3].y : 
+            0;
+    }
+    else {
+        glyph->advance.y = 
+            TTY_F10DOT22_MUL(tty_get_glyph_advance_height(font) << 6, instance->scale);
+    }
+
+    glyph->advance.x = tty_f26dot6_round(phantomPoints[1].x - phantomPoints[0].x) >> 6;
+    glyph->advance.y = tty_f26dot6_round(glyph->advance.y) >> 6;
+
+    glyph->size.x = max->x - min->x;
+    glyph->size.y = max->y - min->y;
 
     TTY_F26Dot6 xHoriBearing = tty_f26dot6_floor(min->x);
     TTY_F26Dot6 yHoriBearing = tty_f26dot6_ceil(max->y);
     
-    TTY_F26Dot6 right  = tty_f26dot6_ceil(min->x + glyph->size.x);
+    TTY_F26Dot6 right  = tty_f26dot6_ceil (min->x + glyph->size.x);
     TTY_F26Dot6 bottom = tty_f26dot6_floor(max->y - glyph->size.y);
 
     glyph->size.x = (right        - xHoriBearing) >> 6;
     glyph->size.y = (yHoriBearing - bottom      ) >> 6;
-
-    glyph->advance.x = tty_f26dot6_round(phantomPoints[1].x - phantomPoints[0].x) >> 6;
-    glyph->advance.y = 0;
 
     glyph->offset.x = min->x >> 6;
     glyph->offset.y = tty_f26dot6_round(max->y) >> 6;
@@ -2349,8 +2370,8 @@ static void tty_set_unhinted_glyph_metrics(TTY*            font,
                                            TTY_F26Dot6_V2* phantomPoints,
                                            TTY_F26Dot6_V2* max, 
                                            TTY_F26Dot6_V2* min) {
-    glyph->size.x = labs(max->x - min->x);
-    glyph->size.y = labs(max->y - min->y);
+    glyph->size.x = max->x - min->x;
+    glyph->size.y = max->y - min->y;
     
     TTY_F26Dot6 xHoriBearing = tty_f26dot6_floor(min->x);
     TTY_F26Dot6 yHoriBearing = tty_f26dot6_ceil(max->y);
@@ -2361,12 +2382,8 @@ static void tty_set_unhinted_glyph_metrics(TTY*            font,
     glyph->size.x = (right        - xHoriBearing) >> 6;
     glyph->size.y = (yHoriBearing - bottom      ) >> 6;
 
-    glyph->advance.x = tty_get_glyph_advance_width(font, glyph->idx);
-    glyph->advance.x = TTY_F10DOT22_MUL(glyph->advance.x << 6, instance->scale) >> 6;
-
-    // glyph->advance.y = tty_get_glyph_advance_height(font);
-    // glyph->advance.y = TTY_F10DOT22_MUL(glyph->advance.y << 6, instance->scale) >> 6;
-    glyph->advance.y = 0;
+    tty_set_unhinted_glyph_x_advance(font, instance, glyph);
+    tty_set_unhinted_glyph_y_advance(font, instance, glyph);
     
     glyph->offset.x = xHoriBearing >> 6;
     glyph->offset.y = yHoriBearing >> 6;
@@ -4836,7 +4853,7 @@ static void tty_iup_interpolate_or_shift(TTY_Zone*      zone1,
         TTY_int32   orgDist      = zone1->org[i].coord      - zone1->org[touch0].coord;     \
                                                                                             \
         TTY_F10Dot22 scale   = tty_rounded_div((TTY_int64)totalDistCur << 16, totalDistOrg);\
-        TTY_F26Dot6  newDist = TTY_F10DOT22_MUL(orgDist << 6, scale);                       \
+        TTY_F26Dot6  newDist = TTY_F10DOT22_MUL((TTY_int64)orgDist << 6, scale);            \
         zone1->cur[i].coord  = zone1->cur[touch0].coord + newDist;                          \
                                                                                             \
         TTY_LOG_CUSTOM_F( "Interp %3d: %5d", i, zone1->cur[i].coord);
@@ -5118,4 +5135,16 @@ static TTY_int32 tty_get_glyph_top_side_bearing(TTY* font, TTY_int16 yMax) {
 
     // Use hhea
     return font->ascender - yMax;
+}
+
+static void tty_set_unhinted_glyph_x_advance(TTY* font, TTY_Instance* instance, TTY_Glyph* glyph) {
+    glyph->advance.x = tty_get_glyph_advance_width(font, glyph->idx);
+    glyph->advance.x = TTY_F10DOT22_MUL(glyph->advance.x << 6, instance->scale);
+    glyph->advance.x = tty_f26dot6_round(glyph->advance.x) >> 6;
+}
+
+static void tty_set_unhinted_glyph_y_advance(TTY* font, TTY_Instance* instance, TTY_Glyph* glyph) {
+    glyph->advance.y = tty_get_glyph_advance_height(font);
+    glyph->advance.y = TTY_F10DOT22_MUL(glyph->advance.y << 6, instance->scale);
+    glyph->advance.y = tty_f26dot6_round(glyph->advance.y) >> 6;
 }
