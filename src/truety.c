@@ -198,11 +198,10 @@ static TTY_bool tty_subdivide_curves_into_edges(TTY_Curve*  curves,
 static void tty_subdivide_curve_into_edges(TTY_F26Dot6_V2* p0, 
                                            TTY_F26Dot6_V2* p1, 
                                            TTY_F26Dot6_V2* p2, 
-                                           TTY_int8        dir, 
                                            TTY_Edge*       edges, 
                                            TTY_uint32*     numEdges);
 
-static void tty_edge_init(TTY_Edge* edge, TTY_F26Dot6_V2* p0, TTY_F26Dot6_V2* p1, TTY_int8 dir);
+static void tty_edge_init(TTY_Edge* edge, TTY_F26Dot6_V2* p0, TTY_F26Dot6_V2* p1);
 
 static TTY_F16Dot16 tty_get_inv_slope(TTY_F26Dot6_V2* p0, TTY_F26Dot6_V2* p1);
 
@@ -2490,7 +2489,7 @@ static TTY_bool tty_subdivide_curves_into_edges(TTY_Curve*  curves,
         }
         else {
             tty_subdivide_curve_into_edges(
-                &curves[i].p0, &curves[i].p1, &curves[i].p2, 0, NULL, numEdges);
+                &curves[i].p0, &curves[i].p1, &curves[i].p2, NULL, numEdges);
         }
     }
 
@@ -2505,20 +2504,18 @@ static TTY_bool tty_subdivide_curves_into_edges(TTY_Curve*  curves,
     *numEdges = 0;
 
     for (TTY_uint32 i = 0; i < numCurves; i++) {
-        TTY_int8 dir = curves[i].p2.y > curves[i].p0.y ? 1 : -1;
-
         if (curves[i].p1.x == curves[i].p2.x && curves[i].p1.y == curves[i].p2.y) {
             // The curve is a straight line, no need to flatten it
 
             if (curves[i].p0.y != curves[i].p2.y) {
                 // Horizontal lines can be ignored
-                tty_edge_init(*edges + *numEdges, &curves[i].p0, &curves[i].p2, dir);
+                tty_edge_init(*edges + *numEdges, &curves[i].p0, &curves[i].p2);
                 (*numEdges)++;
             }
         }
         else {
             tty_subdivide_curve_into_edges(
-                &curves[i].p0, &curves[i].p1, &curves[i].p2, dir, *edges, numEdges);
+                &curves[i].p0, &curves[i].p1, &curves[i].p2, *edges, numEdges);
         }
     }
 
@@ -2528,7 +2525,6 @@ static TTY_bool tty_subdivide_curves_into_edges(TTY_Curve*  curves,
 static void tty_subdivide_curve_into_edges(TTY_F26Dot6_V2* p0, 
                                            TTY_F26Dot6_V2* p1, 
                                            TTY_F26Dot6_V2* p2, 
-                                           TTY_int8        dir, 
                                            TTY_Edge*       edges, 
                                            TTY_uint32*     numEdges) {
     #define TTY_SUBDIVIDE(a, b)                     \
@@ -2547,24 +2543,24 @@ static void tty_subdivide_curve_into_edges(TTY_F26Dot6_V2* p0,
         TTY_F26Dot6 sqrdError = TTY_F26DOT6_MUL(d.x, d.x) + TTY_F26DOT6_MUL(d.y, d.y);
         if (sqrdError <= TTY_SUBDIVIDE_SQRD_ERROR) {
             if (edges != NULL) {
-                tty_edge_init(edges + *numEdges, p0, p2, dir);
+                tty_edge_init(edges + *numEdges, p0, p2);
             }
             (*numEdges)++;
             return;
         }
     }
 
-    tty_subdivide_curve_into_edges(p0, &mid0, &mid2, dir, edges, numEdges);
-    tty_subdivide_curve_into_edges(&mid2, &mid1, p2, dir, edges, numEdges);
+    tty_subdivide_curve_into_edges(p0, &mid0, &mid2, edges, numEdges);
+    tty_subdivide_curve_into_edges(&mid2, &mid1, p2, edges, numEdges);
 
     #undef TTY_SUBDIVIDE
 }
 
-static void tty_edge_init(TTY_Edge* edge, TTY_F26Dot6_V2* p0, TTY_F26Dot6_V2* p1, TTY_int8 dir) {
+static void tty_edge_init(TTY_Edge* edge, TTY_F26Dot6_V2* p0, TTY_F26Dot6_V2* p1) {
     edge->p0       = *p0;
     edge->p1       = *p1;
     edge->invSlope = tty_get_inv_slope(p0, p1);
-    edge->dir      = dir;
+    edge->dir      = p1->y > p0->y ? 1 : -1;
     edge->xMin     = tty_min(p0->x, p1->x);
     tty_max_min(p0->y, p1->y, &edge->yMax, &edge->yMin);
 }
