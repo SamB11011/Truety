@@ -9,10 +9,12 @@ Truety is a lightweight TrueType font rendering library.
   - Should compile with any C99 compiler.
 - Supports TrueType (.ttf) files and OpenType (.otf) files that contain TrueType outlines.
 # Limitations
+- Truety is still under development and won't work for ALL supported fonts until the following objectives are completed
+  - Finish implementing bytecode instructions. Approximately 75% of instructions are implemented.
+  - Handle all supported *cmap* table encodings and formats.
+  - Use the *vmtx* table for vertical metrics when applicable.
 - Limited error checking
   - As of right now, this library does not adequately validate the integrity of font files. For this reason, you should only use it with font files you trust.
-- Not all bytecode instructions are implemented yet
-  - Approximately 75% of instructions are implemented. Finishing this is at the top of the to-do list.
 - Unicode is the only supported character encoding.
 # Planned Features
 - Robust error handling
