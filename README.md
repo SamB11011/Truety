@@ -1,7 +1,7 @@
 # Truety
-![](./images/demo_image.png)
-
 Truety is a lightweight TrueType font rendering library.
+
+![](./images/demo_image.png)
 # Features
 - Hinting
   - The bytecode interpreter (hinter) is designed to match the results produced by FreeType's V40 Interpreter (with backward compatibility enabled).
@@ -21,6 +21,7 @@ Truety is a lightweight TrueType font rendering library.
 # Planned Features
 - Robust error handling
 - Glyph rotation and stretching
+- Underlining, subscript and superscript
 - Subpixel rendering
 - Kerning
   - Provided by the *kern* table
