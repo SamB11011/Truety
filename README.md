@@ -1,4 +1,6 @@
 # Truety
+![](./images/demo_image.png)
+
 Truety is a lightweight TrueType font rendering library.
 # Features
 - Hinting
