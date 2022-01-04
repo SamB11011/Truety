@@ -637,12 +637,12 @@ static TTY_bool tty_get_delta_value(TTY_Interp*   interp,
                                     TTY_uint8     range, 
                                     TTY_F26Dot6*  deltaVal);
 
-static void tty_iup_interpolate_or_shift(TTY_Zone*      zone1, 
-                                         TTY_Touch_Flag touchFlag, 
-                                         TTY_uint16     startPointIdx, 
-                                         TTY_uint16     endPointIdx, 
-                                         TTY_uint16     touch0, 
-                                         TTY_uint16     touch1);
+static void tty_iup_interpolate_or_shift(TTY_Zone*  zone1, 
+                                         TTY_uint8  touchFlag, 
+                                         TTY_uint16 startPointIdx, 
+                                         TTY_uint16 endPointIdx, 
+                                         TTY_uint16 touch0, 
+                                         TTY_uint16 touch1);
 
 static TTY_Zone* tty_get_zone_pointer(TTY_Interp* interp, TTY_uint32 zone);
 
@@ -654,7 +654,7 @@ static void tty_normalize(TTY_Fix_V2* v);
 /* Fixed-point Math */
 /* ---------------- */
 #define TTY_ROUNDED_DIV_POW2(a, addend, shift)\
-    (((a) + (addend)) >> (shift))
+    (TTY_int32)(((a) + (addend)) >> (shift))
 
 #define TTY_FIX_DIV(a, b, numerShift, addend, shift)\
     TTY_ROUNDED_DIV_POW2(tty_rounded_div((TTY_int64)(a) << (numerShift), b), addend, shift)
@@ -673,7 +673,7 @@ static void tty_normalize(TTY_Fix_V2* v);
 
 
 #define TTY_FIX_MUL(a, b, addend, shift)\
-    TTY_ROUNDED_DIV_POW2((TTY_uint64)(a) * (TTY_uint64)(b), addend, shift)
+    TTY_ROUNDED_DIV_POW2((TTY_int64)(a) * (TTY_int64)(b), addend, shift)
 
 #define TTY_F26DOT6_MUL(a, b)\
     TTY_FIX_MUL(a, b, 0x20, 6)
@@ -765,11 +765,11 @@ static void tty_set_unhinted_glyph_y_advance(TTY* font, TTY_Instance* instance, 
     
     #define TTY_FIX_TO_FLOAT(val, shift) tty_fix_to_float(val, shift)
     
-    float tty_fix_to_float(TTY_int32 val, TTY_int32 shift) {
+    float tty_fix_to_float(TTY_int32 val, TTY_uint8 shift) {
         float value = val >> shift;
         float power = 0.5f;
         TTY_int32 mask = 1 << (shift - 1);
-        for (TTY_uint32 i = 0; i < shift; i++) {
+        for (TTY_uint8 i = 0; i < shift; i++) {
             if (val & mask) {
                 value += power;
             }
@@ -886,7 +886,7 @@ TTY_bool tty_instance_init(TTY*              font,
         size_t cvtSize   = instance->cvt.cap     * sizeof(TTY_F26Dot6);
         size_t storeSize = instance->storage.cap * sizeof(TTY_int32);
         
-        instance->mem = malloc(cvtSize + storeSize);
+        instance->mem = (TTY_uint8*)malloc(cvtSize + storeSize);
         if (instance->mem == NULL) {
             tty_zone_free(&instance->zone0);
             return TTY_FALSE;
@@ -918,7 +918,7 @@ void tty_glyph_init(TTY_Glyph* glyph, TTY_uint32 glyphIdx) {
 
 TTY_bool tty_image_init(TTY_Image* image, TTY_uint8* pixels, TTY_uint32 w, TTY_uint32 h) {
     if (pixels == NULL) {
-        image->pixels = calloc(w * h, 1);
+        image->pixels = (TTY_uint8*)calloc(w * h, 1);
     }
     image->w = w;
     image->h = h;
@@ -1037,7 +1037,7 @@ static TTY_bool tty_read_file_into_buffer(TTY* font, const char* path) {
         goto read_failure;
     }
     
-    if ((font->size = ftell(f)) == -1L) {
+    if ((font->size = ftell(f)) == -1) {
         goto read_failure;
     }
     
@@ -1045,12 +1045,12 @@ static TTY_bool tty_read_file_into_buffer(TTY* font, const char* path) {
         goto read_failure;
     }
     
-    font->data = malloc(font->size);
+    font->data = (TTY_uint8*)malloc(font->size);
     if (font->data == NULL) {
         goto read_failure;
     }
 
-    if (fread(font->data, 1, font->size, f) != font->size) {
+    if ((TTY_int32)fread(font->data, 1, font->size, f) != font->size) {
         goto read_failure;
     }
     
@@ -1195,7 +1195,7 @@ static TTY_bool tty_interpreter_alloc(TTY* font) {
     size_t stackSize = sizeof(TTY_int32) * font->interp.stack.cap;
     size_t funcsSize = sizeof(TTY_Func)  * font->interp.funcs.cap;
 
-    font->interp.mem = calloc(stackSize + funcsSize, 1);
+    font->interp.mem = (TTY_uint8*)calloc(stackSize + funcsSize, 1);
     if (font->interp.mem == NULL) {
         return TTY_FALSE;
     }
@@ -1216,7 +1216,7 @@ static TTY_bool tty_unhinted_alloc(TTY_Unhinted* unhinted,
     size_t typesSize     = unhinted->numPoints * sizeof(TTY_Point_Type);
     size_t endPointsSize = numEndPoints        * sizeof(TTY_uint32);
 
-    unhinted->mem = calloc(pointsSize + typesSize + endPointsSize, 1);
+    unhinted->mem = (TTY_uint8*)calloc(pointsSize + typesSize + endPointsSize, 1);
     if (unhinted->mem == NULL) {
         return TTY_FALSE;
     }
@@ -1234,18 +1234,18 @@ static TTY_bool tty_zone0_alloc(TTY* font, TTY_Zone* zone) {
     zone->numEndPoints     = 0;
     
     size_t pointsSize = zone->numPoints * sizeof(TTY_V2);
-    size_t touchSize  = zone->numPoints * sizeof(TTY_Touch_Flag);
+    size_t touchSize  = zone->numPoints * sizeof(TTY_uint8);
     size_t off        = 0;
 
     zone->memSize = 2 * pointsSize + touchSize;
-    zone->mem     = calloc(zone->memSize, 1);
+    zone->mem     = (TTY_uint8*)calloc(zone->memSize, 1);
     if (zone->mem == NULL) {
         return TTY_FALSE;
     }
     
-    zone->orgScaled  = (TTY_V2*)        (zone->mem);
-    zone->cur        = (TTY_V2*)        (zone->mem + (off += pointsSize));
-    zone->touchFlags = (TTY_Touch_Flag*)(zone->mem + (off += pointsSize));
+    zone->orgScaled  = (TTY_V2*)   (zone->mem);
+    zone->cur        = (TTY_V2*)   (zone->mem + (off += pointsSize));
+    zone->touchFlags = (TTY_uint8*)(zone->mem + (off += pointsSize));
     
     zone->org             = NULL;
     zone->pointTypes      = NULL;
@@ -1262,13 +1262,13 @@ static TTY_bool tty_zone1_alloc(TTY_Zone*  zone,
     zone->numEndPoints     = numEndPoints;
     
     size_t pointsSize    = zone->numPoints * sizeof(TTY_V2);
-    size_t touchSize     = zone->numPoints * sizeof(TTY_Touch_Flag);
+    size_t touchSize     = zone->numPoints * sizeof(TTY_uint8);
     size_t typesSize     = zone->numPoints * sizeof(TTY_Point_Type);
     size_t endPointsSize = numEndPoints    * sizeof(TTY_uint32);
     size_t off           = 0;
 
     zone->memSize = 3 * pointsSize + touchSize + typesSize + endPointsSize;
-    zone->mem     = calloc(zone->memSize, 1);
+    zone->mem     = (TTY_uint8*)calloc(zone->memSize, 1);
     if (zone->mem == NULL) {
         return TTY_FALSE;
     }
@@ -1276,7 +1276,7 @@ static TTY_bool tty_zone1_alloc(TTY_Zone*  zone,
     zone->org             = (TTY_V2*)        (zone->mem);
     zone->orgScaled       = (TTY_V2*)        (zone->mem + (off += pointsSize));
     zone->cur             = (TTY_V2*)        (zone->mem + (off += pointsSize));
-    zone->touchFlags      = (TTY_Touch_Flag*)(zone->mem + (off += pointsSize));
+    zone->touchFlags      = (TTY_uint8*)     (zone->mem + (off += pointsSize));
     zone->pointTypes      = (TTY_Point_Type*)(zone->mem + (off += touchSize));
     zone->endPointIndices = (TTY_uint32*)    (zone->mem + (off += typesSize));
     
@@ -1356,7 +1356,7 @@ static TTY_uint8* tty_get_glyf_data_block(TTY* font, TTY_uint32 glyphIdx) {
 
     TTY_Offset32 blockOff, nextBlockOff;
 
-    if (glyphIdx == numGlyphs - 1) {
+    if (glyphIdx == numGlyphs - 1u) {
         blockOff = version == 0 ? TTY_GET_OFF_16(glyphIdx) : TTY_GET_OFF_32(glyphIdx);
         return font->data + font->glyf.off + blockOff;
     }
@@ -2059,7 +2059,7 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         data.glyph->size.x - image->w + x : // TODO: Test
         data.glyph->size.x;
 
-    TTY_F26Dot6* pixelRow = calloc(pixelsPerRow, sizeof(TTY_F26Dot6));
+    TTY_F26Dot6* pixelRow = (TTY_F26Dot6*)calloc(pixelsPerRow, sizeof(TTY_F26Dot6));
     if (pixelRow == NULL) {
         tty_active_edge_list_free(&activeEdgeList);
         free(edges);
@@ -2414,7 +2414,7 @@ static TTY_bool tty_convert_points_into_curves(TTY_Instance*   instance,
     }
 
 
-    *curves = malloc(numPoints * sizeof(TTY_Curve));
+    *curves = (TTY_Curve*)malloc(numPoints * sizeof(TTY_Curve));
     if (*curves == NULL) {
         return TTY_FALSE;
     }
@@ -2493,7 +2493,7 @@ static TTY_bool tty_subdivide_curves_into_edges(TTY_Curve*  curves,
         }
     }
 
-    *edges = malloc(sizeof(TTY_Edge) * *numEdges);
+    *edges = (TTY_Edge*)malloc(sizeof(TTY_Edge) * *numEdges);
     if (*edges == NULL) {
         return TTY_FALSE;
     }
@@ -2586,7 +2586,7 @@ static TTY_F26Dot6 tty_get_edge_scanline_x_intersection(TTY_Edge* edge, TTY_F26D
 }
 
 static TTY_bool tty_active_edge_list_init(TTY_Active_Edge_List* list) {
-    list->headChunk = calloc(1, sizeof(TTY_Active_Chunk));
+    list->headChunk = (TTY_Active_Chunk*)calloc(1, sizeof(TTY_Active_Chunk));
     if (list->headChunk != NULL) {
         list->headEdge      = NULL;
         list->reusableEdges = NULL;
@@ -2615,7 +2615,7 @@ static TTY_Active_Edge* tty_get_available_active_edge(TTY_Active_Edge_List* list
     
     if (list->headChunk->numEdges == TTY_EDGES_PER_CHUNK) {
         // The current chunk is full, so allocate a new one
-        TTY_Active_Chunk* chunk = calloc(1, sizeof(TTY_Active_Chunk));
+        TTY_Active_Chunk* chunk = (TTY_Active_Chunk*)calloc(1, sizeof(TTY_Active_Chunk));
         if (chunk == NULL) {
             return NULL;
         }
@@ -3546,9 +3546,9 @@ static void tty_IUP(TTY_Interp* interp, TTY_uint8 ins) {
         return;
     }
 
-    TTY_Touch_Flag  touchFlag  = ins & 0x1 ? TTY_TOUCH_X : TTY_TOUCH_Y;
-    TTY_Touch_Flag* touchFlags = interp->temp->glyphData->zone1.touchFlags;
-    TTY_uint32      pointIdx   = 0;
+    TTY_uint8  touchFlag  = ins & 0x1 ? TTY_TOUCH_X : TTY_TOUCH_Y;
+    TTY_uint8* touchFlags = interp->temp->glyphData->zone1.touchFlags;
+    TTY_uint32 pointIdx   = 0;
 
     interp->temp->iupState |= touchFlag;
 
@@ -4837,12 +4837,12 @@ static TTY_bool tty_get_delta_value(TTY_Interp*   interp,
     return TTY_TRUE;
 }
 
-static void tty_iup_interpolate_or_shift(TTY_Zone*      zone1, 
-                                         TTY_Touch_Flag touchFlag, 
-                                         TTY_uint16     startPointIdx, 
-                                         TTY_uint16     endPointIdx, 
-                                         TTY_uint16     touch0, 
-                                         TTY_uint16     touch1) {
+static void tty_iup_interpolate_or_shift(TTY_Zone*  zone1, 
+                                         TTY_uint8  touchFlag, 
+                                         TTY_uint16 startPointIdx, 
+                                         TTY_uint16 endPointIdx, 
+                                         TTY_uint16 touch0, 
+                                         TTY_uint16 touch1) {
     #define TTY_IUP_INTERPOLATE(coord)                                                      \
         TTY_F26Dot6 totalDistCur = zone1->cur[touch1].coord - zone1->cur[touch0].coord;     \
         TTY_int32   totalDistOrg = zone1->org[touch1].coord - zone1->org[touch0].coord;     \

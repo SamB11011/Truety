@@ -40,19 +40,19 @@ typedef enum {
     TTY_OFF_CURVE_POINT,
 } TTY_Point_Type;
 
-typedef enum {
+enum {
     TTY_UNTOUCHED = 0x0,
     TTY_TOUCH_X   = 0x1,
     TTY_TOUCH_Y   = 0x2,
     TTY_TOUCH_XY  = 0x3,
-} TTY_Touch_Flag;
+};
 
-typedef enum {
+enum {
     TTY_IUP_STATE_DEFAULT = 0x0,
     TTY_IUP_STATE_X       = 0x1,
     TTY_IUP_STATE_Y       = 0x2,
     TTY_IUP_STATE_XY      = 0x3,
-} TTY_IUP_State;
+};
 
 
 struct TTY_Interp;
@@ -96,7 +96,7 @@ typedef struct {
     TTY_V2*         org;
     TTY_F26Dot6_V2* orgScaled;
     TTY_F26Dot6_V2* cur;
-    TTY_Touch_Flag* touchFlags;
+    TTY_uint8*      touchFlags;
     TTY_Point_Type* pointTypes;
     TTY_uint32*     endPointIndices;
     TTY_uint32      numEndPoints;
@@ -177,7 +177,7 @@ typedef struct {
     TTY_Ins_Stream  stream;
     TTY_Instance*   instance;
     TTY_Glyph_Data* glyphData;
-    TTY_IUP_State   iupState;
+    TTY_uint8       iupState;
     void (*execute_next_ins)(struct TTY_Interp*);
 } TTY_Temp_Interp_Data;
 
@@ -210,7 +210,7 @@ typedef struct {
 
 typedef struct {
     TTY_uint8*   data;
-    TTY_uint32   size;
+    TTY_int32    size;
     TTY_Table    cmap;
     TTY_Table    cvt;
     TTY_Table    fpgm;
