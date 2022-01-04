@@ -757,7 +757,7 @@ static void tty_set_unhinted_glyph_y_advance(TTY* font, TTY_Instance* instance, 
 /* --------------------- */
 /* Debugging and Logging */
 /* --------------------- */
-#define TTY_DEBUG
+// #define TTY_DEBUG
 // #define TTY_LOGGING
 
 #ifdef TTY_DEBUG
