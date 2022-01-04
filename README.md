@@ -1,5 +1,5 @@
 # Truety
-Truety is a lightweight TrueType font rendering library.
+A small TrueType font rendering library.
 
 ![](./images/demo_image.png)
 # Features
