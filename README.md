@@ -30,4 +30,4 @@ A small TrueType font rendering library.
 - Support for OpenType variable fonts
 - Support for TrueType Collection (.ttc) files
 # Acknowledgements
-[FreeType](https://freetype.org/) and [stb_truetype](https://github.com/nothings/stb/blob/master/stb_truetype.h) are two other font rendering libraries that served as great references when building Truety. Thank you very much.
+[FreeType](https://freetype.org/) and [stb_truetype](https://github.com/nothings/stb/blob/master/stb_truetype.h) are two other font rendering libraries that served as great references while creating Truety. Thank you very much.
