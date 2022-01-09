@@ -920,6 +920,9 @@ TTY_bool tty_image_init(TTY_Image* image, TTY_uint8* pixels, TTY_uint32 w, TTY_u
     if (pixels == NULL) {
         image->pixels = (TTY_uint8*)calloc(w * h, 1);
     }
+    else {
+        image->pixels = pixels;
+    }
     image->w = w;
     image->h = h;
     return image->pixels != NULL;
