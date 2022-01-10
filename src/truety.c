@@ -865,11 +865,14 @@ TTY_bool tty_instance_init(TTY*              font,
                            TTY_Instance_Flag flags) {
     memset(instance, 0, sizeof(TTY_Instance));
     
-    instance->scale       = tty_rounded_div((TTY_int64)ppem << 22, font->upem);
-    instance->ppem        = ppem;
-    instance->useHinting  = font->hasHinting && (flags ^ TTY_INSTANCE_NO_HINTING);
-    instance->isRotated   = TTY_FALSE;
-    instance->isStretched = TTY_FALSE;
+    instance->scale          = tty_rounded_div((TTY_int64)ppem << 22, font->upem);
+    instance->ppem           = ppem;
+    instance->useHinting     = font->hasHinting && (flags ^ TTY_INSTANCE_NO_HINTING);
+    instance->isRotated      = TTY_FALSE;
+    instance->isStretched    = TTY_FALSE;
+    instance->maxGlyphSize.x = tty_get_max_horizontal_extent(font, instance);
+    instance->maxGlyphSize.y = tty_get_ascender (font, instance) - 
+                               tty_get_descender(font, instance);
 
     if (!instance->useHinting) {
         return TTY_TRUE;

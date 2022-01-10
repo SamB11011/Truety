@@ -153,6 +153,7 @@ typedef struct {
     TTY_bool         isStretched;
     TTY_uint32       ppem;
     TTY_F10Dot22     scale;
+    TTY_V2           maxGlyphSize;
 } TTY_Instance;
 
 typedef struct {

@@ -45,11 +45,6 @@ int main() {
         exit(1);
     }
     
-    // Make sure each slot in the texture atlas is big enough to hold any glyph
-    TTY_uint32 slotWidth  = tty_get_max_horizontal_extent(&font, &instance);
-    TTY_uint32 slotHeight = tty_get_ascender(&font, &instance) - 
-                            tty_get_descender(&font, &instance);
-    
     // The position of the current glyph in the texture atlas
     TTY_uint32 x = 0;
     TTY_uint32 y = 0;
@@ -72,10 +67,10 @@ int main() {
         // If the glyph isn't empty, increase the position for the next glyph
         // (The space character will produce an emtpy glyph, for example)
         if (glyph.size.x != 0) {
-            x += slotWidth;
-            if (x + slotWidth > image.w) {
+            x += instance.maxGlyphSize.x;
+            if (x + instance.maxGlyphSize.x > image.w) {
                 x = 0;
-                y += slotHeight;
+                y += instance.maxGlyphSize.y;
             }
         }
     }
