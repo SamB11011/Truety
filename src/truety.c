@@ -2878,12 +2878,11 @@ static void tty_hash_table_remove_lru(TTY_Hash_Table* table) {
         return;
     }
 
-    // Get the previous node in the chain
-    TTY_Cache_Node* prev = NULL;
-
     {
+        // Remove the node from its chain
         TTY_uint32      idx  = TTY_HASH(table->lruTail->codePoint) % table->maxNodes;
         TTY_Cache_Node* node = table->chains[idx];
+        TTY_Cache_Node* prev = NULL;
 
         while (node != table->lruTail) {
             TTY_ASSERT(node != NULL);
@@ -2896,7 +2895,7 @@ static void tty_hash_table_remove_lru(TTY_Hash_Table* table) {
             table->chains[idx] = table->chains[idx]->next;
         }
         else {
-            prev->next = table->lruTail->next;
+            prev->next = node->next;
         }
     }
 
