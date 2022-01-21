@@ -2,6 +2,7 @@
 #define TRUETY_H
 
 #include <stdint.h>
+#include <time.h>
 
 #define TTY_TRUE  1
 #define TTY_FALSE 0
@@ -233,6 +234,43 @@ typedef struct {
     TTY_Interp   interp;
 } TTY;
 
+typedef struct {
+    float u0, v0;
+    float u1, v1;
+} TTY_UVs;
+
+typedef struct {
+    TTY_Glyph glyph;
+    TTY_UVs   uvs;
+    clock_t   prevAccessTime;
+} TTY_Cache_Entry;
+
+typedef struct TTY_Cache_Node {
+    TTY_uint32      codePoint;
+    TTY_Cache_Entry entry;
+    struct TTY_Cache_Node* lruPrev;
+    struct TTY_Cache_Node* lruNext;
+    struct TTY_Cache_Node* next;
+} TTY_Cache_Node;
+
+typedef struct {
+    TTY_Cache_Node*  nodes;
+    TTY_Cache_Node** chains;
+    TTY_Cache_Node*  reusable;
+    TTY_Cache_Node*  lruHead;
+    TTY_Cache_Node*  lruTail;
+    TTY_uint32       numUsedNodes;
+    TTY_uint32       maxNodes;
+} TTY_Hash_Table;
+
+typedef struct {
+    TTY_uint8*     mem;
+    TTY_Hash_Table table;
+    TTY_Image      atlas;
+    TTY_V2         renderPos;
+} TTY_Atlas_Cache;
+
+
 TTY_bool tty_init(TTY* font, const char* path);
 
 TTY_bool tty_instance_init(TTY*              font, 
@@ -244,13 +282,20 @@ void tty_glyph_init(TTY_Glyph* glyph, TTY_uint32 glyphIdx);
 
 TTY_bool tty_image_init(TTY_Image* image, TTY_uint8* pixels, TTY_uint32 w, TTY_uint32 h);
 
+TTY_bool tty_atlas_cache_init(TTY_Instance*    instance, 
+                              TTY_Atlas_Cache* cache, 
+                              TTY_uint32       w, 
+                              TTY_uint32       h);
+
 void tty_free(TTY* font);
 
 void tty_instance_free(TTY_Instance* instance);
 
 void tty_image_free(TTY_Image* image);
 
-TTY_uint32 tty_get_glyph_index(TTY* font, TTY_uint32 cp);
+void tty_atlas_cache_free(TTY_Atlas_Cache* cache);
+
+TTY_uint32 tty_get_glyph_index(TTY* font, TTY_uint32 codePoint);
 
 TTY_uint16 tty_get_num_glyphs(TTY* font);
 
@@ -275,5 +320,11 @@ TTY_bool tty_render_glyph_to_existing_image(TTY*          font,
                                             TTY_Image*    image,
                                             TTY_uint32    x, 
                                             TTY_uint32    y);
+
+TTY_bool tty_get_atlas_cache_entry(TTY*             font,
+                                   TTY_Instance*    instance, 
+                                   TTY_Atlas_Cache* cache, 
+                                   TTY_Cache_Entry* entry, 
+                                   TTY_uint32       cp);
 
 #endif

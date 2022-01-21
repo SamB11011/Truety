@@ -229,6 +229,22 @@ static void tty_swap_active_edge_with_next(TTY_Active_Edge_List* list,
                                            TTY_Active_Edge*      edge);
 
 
+/* ------- */
+/* Caching */
+/* ------- */
+
+/* Hash function: http://www.cse.yorku.ca/~oz/hash.html */
+#define TTY_HASH(key) (177573 + key)
+
+static TTY_Cache_Node* tty_hash_table_insert(TTY_Hash_Table* table, TTY_uint32 cp);
+
+static TTY_Cache_Node* tty_hash_table_get(TTY_Hash_Table* table, TTY_uint32 cp);
+
+static void tty_hash_table_remove_lru(TTY_Hash_Table* table);
+
+static TTY_Cache_Node* tty_hash_table_replace_lru(TTY_Hash_Table* table, TTY_uint32 cp);
+
+
 /* --------------------- */
 /* Instruction Execution */
 /* --------------------- */
@@ -931,8 +947,33 @@ TTY_bool tty_image_init(TTY_Image* image, TTY_uint8* pixels, TTY_uint32 w, TTY_u
     return image->pixels != NULL;
 }
 
+TTY_bool tty_atlas_cache_init(TTY_Instance*    instance, 
+                              TTY_Atlas_Cache* cache, 
+                              TTY_uint32       w, 
+                              TTY_uint32       h) {
+    size_t maxGlyphs  = (w / instance->maxGlyphSize.x) * (h / instance->maxGlyphSize.y);
+    size_t imageSize  = w * h;
+    size_t nodesSize  = maxGlyphs * sizeof(TTY_Cache_Node);
+    size_t chainsSize = maxGlyphs * sizeof(TTY_Cache_Node*);
+
+    memset(cache, 0, sizeof(TTY_Atlas_Cache));
+
+    cache->mem = (TTY_uint8*)calloc(imageSize + nodesSize + chainsSize, 1);
+    if (cache->mem == NULL) {
+        return TTY_FALSE;
+    }
+
+    tty_image_init(&cache->atlas, cache->mem, w, h);
+
+    cache->table.nodes    = (TTY_Cache_Node*) (cache->mem + imageSize);
+    cache->table.chains   = (TTY_Cache_Node**)(cache->mem + imageSize + nodesSize);
+    cache->table.maxNodes = maxGlyphs;
+
+    return TTY_TRUE;
+}
+
 void tty_free(TTY* font) {
-    if (font) {
+    if (font != NULL) {
         TTY_FREE_AND_NULLIFY(font->data);
         
         if (font->hasHinting) {
@@ -942,7 +983,7 @@ void tty_free(TTY* font) {
 }
 
 void tty_instance_free(TTY_Instance* instance) {
-    if (instance) {
+    if (instance != NULL) {
         if (instance->useHinting) {
             tty_zone_free(&instance->zone0);
         }
@@ -951,17 +992,23 @@ void tty_instance_free(TTY_Instance* instance) {
 }
 
 void tty_image_free(TTY_Image* image) {
-    if (image) {
+    if (image != NULL) {
         TTY_FREE_AND_NULLIFY(image->pixels);
     }
 }
 
-TTY_uint32 tty_get_glyph_index(TTY* font, TTY_uint32 cp) {
+void tty_atlas_cache_free(TTY_Atlas_Cache* cache) {
+    if (cache != NULL) {
+        TTY_FREE_AND_NULLIFY(cache->mem);
+    }
+}
+
+TTY_uint32 tty_get_glyph_index(TTY* font, TTY_uint32 codePoint) {
     TTY_uint8* subtable = font->data + font->cmap.off + font->encoding.off;
 
     switch (tty_get_uint16(subtable)) {
         case 4:
-            return tty_get_glyph_index_format_4(subtable, cp);
+            return tty_get_glyph_index_format_4(subtable, codePoint);
         case 6:
             // TODO
             return 0;
@@ -1027,6 +1074,72 @@ TTY_bool tty_render_glyph_to_existing_image(TTY*          font,
                                             TTY_uint32    x, 
                                             TTY_uint32    y) {
     return tty_render_glyph_internal(font, instance, glyph, image, x, y);
+}
+
+TTY_bool tty_get_atlas_cache_entry(TTY*             font,
+                                   TTY_Instance*    instance, 
+                                   TTY_Atlas_Cache* cache, 
+                                   TTY_Cache_Entry* entry, 
+                                   TTY_uint32       codePoint) {
+    TTY_Cache_Node* node = tty_hash_table_get(&cache->table, codePoint);
+
+    if (node == NULL) {
+        // Code point is not cached
+        TTY_V2 renderPos;
+
+        node = tty_hash_table_insert(&cache->table, codePoint);
+
+        if (node == NULL) {
+            // The cache is full, override the LRU with the new entry 
+            // (UVs are reused)
+            entry->uvs      = cache->table.lruTail->entry.uvs;
+            node            = tty_hash_table_replace_lru(&cache->table, codePoint);
+            node->entry.uvs = entry->uvs;
+            renderPos.x     = entry->uvs.u0 * cache->atlas.w;
+            renderPos.y     = entry->uvs.v0 * cache->atlas.h;
+
+            // Clear the previous render from the atlas
+            for (TTY_uint32 y = renderPos.y; y < instance->maxGlyphSize.y; y++) {
+                TTY_uint8* pixels = cache->atlas.pixels + cache->atlas.w * y;
+                memset(pixels, 0, instance->maxGlyphSize.x);
+            }
+        }
+        else {
+            renderPos     = cache->renderPos;
+            entry->uvs.u0 = (float)cache->renderPos.x / cache->atlas.w;
+            entry->uvs.v0 = (float)cache->renderPos.y / cache->atlas.h;
+            entry->uvs.u1 = (float)(cache->renderPos.x + instance->maxGlyphSize.x) / cache->atlas.w;
+            entry->uvs.v1 = (float)(cache->renderPos.y + instance->maxGlyphSize.y) / cache->atlas.h;
+
+            // TODO: Figure out a way where zero-sized glyphs don't have to be 
+            //       put in the texture atlas?
+            cache->renderPos.x += instance->maxGlyphSize.x;
+            if (cache->renderPos.x + instance->maxGlyphSize.x > cache->atlas.w) {
+                cache->renderPos.x = 0;
+                cache->renderPos.y += instance->maxGlyphSize.y;
+            }
+        }
+
+        tty_glyph_init(&entry->glyph, tty_get_glyph_index(font, codePoint));
+
+        {
+            TTY_bool renderSuccess = tty_render_glyph_internal(
+                font, instance, &entry->glyph, &cache->atlas, renderPos.x, renderPos.y);
+
+            if (!renderSuccess) {
+                return TTY_FALSE;
+            }
+        }
+
+        entry->prevAccessTime = 0;
+        node->entry.glyph     = entry->glyph;
+    }
+    else {
+        *entry = node->entry;
+    }
+
+    node->entry.prevAccessTime = clock();
+    return TTY_TRUE;
 }
 
 
@@ -2681,6 +2794,135 @@ static void tty_swap_active_edge_with_next(TTY_Active_Edge_List* list,
     TTY_Active_Edge* temp = edge->next->next;
     edge->next->next = edge;
     edge->next       = temp;
+}
+
+
+/* ------- */
+/* Caching */
+/* ------- */
+static TTY_Cache_Node* tty_hash_table_insert(TTY_Hash_Table* table, TTY_uint32 cp) {
+    TTY_Cache_Node* node;
+
+    if (table->reusable != NULL) {
+        // A previously removed node can be reused
+        node            = table->reusable;
+        table->reusable = node->next;
+        node->next      = NULL;
+    }
+    else if (table->numUsedNodes < table->maxNodes) {
+        node = table->nodes + table->numUsedNodes++;
+    }
+    else {
+        // The table is full
+        return NULL;
+    }
+
+    TTY_uint32 idx = TTY_HASH(cp) % table->maxNodes;
+    if (table->chains[idx] != NULL) {
+        // There is a collision
+        node->next = table->chains[idx];
+    }
+
+    table->chains[idx] = node;
+
+    // Update the LRU list
+    if (table->lruHead == NULL) {
+        table->lruHead = node;
+        table->lruTail = node;
+    }
+    else {
+        table->lruHead->lruPrev = node;
+        node->lruNext           = table->lruHead;
+        table->lruHead          = node;
+    }
+
+    node->codePoint = cp;
+    return node;
+}
+
+static TTY_Cache_Node* tty_hash_table_get(TTY_Hash_Table* table, TTY_uint32 cp) {
+    TTY_uint32      idx  = TTY_HASH(cp) % table->maxNodes;
+    TTY_Cache_Node* node = table->chains[idx];
+
+    while (node != NULL) {
+        if (node->codePoint == cp) {
+            // Code point found, update the LRU list
+
+            if (node == table->lruHead) {
+                return node;
+            }
+            
+            if (node == table->lruTail) {
+                table->lruTail = node->lruPrev;
+            }
+
+            table->lruHead->lruPrev = node;
+            node->lruPrev->lruNext = node->lruNext;
+            node->lruNext          = table->lruHead;
+            node->lruPrev          = NULL;
+            table->lruHead         = node;
+
+            return node;
+        }
+
+        node = node->next;
+    }
+
+    // The code point is not in the table
+    return NULL;
+}
+
+static void tty_hash_table_remove_lru(TTY_Hash_Table* table) {
+    if (table->lruTail == NULL) {
+        // The table is empty
+        return;
+    }
+
+    // Get the previous node in the chain
+    TTY_Cache_Node* prev = NULL;
+
+    {
+        TTY_uint32      idx  = TTY_HASH(table->lruTail->codePoint) % table->maxNodes;
+        TTY_Cache_Node* node = table->chains[idx];
+
+        while (node != table->lruTail) {
+            TTY_ASSERT(node != NULL);
+            prev = node;
+            node = node->next;
+        }
+
+        if (prev == NULL) {
+            // The node is the first node in the chain
+            table->chains[idx] = table->chains[idx]->next;
+        }
+        else {
+            prev->next = table->lruTail->next;
+        }
+    }
+
+    // Add the node to the list of reusable nodes
+    table->lruTail->next = table->reusable;
+    table->reusable      = table->lruTail;
+
+    // Update the LRU list
+    if (table->lruHead == table->lruTail) {
+        table->lruHead = NULL;
+        table->lruTail = NULL;
+    }
+    else {
+        TTY_Cache_Node* lruTail = table->lruTail;
+        table->lruTail          = lruTail->lruPrev;
+        lruTail->lruPrev        = NULL;
+        table->lruTail->lruNext = NULL;
+    }
+}
+
+static TTY_Cache_Node* tty_hash_table_replace_lru(TTY_Hash_Table* table, TTY_uint32 cp) {
+    tty_hash_table_remove_lru(table);
+    
+    TTY_Cache_Node* node = tty_hash_table_insert(table, cp);
+    TTY_ASSERT(node != NULL);
+    return node;
 }
 
 

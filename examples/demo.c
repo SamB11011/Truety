@@ -76,7 +76,7 @@ int main() {
     }
     
     // Save the texture atlas to an image named "atlas.png"
-    stbi_write_png("./atlas.png", image.w, image.h, 1, image.pixels, image.w);
+    stbi_write_png("./output.png", image.w, image.h, 1, image.pixels, image.w);
     
     // Clean up
     tty_image_free(&image);
