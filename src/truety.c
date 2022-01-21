@@ -5039,8 +5039,8 @@ static void tty_deltap(TTY_Interp* interp, TTY_uint8 range) {
 
         if (tty_get_delta_value(interp, exc, range, &deltaVal)) {
             // In accordance with the backward compatability mode of FreeType's
-            // v40 interpreter, SHPIX can only move a point if one of the 
-            // following is true:
+            // v40 interpreter, DELTAP instructions can only move a point if 
+            // one of the following is true:
             //     - The glyph is composite and being moved along the y-axis
             //     - The point was previously touched on the y-axis
 
@@ -5099,7 +5099,7 @@ static void tty_iup_interpolate_or_shift(TTY_Zone*  zone1,
         TTY_F26Dot6  newDist = TTY_F10DOT22_MUL((TTY_int64)orgDist << 6, scale);            \
         zone1->cur[i].coord  = zone1->cur[touch0].coord + newDist;                          \
                                                                                             \
-        TTY_LOG_CUSTOM_F( "Interp %3d: %5d", i, zone1->cur[i].coord);
+        TTY_LOG_CUSTOM_F("Interp %3d: %5d", i, zone1->cur[i].coord);
 
     #define TTY_IUP_SHIFT(coord)\
         TTY_int32 diff0 = labs(zone1->org[touch0].coord - zone1->org[i].coord);           \
@@ -5113,7 +5113,7 @@ static void tty_iup_interpolate_or_shift(TTY_Zone*  zone1,
             TTY_int32 diff = zone1->cur[touch1].coord - zone1->orgScaled[touch1].coord;   \
             zone1->cur[i].coord += diff;                                                  \
         }                                                                                 \
-        TTY_LOG_CUSTOM_F( "Shift %3d: %5d", i, zone1->cur[i].coord);
+        TTY_LOG_CUSTOM_F("Shift %3d: %5d", i, zone1->cur[i].coord);
 
     #define TTY_IUP_INTERPOLATE_OR_SHIFT                                 \
         if (touchFlag == TTY_TOUCH_X) {                                  \
