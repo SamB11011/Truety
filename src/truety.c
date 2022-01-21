@@ -17,17 +17,17 @@ static TTY_bool tty_format_is_supported(TTY_uint16 format);
 
 static void tty_extract_vmetrics(TTY* font);
 
-static TTY_bool tty_interpreter_alloc(TTY* font);
+static TTY_bool tty_interpreter_init(TTY* font);
 
-static TTY_bool tty_unhinted_alloc(TTY_Unhinted* unhinted, 
-                                   TTY_uint32    numOutlinePoints,
-                                   TTY_uint32    numEndPoints);
+static TTY_bool tty_unhinted_init(TTY_Unhinted* unhinted, 
+                                  TTY_uint32    numOutlinePoints,
+                                  TTY_uint32    numEndPoints);
 
-static TTY_bool tty_zone0_alloc(TTY* font, TTY_Zone* zone);
+static TTY_bool tty_zone0_init(TTY* font, TTY_Zone* zone);
 
-static TTY_bool tty_zone1_alloc(TTY_Zone*  zone, 
-                                TTY_uint32 numOutlinePoints,
-                                TTY_uint32 numEndPoints);
+static TTY_bool tty_zone1_init(TTY_Zone*  zone, 
+                               TTY_uint32 numOutlinePoints,
+                               TTY_uint32 numEndPoints);
 
 static void tty_interpreter_free(TTY_Interp* interp);
 
@@ -862,7 +862,7 @@ TTY_bool tty_init(TTY* font, const char* path) {
     tty_extract_vmetrics(font);
 
     if (font->hasHinting) {
-        if (!tty_interpreter_alloc(font)) {
+        if (!tty_interpreter_init(font)) {
             goto init_failure;
         }
         tty_execute_font_program(font);
@@ -894,7 +894,7 @@ TTY_bool tty_instance_init(TTY*              font,
         return TTY_TRUE;
     }
     
-    if (!tty_zone0_alloc(font, &instance->zone0)) {
+    if (!tty_zone0_init(font, &instance->zone0)) {
         return TTY_FALSE;
     }
     
@@ -942,8 +942,8 @@ TTY_bool tty_image_init(TTY_Image* image, TTY_uint8* pixels, TTY_uint32 w, TTY_u
     else {
         image->pixels = pixels;
     }
-    image->w = w;
-    image->h = h;
+    image->size.x = w;
+    image->size.y = h;
     return image->pixels != NULL;
 }
 
@@ -1095,26 +1095,26 @@ TTY_bool tty_get_atlas_cache_entry(TTY*             font,
             entry->uvs      = cache->table.lruTail->entry.uvs;
             node            = tty_hash_table_replace_lru(&cache->table, codePoint);
             node->entry.uvs = entry->uvs;
-            renderPos.x     = entry->uvs.u0 * cache->atlas.w;
-            renderPos.y     = entry->uvs.v0 * cache->atlas.h;
+            renderPos.x     = entry->uvs.u0 * cache->atlas.size.x;
+            renderPos.y     = entry->uvs.v0 * cache->atlas.size.y;
 
             // Clear the previous render from the atlas
             for (TTY_uint32 y = renderPos.y; y < instance->maxGlyphSize.y; y++) {
-                TTY_uint8* pixels = cache->atlas.pixels + cache->atlas.w * y;
+                TTY_uint8* pixels = cache->atlas.pixels + cache->atlas.size.x * y;
                 memset(pixels, 0, instance->maxGlyphSize.x);
             }
         }
         else {
             renderPos     = cache->renderPos;
-            entry->uvs.u0 = (float)cache->renderPos.x / cache->atlas.w;
-            entry->uvs.v0 = (float)cache->renderPos.y / cache->atlas.h;
-            entry->uvs.u1 = (float)(cache->renderPos.x + instance->maxGlyphSize.x) / cache->atlas.w;
-            entry->uvs.v1 = (float)(cache->renderPos.y + instance->maxGlyphSize.y) / cache->atlas.h;
+            entry->uvs.u0 = (float)cache->renderPos.x / cache->atlas.size.x;
+            entry->uvs.v0 = (float)cache->renderPos.y / cache->atlas.size.y;
+            entry->uvs.u1 = (float)(cache->renderPos.x + instance->maxGlyphSize.x) / cache->atlas.size.x;
+            entry->uvs.v1 = (float)(cache->renderPos.y + instance->maxGlyphSize.y) / cache->atlas.size.y;
 
             // TODO: Figure out a way where zero-sized glyphs don't have to be 
             //       put in the texture atlas?
             cache->renderPos.x += instance->maxGlyphSize.x;
-            if (cache->renderPos.x + instance->maxGlyphSize.x > cache->atlas.w) {
+            if (cache->renderPos.x + instance->maxGlyphSize.x > cache->atlas.size.x) {
                 cache->renderPos.x = 0;
                 cache->renderPos.y += instance->maxGlyphSize.y;
             }
@@ -1307,7 +1307,7 @@ static void tty_extract_vmetrics(TTY* font) {
     font->lineGap   = tty_get_int16(hhea + 8);
 }
 
-static TTY_bool tty_interpreter_alloc(TTY* font) {
+static TTY_bool tty_interpreter_init(TTY* font) {
     font->interp.stack.cap = tty_get_uint16(font->data + font->maxp.off + 24);
     font->interp.funcs.cap = tty_get_uint16(font->data + font->maxp.off + 20);
     
@@ -1324,9 +1324,9 @@ static TTY_bool tty_interpreter_alloc(TTY* font) {
     return TTY_TRUE;
 }
 
-static TTY_bool tty_unhinted_alloc(TTY_Unhinted* unhinted, 
-                                   TTY_uint32    numOutlinePoints,
-                                   TTY_uint32    numEndPoints) {
+static TTY_bool tty_unhinted_init(TTY_Unhinted* unhinted, 
+                                  TTY_uint32    numOutlinePoints,
+                                  TTY_uint32    numEndPoints) {
     unhinted->numOutlinePoints = numOutlinePoints;
     unhinted->numPoints        = numOutlinePoints + TTY_NUM_PHANTOM_POINTS;
     unhinted->numEndPoints     = numEndPoints;
@@ -1347,7 +1347,7 @@ static TTY_bool tty_unhinted_alloc(TTY_Unhinted* unhinted,
     return TTY_TRUE;
 }
 
-static TTY_bool tty_zone0_alloc(TTY* font, TTY_Zone* zone) {
+static TTY_bool tty_zone0_init(TTY* font, TTY_Zone* zone) {
     zone->numOutlinePoints = tty_get_uint16(font->data + font->maxp.off + 16);
     zone->numPoints        = zone->numOutlinePoints + TTY_NUM_PHANTOM_POINTS;
     zone->numEndPoints     = 0;
@@ -1373,9 +1373,9 @@ static TTY_bool tty_zone0_alloc(TTY* font, TTY_Zone* zone) {
     return TTY_TRUE;
 }
 
-static TTY_bool tty_zone1_alloc(TTY_Zone*  zone, 
-                                TTY_uint32 numOutlinePoints, 
-                                TTY_uint32 numEndPoints) {
+static TTY_bool tty_zone1_init(TTY_Zone*  zone, 
+                               TTY_uint32 numOutlinePoints, 
+                               TTY_uint32 numEndPoints) {
     zone->numOutlinePoints = numOutlinePoints;
     zone->numPoints        = zone->numOutlinePoints + TTY_NUM_PHANTOM_POINTS;
     zone->numEndPoints     = numEndPoints;
@@ -1546,7 +1546,7 @@ static TTY_bool tty_extract_composite_glyph_points(TTY*            font,
         TTY_uint32 numEndPoints = tty_get_num_composite_glyph_end_points(font, data->glyfBlock);
 
         if (instance->useHinting) {
-            if (!tty_zone1_alloc(&data->zone1, numOutlinePoints, numEndPoints)) {
+            if (!tty_zone1_init(&data->zone1, numOutlinePoints, numEndPoints)) {
                 return TTY_FALSE;
             }
 
@@ -1561,7 +1561,7 @@ static TTY_bool tty_extract_composite_glyph_points(TTY*            font,
             tty_round_phantom_points(data->zone1.cur);
         }
         else {
-            if (!tty_unhinted_alloc(&data->unhinted, numOutlinePoints, numEndPoints)) {
+            if (!tty_unhinted_init(&data->unhinted, numOutlinePoints, numEndPoints)) {
                 return TTY_FALSE;
             }
             
@@ -1844,7 +1844,7 @@ static TTY_bool tty_extract_glyph_points(TTY*            font,
         TTY_Point_Type* pointTypes;
 
         if (instance->useHinting) {
-            if (!tty_zone1_alloc(&data->zone1, numOutlinePoints, data->numContours)) {
+            if (!tty_zone1_init(&data->zone1, numOutlinePoints, data->numContours)) {
                 return TTY_FALSE;
             }
 
@@ -1855,7 +1855,7 @@ static TTY_bool tty_extract_glyph_points(TTY*            font,
             pointTypes = data->zone1.pointTypes;
         }
         else {
-            if (!tty_unhinted_alloc(&data->unhinted, numOutlinePoints, data->numContours)) {
+            if (!tty_unhinted_init(&data->unhinted, numOutlinePoints, data->numContours)) {
                 return TTY_FALSE;
             }
 
@@ -2174,8 +2174,8 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
         1 + (tty_f26dot6_floor(labs(max.x)) >> 6) + (xIntersectionOff >> 6);
 
     TTY_uint32 pixelsPerImageRow =
-        x + data.glyph->size.x > image->w ?
-        data.glyph->size.x - image->w + x : // TODO: Test
+        x + data.glyph->size.x > image->size.x ?
+        data.glyph->size.x - image->size.x + x : // TODO: Test
         data.glyph->size.x;
 
     TTY_F26Dot6* pixelRow = (TTY_F26Dot6*)calloc(pixelsPerRow, sizeof(TTY_F26Dot6));
@@ -2191,9 +2191,9 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
     TTY_int32   yMaxCeil = tty_f26dot6_ceil(max.y) >> 6;
     TTY_uint32  edgeIdx  = 0;
 
-    if (y + data.glyph->size.y > image->h) {
+    if (y + data.glyph->size.y > image->size.y) {
         // TODO: Test
-        yEndAbs += (data.glyph->size.y - image->h + y) << 6;
+        yEndAbs += (data.glyph->size.y - image->size.y + y) << 6;
     }
 
     while (yAbs >= yEndAbs) {
@@ -2379,8 +2379,8 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
             // A new row of pixels has been reached, transfer the accumulated
             // alpha values of the previous row to the image
 
-            TTY_uint32 startIdx = (yMaxCeil - (yAbs >> 6) - 1) * image->w + x;
-            TTY_ASSERT(startIdx < image->w * image->h);
+            TTY_uint32 startIdx = (yMaxCeil - (yAbs >> 6) - 1) * image->size.x + x;
+            TTY_ASSERT(startIdx < image->size.x * image->size.y);
             
             for (TTY_uint32 i = 0; i < pixelsPerImageRow; i++) {
                 TTY_ASSERT(pixelRow[i] >= 0);

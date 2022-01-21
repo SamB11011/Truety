@@ -11,7 +11,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "external/stb_image_write.h"
 
-#define PPEM      18
+#define PPEM      30
 #define FONT_PATH "./external/Roboto-Regular.ttf"
 
 int main() {
@@ -44,7 +44,8 @@ int main() {
     }
     
     stbi_write_png(
-        "./output.png", cache.atlas.w, cache.atlas.h, 1, cache.atlas.pixels, cache.atlas.w);
+        "./output.png", cache.atlas.size.x, cache.atlas.size.y, 1, cache.atlas.pixels, 
+        cache.atlas.size.x);
     
     tty_atlas_cache_free(&cache);
     tty_instance_free(&instance);

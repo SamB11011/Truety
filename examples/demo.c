@@ -68,7 +68,7 @@ int main() {
         // (The space character will produce an emtpy glyph, for example)
         if (glyph.size.x != 0) {
             x += instance.maxGlyphSize.x;
-            if (x + instance.maxGlyphSize.x > image.w) {
+            if (x + instance.maxGlyphSize.x > image.size.x) {
                 x = 0;
                 y += instance.maxGlyphSize.y;
             }
@@ -76,7 +76,7 @@ int main() {
     }
     
     // Save the texture atlas to an image named "atlas.png"
-    stbi_write_png("./output.png", image.w, image.h, 1, image.pixels, image.w);
+    stbi_write_png("./output.png", image.size.x, image.size.y, 1, image.pixels, image.size.x);
     
     // Clean up
     tty_image_free(&image);

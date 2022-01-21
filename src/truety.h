@@ -193,8 +193,7 @@ typedef struct TTY_Interp {
 
 typedef struct {
     TTY_uint8* pixels;
-    TTY_uint16 w;
-    TTY_uint16 h;
+    TTY_V2     size;
 } TTY_Image;
 
 typedef struct {
