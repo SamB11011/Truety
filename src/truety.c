@@ -1142,6 +1142,10 @@ TTY_bool tty_get_atlas_cache_entry(TTY*             font,
     return TTY_TRUE;
 }
 
+TTY_uint32 tty_get_num_glyphs_atlas_can_contain(TTY_Atlas_Cache* cache) {
+    return cache->table.maxNodes;
+}
+
 
 /* -------------------------- */
 /* Initialization and Cleanup */

@@ -326,4 +326,6 @@ TTY_bool tty_get_atlas_cache_entry(TTY*             font,
                                    TTY_Cache_Entry* entry, 
                                    TTY_uint32       cp);
 
+TTY_uint32 tty_get_num_glyphs_atlas_can_contain(TTY_Atlas_Cache* cache);
+
 #endif
