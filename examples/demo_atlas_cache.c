@@ -28,7 +28,7 @@ int main() {
     }
     
     TTY_Atlas_Cache cache;
-    if (!tty_atlas_cache_init(&instance, &cache, 512, 512)) {
+    if (!tty_atlas_cache_init(&instance, &cache, 256, 256)) {
         fprintf(stderr, "Failed to create a cache for the font\n");
         exit(1);
     }
@@ -37,7 +37,8 @@ int main() {
     // then returned.
     for (TTY_uint32 cp = ' '; cp <= '~'; cp++) {
         TTY_Cache_Entry entry;
-        if (!tty_get_atlas_cache_entry(&font, &instance, &cache, &entry, cp)) {
+        TTY_bool        wasCached;
+        if (!tty_get_atlas_cache_entry(&font, &instance, &cache, &entry, &wasCached, cp)) {
             fprintf(stderr, "Failed to get cache entry\n");
             exit(1);
         }

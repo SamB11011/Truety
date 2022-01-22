@@ -2,7 +2,6 @@
 #define TRUETY_H
 
 #include <stdint.h>
-#include <time.h>
 
 #define TTY_TRUE  1
 #define TTY_FALSE 0
@@ -234,14 +233,13 @@ typedef struct {
 } TTY;
 
 typedef struct {
-    float u0, v0;
-    float u1, v1;
-} TTY_UVs;
+    TTY_uint32 x0, y0;
+    TTY_uint32 x1, y1;
+} TTY_Atlas_Pos;
 
 typedef struct {
-    TTY_Glyph glyph;
-    TTY_UVs   uvs;
-    clock_t   prevAccessTime;
+    TTY_Glyph     glyph;
+    TTY_Atlas_Pos atlasPos;
 } TTY_Cache_Entry;
 
 typedef struct TTY_Cache_Node {
@@ -267,6 +265,8 @@ typedef struct {
     TTY_Hash_Table table;
     TTY_Image      atlas;
     TTY_V2         renderPos;
+    TTY_uint32     numGlyphs;
+    TTY_uint32     maxGlyphs;
 } TTY_Atlas_Cache;
 
 
@@ -323,9 +323,10 @@ TTY_bool tty_render_glyph_to_existing_image(TTY*          font,
 TTY_bool tty_get_atlas_cache_entry(TTY*             font,
                                    TTY_Instance*    instance, 
                                    TTY_Atlas_Cache* cache, 
-                                   TTY_Cache_Entry* entry, 
-                                   TTY_uint32       cp);
+                                   TTY_Cache_Entry* entry,
+                                   TTY_bool*        wasCached, 
+                                   TTY_uint32       codePoint);
 
-TTY_uint32 tty_get_num_glyphs_atlas_can_contain(TTY_Atlas_Cache* cache);
+TTY_bool tty_atlas_cache_contains(TTY_Atlas_Cache* cache, TTY_uint32 codePoint);
 
 #endif

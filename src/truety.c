@@ -238,6 +238,8 @@ static void tty_swap_active_edge_with_next(TTY_Active_Edge_List* list,
 
 static TTY_Cache_Node* tty_hash_table_insert(TTY_Hash_Table* table, TTY_uint32 cp);
 
+static TTY_Cache_Node* tty_hash_table_get_no_lru_update(TTY_Hash_Table* table, TTY_uint32 cp);
+
 static TTY_Cache_Node* tty_hash_table_get(TTY_Hash_Table* table, TTY_uint32 cp);
 
 static void tty_hash_table_remove_lru(TTY_Hash_Table* table);
@@ -964,6 +966,9 @@ TTY_bool tty_atlas_cache_init(TTY_Instance*    instance,
     }
 
     tty_image_init(&cache->atlas, cache->mem, w, h);
+    
+    cache->numGlyphs = 0;
+    cache->maxGlyphs = maxGlyphs;
 
     cache->table.nodes    = (TTY_Cache_Node*) (cache->mem + imageSize);
     cache->table.chains   = (TTY_Cache_Node**)(cache->mem + imageSize + nodesSize);
@@ -1079,71 +1084,69 @@ TTY_bool tty_render_glyph_to_existing_image(TTY*          font,
 TTY_bool tty_get_atlas_cache_entry(TTY*             font,
                                    TTY_Instance*    instance, 
                                    TTY_Atlas_Cache* cache, 
-                                   TTY_Cache_Entry* entry, 
+                                   TTY_Cache_Entry* entry,
+                                   TTY_bool*        wasCached, 
                                    TTY_uint32       codePoint) {
     TTY_Cache_Node* node = tty_hash_table_get(&cache->table, codePoint);
 
-    if (node == NULL) {
-        // Code point is not cached
-        TTY_V2 renderPos;
+    if (node != NULL) {
+        // The code point is already in the cache
+        *entry     = node->entry;
+        *wasCached = TTY_TRUE;
+        return TTY_TRUE;
+    }
 
-        node = tty_hash_table_insert(&cache->table, codePoint);
+    if (cache->numGlyphs == cache->maxGlyphs) {
+        // The cache is full, override the LRU with the new entry 
+        // (The Texture atlas position can be reused)
+        entry->atlasPos      = cache->table.lruTail->entry.atlasPos;
+        node                 = tty_hash_table_replace_lru(&cache->table, codePoint);
+        node->entry.atlasPos = entry->atlasPos;
 
-        if (node == NULL) {
-            // The cache is full, override the LRU with the new entry 
-            // (UVs are reused)
-            entry->uvs      = cache->table.lruTail->entry.uvs;
-            node            = tty_hash_table_replace_lru(&cache->table, codePoint);
-            node->entry.uvs = entry->uvs;
-            renderPos.x     = entry->uvs.u0 * cache->atlas.size.x;
-            renderPos.y     = entry->uvs.v0 * cache->atlas.size.y;
-
-            // Clear the previous render from the atlas
-            for (TTY_uint32 y = renderPos.y; y < instance->maxGlyphSize.y; y++) {
-                TTY_uint8* pixels = cache->atlas.pixels + cache->atlas.size.x * y;
-                memset(pixels, 0, instance->maxGlyphSize.x);
-            }
+        // Clear the previous render from the atlas
+        for (TTY_uint32 y = entry->atlasPos.y0; y < instance->maxGlyphSize.y; y++) {
+            TTY_uint8* pixels = cache->atlas.pixels + cache->atlas.size.x * y;
+            memset(pixels, 0, instance->maxGlyphSize.x);
         }
-        else {
-            renderPos     = cache->renderPos;
-            entry->uvs.u0 = (float)cache->renderPos.x / cache->atlas.size.x;
-            entry->uvs.v0 = (float)cache->renderPos.y / cache->atlas.size.y;
-            entry->uvs.u1 = (float)(cache->renderPos.x + instance->maxGlyphSize.x) / cache->atlas.size.x;
-            entry->uvs.v1 = (float)(cache->renderPos.y + instance->maxGlyphSize.y) / cache->atlas.size.y;
-
-            // TODO: Figure out a way where zero-sized glyphs don't have to be 
-            //       put in the texture atlas?
-            cache->renderPos.x += instance->maxGlyphSize.x;
-            if (cache->renderPos.x + instance->maxGlyphSize.x > cache->atlas.size.x) {
-                cache->renderPos.x = 0;
-                cache->renderPos.y += instance->maxGlyphSize.y;
-            }
-        }
-
-        tty_glyph_init(&entry->glyph, tty_get_glyph_index(font, codePoint));
-
-        {
-            TTY_bool renderSuccess = tty_render_glyph_internal(
-                font, instance, &entry->glyph, &cache->atlas, renderPos.x, renderPos.y);
-
-            if (!renderSuccess) {
-                return TTY_FALSE;
-            }
-        }
-
-        entry->prevAccessTime = 0;
-        node->entry.glyph     = entry->glyph;
     }
     else {
-        *entry = node->entry;
+        node = tty_hash_table_insert(&cache->table, codePoint);
+        TTY_ASSERT(node != NULL);
+
+        entry->atlasPos.x0 = cache->renderPos.x;
+        entry->atlasPos.y0 = cache->renderPos.y;
+        entry->atlasPos.x1 = cache->renderPos.x + instance->maxGlyphSize.x;
+        entry->atlasPos.y1 = cache->renderPos.y + instance->maxGlyphSize.y;
+        cache->numGlyphs++;
+
+        // TODO: Figure out a way where zero-sized glyphs don't have to be 
+        //       put in the texture atlas?
+        cache->renderPos.x += instance->maxGlyphSize.x;
+        if (cache->renderPos.x + instance->maxGlyphSize.x > cache->atlas.size.x) {
+            cache->renderPos.x = 0;
+            cache->renderPos.y += instance->maxGlyphSize.y;
+        }
     }
 
-    node->entry.prevAccessTime = clock();
+    tty_glyph_init(&entry->glyph, tty_get_glyph_index(font, codePoint));
+
+    {
+        TTY_bool renderSuccess = tty_render_glyph_internal(
+            font, instance, &entry->glyph, &cache->atlas, entry->atlasPos.x0, entry->atlasPos.y0);
+
+        if (!renderSuccess) {
+            return TTY_FALSE;
+        }
+    }
+    
+    node->entry.glyph = entry->glyph;
+    *wasCached        = TTY_FALSE;
+    
     return TTY_TRUE;
 }
 
-TTY_uint32 tty_get_num_glyphs_atlas_can_contain(TTY_Atlas_Cache* cache) {
-    return cache->table.maxNodes;
+TTY_bool tty_atlas_cache_contains(TTY_Atlas_Cache* cache, TTY_uint32 codePoint) {
+    return tty_hash_table_get_no_lru_update(&cache->table, codePoint) != NULL;
 }
 
 
@@ -2844,36 +2847,33 @@ static TTY_Cache_Node* tty_hash_table_insert(TTY_Hash_Table* table, TTY_uint32 c
     return node;
 }
 
-static TTY_Cache_Node* tty_hash_table_get(TTY_Hash_Table* table, TTY_uint32 cp) {
+static TTY_Cache_Node* tty_hash_table_get_no_lru_update(TTY_Hash_Table* table, TTY_uint32 cp) {
     TTY_uint32      idx  = TTY_HASH(cp) % table->maxNodes;
     TTY_Cache_Node* node = table->chains[idx];
-
+    
     while (node != NULL) {
         if (node->codePoint == cp) {
-            // Code point found, update the LRU list
-
-            if (node == table->lruHead) {
-                return node;
-            }
-            
-            if (node == table->lruTail) {
-                table->lruTail = node->lruPrev;
-            }
-
-            table->lruHead->lruPrev = node;
-            node->lruPrev->lruNext = node->lruNext;
-            node->lruNext          = table->lruHead;
-            node->lruPrev          = NULL;
-            table->lruHead         = node;
-
             return node;
         }
-
         node = node->next;
     }
 
-    // The code point is not in the table
-    return NULL;
+    return node;
+}
+
+static TTY_Cache_Node* tty_hash_table_get(TTY_Hash_Table* table, TTY_uint32 cp) {
+    TTY_Cache_Node* node = tty_hash_table_get_no_lru_update(table, cp);
+    
+    if (node != NULL) {
+        // Code point found, update the LRU list
+        table->lruHead->lruPrev = node;
+        node->lruPrev->lruNext = node->lruNext;
+        node->lruNext          = table->lruHead;
+        node->lruPrev          = NULL;
+        table->lruHead         = node;
+    }
+
+    return node;
 }
 
 static void tty_hash_table_remove_lru(TTY_Hash_Table* table) {
