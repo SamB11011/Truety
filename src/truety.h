@@ -233,13 +233,8 @@ typedef struct {
 } TTY;
 
 typedef struct {
-    TTY_uint32 x0, y0;
-    TTY_uint32 x1, y1;
-} TTY_Atlas_Pos;
-
-typedef struct {
-    TTY_Glyph     glyph;
-    TTY_Atlas_Pos atlasPos;
+    TTY_Glyph glyph;
+    TTY_V2    atlasPos;
 } TTY_Cache_Entry;
 
 typedef struct TTY_Cache_Node {
@@ -264,6 +259,7 @@ typedef struct {
     TTY_uint8*     mem;
     TTY_Hash_Table table;
     TTY_Image      atlas;
+    TTY_V2         slotSize;
     TTY_V2         renderPos;
     TTY_uint32     numGlyphs;
     TTY_uint32     maxGlyphs;

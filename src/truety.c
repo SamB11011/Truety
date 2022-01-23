@@ -969,6 +969,7 @@ TTY_bool tty_atlas_cache_init(TTY_Instance*    instance,
     
     cache->numGlyphs = 0;
     cache->maxGlyphs = maxGlyphs;
+    cache->slotSize  = instance->maxGlyphSize;
 
     cache->table.nodes    = (TTY_Cache_Node*) (cache->mem + imageSize);
     cache->table.chains   = (TTY_Cache_Node**)(cache->mem + imageSize + nodesSize);
@@ -1104,27 +1105,28 @@ TTY_bool tty_get_atlas_cache_entry(TTY*             font,
         node->entry.atlasPos = entry->atlasPos;
 
         // Clear the previous render from the atlas
-        for (TTY_uint32 y = entry->atlasPos.y0; y < instance->maxGlyphSize.y; y++) {
-            TTY_uint8* pixels = cache->atlas.pixels + cache->atlas.size.x * y;
-            memset(pixels, 0, instance->maxGlyphSize.x);
+        TTY_uint32 offset = entry->atlasPos.x + (cache->atlas.size.x * entry->atlasPos.y);
+        TTY_uint32 yEnd   = entry->atlasPos.y + cache->slotSize.y;
+
+        for (TTY_uint32 y = entry->atlasPos.y; y < yEnd; y++) {
+            memset(cache->atlas.pixels + offset, 0, cache->slotSize.x);
+            offset += cache->atlas.size.x;
         }
     }
     else {
         node = tty_hash_table_insert(&cache->table, codePoint);
         TTY_ASSERT(node != NULL);
 
-        entry->atlasPos.x0 = cache->renderPos.x;
-        entry->atlasPos.y0 = cache->renderPos.y;
-        entry->atlasPos.x1 = cache->renderPos.x + instance->maxGlyphSize.x;
-        entry->atlasPos.y1 = cache->renderPos.y + instance->maxGlyphSize.y;
+        entry->atlasPos.x = cache->renderPos.x;
+        entry->atlasPos.y = cache->renderPos.y;
         cache->numGlyphs++;
 
         // TODO: Figure out a way where zero-sized glyphs don't have to be 
         //       put in the texture atlas?
-        cache->renderPos.x += instance->maxGlyphSize.x;
-        if (cache->renderPos.x + instance->maxGlyphSize.x > cache->atlas.size.x) {
+        cache->renderPos.x += cache->slotSize.x;
+        if (cache->renderPos.x + cache->slotSize.x > cache->atlas.size.x) {
             cache->renderPos.x = 0;
-            cache->renderPos.y += instance->maxGlyphSize.y;
+            cache->renderPos.y += cache->slotSize.y;
         }
     }
 
@@ -1132,16 +1134,15 @@ TTY_bool tty_get_atlas_cache_entry(TTY*             font,
 
     {
         TTY_bool renderSuccess = tty_render_glyph_internal(
-            font, instance, &entry->glyph, &cache->atlas, entry->atlasPos.x0, entry->atlasPos.y0);
+            font, instance, &entry->glyph, &cache->atlas, entry->atlasPos.x, entry->atlasPos.y);
 
         if (!renderSuccess) {
             return TTY_FALSE;
         }
     }
     
-    node->entry.glyph = entry->glyph;
-    *wasCached        = TTY_FALSE;
-    
+    node->entry = *entry;
+    *wasCached  = TTY_FALSE;
     return TTY_TRUE;
 }
 
