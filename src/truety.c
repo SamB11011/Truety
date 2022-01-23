@@ -2487,7 +2487,7 @@ static void tty_set_hinted_glyph_metrics(TTY*            font,
     glyph->size.y = (yHoriBearing - bottom      ) >> 6;
 
     glyph->offset.x = min->x >> 6;
-    glyph->offset.y = tty_f26dot6_round(max->y) >> 6;
+    glyph->offset.y = tty_f26dot6_ceil(max->y) >> 6;
 }
 
 static void tty_set_unhinted_glyph_metrics(TTY*            font,
