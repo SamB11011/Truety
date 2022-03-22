@@ -230,7 +230,7 @@ typedef struct {
     TTY_int16    descender;
     TTY_int16    lineGap;
     TTY_Interp   interp;
-} TTY;
+} TTY_Font;
 
 typedef struct {
     TTY_Glyph glyph;
@@ -266,9 +266,9 @@ typedef struct {
 } TTY_Atlas_Cache;
 
 
-TTY_bool tty_init(TTY* font, const char* path);
+TTY_bool tty_init(TTY_Font* font, const char* path);
 
-TTY_bool tty_instance_init(TTY*              font, 
+TTY_bool tty_instance_init(TTY_Font*              font, 
                            TTY_Instance*     instance, 
                            TTY_uint32        ppem, 
                            TTY_Instance_Flag flags);
@@ -282,7 +282,7 @@ TTY_bool tty_atlas_cache_init(TTY_Instance*    instance,
                               TTY_uint32       w, 
                               TTY_uint32       h);
 
-void tty_free(TTY* font);
+void tty_free(TTY_Font* font);
 
 void tty_instance_free(TTY_Instance* instance);
 
@@ -290,33 +290,33 @@ void tty_image_free(TTY_Image* image);
 
 void tty_atlas_cache_free(TTY_Atlas_Cache* cache);
 
-TTY_uint32 tty_get_glyph_index(TTY* font, TTY_uint32 codePoint);
+TTY_uint32 tty_get_glyph_index(TTY_Font* font, TTY_uint32 codePoint);
 
-TTY_uint16 tty_get_num_glyphs(TTY* font);
+TTY_uint16 tty_get_num_glyphs(TTY_Font* font);
 
-TTY_int32 tty_get_ascender(TTY* font, TTY_Instance* instance);
+TTY_int32 tty_get_ascender(TTY_Font* font, TTY_Instance* instance);
 
-TTY_int32 tty_get_descender(TTY* font, TTY_Instance* instance);
+TTY_int32 tty_get_descender(TTY_Font* font, TTY_Instance* instance);
 
-TTY_int32 tty_get_line_gap(TTY* font, TTY_Instance* instance);
+TTY_int32 tty_get_line_gap(TTY_Font* font, TTY_Instance* instance);
 
-TTY_int32 tty_get_new_line_offset(TTY* font, TTY_Instance* instance);
+TTY_int32 tty_get_new_line_offset(TTY_Font* font, TTY_Instance* instance);
 
-TTY_int32 tty_get_max_horizontal_extent(TTY* font, TTY_Instance* instance);
+TTY_int32 tty_get_max_horizontal_extent(TTY_Font* font, TTY_Instance* instance);
 
-TTY_bool tty_render_glyph(TTY*          font,
+TTY_bool tty_render_glyph(TTY_Font*     font,
                           TTY_Instance* instance,
                           TTY_Glyph*    glyph,
                           TTY_Image*    image);
 
-TTY_bool tty_render_glyph_to_existing_image(TTY*          font, 
+TTY_bool tty_render_glyph_to_existing_image(TTY_Font*     font, 
                                             TTY_Instance* instance, 
                                             TTY_Glyph*    glyph,
                                             TTY_Image*    image,
                                             TTY_uint32    x, 
                                             TTY_uint32    y);
 
-TTY_bool tty_get_atlas_cache_entry(TTY*             font,
+TTY_bool tty_get_atlas_cache_entry(TTY_Font*        font,
                                    TTY_Instance*    instance, 
                                    TTY_Atlas_Cache* cache, 
                                    TTY_Cache_Entry* entry,

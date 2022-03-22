@@ -7,23 +7,23 @@
 /* -------------------------- */
 /* Initialization and Cleanup */
 /* -------------------------- */
-static TTY_bool tty_read_file_into_buffer(TTY* font, const char* path);
+static TTY_bool tty_read_file_into_buffer(TTY_Font* font, const char* path);
 
-static TTY_bool tty_extract_info_from_table_directory(TTY* font);
+static TTY_bool tty_extract_info_from_table_directory(TTY_Font* font);
 
-static TTY_bool tty_extract_char_encoding(TTY* font);
+static TTY_bool tty_extract_char_encoding(TTY_Font* font);
 
 static TTY_bool tty_format_is_supported(TTY_uint16 format);
 
-static void tty_extract_vmetrics(TTY* font);
+static void tty_extract_vmetrics(TTY_Font* font);
 
-static TTY_bool tty_interpreter_init(TTY* font);
+static TTY_bool tty_interpreter_init(TTY_Font* font);
 
 static TTY_bool tty_unhinted_init(TTY_Unhinted* unhinted, 
                                   TTY_uint32    numOutlinePoints,
                                   TTY_uint32    numEndPoints);
 
-static TTY_bool tty_zone0_init(TTY* font, TTY_Zone* zone);
+static TTY_bool tty_zone0_init(TTY_Font* font, TTY_Zone* zone);
 
 static TTY_bool tty_zone1_init(TTY_Zone*  zone, 
                                TTY_uint32 numOutlinePoints,
@@ -70,22 +70,22 @@ enum {
     TTY_GLYF_UNSCALED_COMPONENT_OFFSET = 0x1000,
 };
 
-static TTY_uint8* tty_get_glyf_data_block(TTY* font, TTY_uint32 glyphIdx);
+static TTY_uint8* tty_get_glyf_data_block(TTY_Font* font, TTY_uint32 glyphIdx);
 
-static TTY_uint8* tty_get_next_child_glyf_data_block(TTY*        font,
+static TTY_uint8* tty_get_next_child_glyf_data_block(TTY_Font*   font,
                                                      TTY_uint8*  parentBlock, 
                                                      TTY_uint32* parentOff,
                                                      TTY_bool*   isLastBlock);
 
-static TTY_bool tty_extract_composite_glyph_points(TTY*            font, 
+static TTY_bool tty_extract_composite_glyph_points(TTY_Font*       font, 
                                                    TTY_Instance*   instance, 
                                                    TTY_Glyph_Data* glyphData);
 
-static TTY_uint32 tty_get_num_composite_glyph_outline_points(TTY* font, TTY_uint8* glyfBlock);
+static TTY_uint32 tty_get_num_composite_glyph_outline_points(TTY_Font* font, TTY_uint8* glyfBlock);
 
-static TTY_uint32 tty_get_num_composite_glyph_end_points(TTY* font, TTY_uint8* glyfBlock);
+static TTY_uint32 tty_get_num_composite_glyph_end_points(TTY_Font* font, TTY_uint8* glyfBlock);
 
-static TTY_bool tty_extract_glyph_points(TTY*            font, 
+static TTY_bool tty_extract_glyph_points(TTY_Font*       font, 
                                          TTY_Instance*   instance, 
                                          TTY_Glyph_Data* glyphData);
 
@@ -100,7 +100,7 @@ static TTY_int32 tty_get_next_coord_off(TTY_uint8** data,
                                         TTY_uint8   shortFlag, 
                                         TTY_uint8   flags);
 
-static void tty_set_phantom_points(TTY* font, TTY_Glyph_Data* data, TTY_V2* phantomPoints);
+static void tty_set_phantom_points(TTY_Font* font, TTY_Glyph_Data* data, TTY_V2* phantomPoints);
 
 static void tty_scale_glyph_points(TTY_F26Dot6_V2* scaledPoints, 
                                    TTY_V2*         points, 
@@ -151,34 +151,34 @@ typedef struct {
     TTY_Active_Edge*  reusableEdges;
 } TTY_Active_Edge_List;
 
-static TTY_bool tty_render_glyph_internal(TTY*          font,
+static TTY_bool tty_render_glyph_internal(TTY_Font*     font,
                                           TTY_Instance* instance,
                                           TTY_Glyph*    glyph,
                                           TTY_Image*    image,
                                           TTY_uint32    x,
                                           TTY_uint32    y);
 
-static TTY_bool tty_glyph_data_init(TTY*            font, 
+static TTY_bool tty_glyph_data_init(TTY_Font*       font, 
                                     TTY_Instance*   instance, 
                                     TTY_Glyph*      glyph, 
                                     TTY_Glyph_Data* data,
                                     TTY_bool*       isEmpty);
 
-static TTY_uint32 tty_get_num_composite_glyph_end_points(TTY* font, TTY_uint8* glyfBlock);
+static TTY_uint32 tty_get_num_composite_glyph_end_points(TTY_Font* font, TTY_uint8* glyfBlock);
 
 static void tty_get_max_and_min_points(TTY_F26Dot6_V2* points, 
                                        TTY_uint32      numPoints, 
                                        TTY_F26Dot6_V2* max, 
                                        TTY_F26Dot6_V2* min);
 
-static void tty_set_hinted_glyph_metrics(TTY*            font,
+static void tty_set_hinted_glyph_metrics(TTY_Font*       font,
                                          TTY_Instance*   instance,
                                          TTY_Glyph*      glyph,
                                          TTY_F26Dot6_V2* phantomPoints,
                                          TTY_F26Dot6_V2* max, 
                                          TTY_F26Dot6_V2* min);
 
-static void tty_set_unhinted_glyph_metrics(TTY*            font,
+static void tty_set_unhinted_glyph_metrics(TTY_Font*       font,
                                            TTY_Instance*   instance,
                                            TTY_Glyph*      glyph,
                                            TTY_F26Dot6_V2* phantomPoints,
@@ -373,11 +373,11 @@ enum {
     TTY_ROUND_OFF           ,
 };
 
-static void tty_execute_font_program(TTY* font);
+static void tty_execute_font_program(TTY_Font* font);
 
-static void tty_execute_cv_program(TTY* font, TTY_Instance* instance);
+static void tty_execute_cv_program(TTY_Font* font, TTY_Instance* instance);
 
-static void tty_execute_glyph_program(TTY*            font, 
+static void tty_execute_glyph_program(TTY_Font*       font, 
                                       TTY_Instance*   instance, 
                                       TTY_Glyph_Data* glyphData,
                                       TTY_Ins_Stream* stream,
@@ -759,17 +759,21 @@ static TTY_int32 tty_min(TTY_int32 a, TTY_int32 b);
 
 static void tty_max_min(TTY_int32 a, TTY_int32 b, TTY_int32* max, TTY_int32* min);
 
-static TTY_uint16 tty_get_glyph_advance_width(TTY* font, TTY_uint32 glyphIdx);
+static TTY_uint16 tty_get_glyph_advance_width(TTY_Font* font, TTY_uint32 glyphIdx);
 
-static TTY_int16 tty_get_glyph_left_side_bearing(TTY* font, TTY_uint32 glyphIdx);
+static TTY_int16 tty_get_glyph_left_side_bearing(TTY_Font* font, TTY_uint32 glyphIdx);
 
-static TTY_int32 tty_get_glyph_advance_height(TTY* font);
+static TTY_int32 tty_get_glyph_advance_height(TTY_Font* font);
 
-static TTY_int32 tty_get_glyph_top_side_bearing(TTY* font, TTY_int16 yMax);
+static TTY_int32 tty_get_glyph_top_side_bearing(TTY_Font* font, TTY_int16 yMax);
 
-static void tty_set_unhinted_glyph_x_advance(TTY* font, TTY_Instance* instance, TTY_Glyph* glyph);
+static void tty_set_unhinted_glyph_x_advance(TTY_Font*     font, 
+                                             TTY_Instance* instance, 
+                                             TTY_Glyph*    glyph);
 
-static void tty_set_unhinted_glyph_y_advance(TTY* font, TTY_Instance* instance, TTY_Glyph* glyph);
+static void tty_set_unhinted_glyph_y_advance(TTY_Font*     font, 
+                                             TTY_Instance* instance, 
+                                             TTY_Glyph*    glyph);
 
 
 /* --------------------- */
@@ -839,8 +843,8 @@ static void tty_set_unhinted_glyph_y_advance(TTY* font, TTY_Instance* instance, 
 /* ---------------- */
 /* Public Functions */
 /* ---------------- */
-TTY_bool tty_init(TTY* font, const char* path) {
-    memset(font, 0, sizeof(TTY));
+TTY_bool tty_init(TTY_Font* font, const char* path) {
+    memset(font, 0, sizeof(TTY_Font));
 
     if (!tty_read_file_into_buffer(font, path)) {
         goto init_failure;
@@ -877,7 +881,7 @@ init_failure:
     return TTY_FALSE;
 }
 
-TTY_bool tty_instance_init(TTY*              font, 
+TTY_bool tty_instance_init(TTY_Font*         font, 
                            TTY_Instance*     instance, 
                            TTY_uint32        ppem, 
                            TTY_Instance_Flag flags) {
@@ -978,7 +982,7 @@ TTY_bool tty_atlas_cache_init(TTY_Instance*    instance,
     return TTY_TRUE;
 }
 
-void tty_free(TTY* font) {
+void tty_free(TTY_Font* font) {
     if (font != NULL) {
         TTY_FREE_AND_NULLIFY(font->data);
         
@@ -1009,7 +1013,7 @@ void tty_atlas_cache_free(TTY_Atlas_Cache* cache) {
     }
 }
 
-TTY_uint32 tty_get_glyph_index(TTY* font, TTY_uint32 codePoint) {
+TTY_uint32 tty_get_glyph_index(TTY_Font* font, TTY_uint32 codePoint) {
     TTY_uint8* subtable = font->data + font->cmap.off + font->encoding.off;
 
     switch (tty_get_uint16(subtable)) {
@@ -1039,33 +1043,33 @@ TTY_uint32 tty_get_glyph_index(TTY* font, TTY_uint32 codePoint) {
     return 0;
 }
 
-TTY_uint16 tty_get_num_glyphs(TTY* font) {
+TTY_uint16 tty_get_num_glyphs(TTY_Font* font) {
     return tty_get_uint16(font->data + font->maxp.off + 4);
 }
 
-TTY_int32 tty_get_ascender(TTY* font, TTY_Instance* instance) {
+TTY_int32 tty_get_ascender(TTY_Font* font, TTY_Instance* instance) {
     return tty_f26dot6_ceil(TTY_F10DOT22_MUL(font->ascender << 6, instance->scale)) >> 6;
 }
 
-TTY_int32 tty_get_descender(TTY* font, TTY_Instance* instance) {
+TTY_int32 tty_get_descender(TTY_Font* font, TTY_Instance* instance) {
     return tty_f26dot6_ceil(TTY_F10DOT22_MUL(font->descender << 6, instance->scale)) >> 6;
 }
 
-TTY_int32 tty_get_line_gap(TTY* font, TTY_Instance* instance) {
+TTY_int32 tty_get_line_gap(TTY_Font* font, TTY_Instance* instance) {
     return tty_f26dot6_ceil(TTY_F10DOT22_MUL(font->lineGap << 6, instance->scale)) >> 6;
 }
 
-TTY_int32 tty_get_new_line_offset(TTY* font, TTY_Instance* instance) {
+TTY_int32 tty_get_new_line_offset(TTY_Font* font, TTY_Instance* instance) {
     TTY_int32 offset = font->lineGap + font->ascender - font->descender;
     return tty_f26dot6_ceil(TTY_F10DOT22_MUL(offset << 6, instance->scale)) >> 6;
 }
 
-TTY_int32 tty_get_max_horizontal_extent(TTY* font, TTY_Instance* instance) {
+TTY_int32 tty_get_max_horizontal_extent(TTY_Font* font, TTY_Instance* instance) {
     TTY_int32 extent = tty_get_int16(font->data + font->hhea.off + 16);
     return tty_f26dot6_ceil(TTY_F10DOT22_MUL(extent << 6, instance->scale)) >> 6;
 }
 
-TTY_bool tty_render_glyph(TTY*          font,
+TTY_bool tty_render_glyph(TTY_Font*     font,
                           TTY_Instance* instance,
                           TTY_Glyph*    glyph,
                           TTY_Image*    image) {
@@ -1073,7 +1077,7 @@ TTY_bool tty_render_glyph(TTY*          font,
     return tty_render_glyph_internal(font, instance, glyph, image, 0, 0);
 }
 
-TTY_bool tty_render_glyph_to_existing_image(TTY*          font, 
+TTY_bool tty_render_glyph_to_existing_image(TTY_Font*     font, 
                                             TTY_Instance* instance,
                                             TTY_Glyph*    glyph,
                                             TTY_Image*    image,  
@@ -1082,7 +1086,7 @@ TTY_bool tty_render_glyph_to_existing_image(TTY*          font,
     return tty_render_glyph_internal(font, instance, glyph, image, x, y);
 }
 
-TTY_bool tty_get_atlas_cache_entry(TTY*             font,
+TTY_bool tty_get_atlas_cache_entry(TTY_Font*        font,
                                    TTY_Instance*    instance, 
                                    TTY_Atlas_Cache* cache, 
                                    TTY_Cache_Entry* entry,
@@ -1154,7 +1158,7 @@ TTY_bool tty_atlas_cache_contains(TTY_Atlas_Cache* cache, TTY_uint32 codePoint) 
 /* -------------------------- */
 /* Initialization and Cleanup */
 /* -------------------------- */
-static TTY_bool tty_read_file_into_buffer(TTY* font, const char* path) {
+static TTY_bool tty_read_file_into_buffer(TTY_Font* font, const char* path) {
     FILE* f = fopen(path, "rb");
     if (f == NULL) {
         return TTY_FALSE;
@@ -1188,7 +1192,7 @@ read_failure:
     return TTY_FALSE;
 }
 
-static TTY_bool tty_extract_info_from_table_directory(TTY* font) {
+static TTY_bool tty_extract_info_from_table_directory(TTY_Font* font) {
     #define TTY_TAG_EQUALS(val) !memcmp(tag, val, 4)
     
     TTY_uint16 numTables = tty_get_uint16(font->data + 4);
@@ -1258,7 +1262,7 @@ static TTY_bool tty_extract_info_from_table_directory(TTY* font) {
     #undef TTY_TAG_EQUALS
 }
 
-static TTY_bool tty_extract_char_encoding(TTY* font) {
+static TTY_bool tty_extract_char_encoding(TTY_Font* font) {
     TTY_uint16 numTables = tty_get_uint16(font->data + font->cmap.off + 2);
     
     for (TTY_uint16 i = 0; i < numTables; i++) {
@@ -1308,14 +1312,14 @@ static TTY_bool tty_format_is_supported(TTY_uint16 format) {
     return TTY_FALSE;
 }
 
-static void tty_extract_vmetrics(TTY* font) {
+static void tty_extract_vmetrics(TTY_Font* font) {
     TTY_uint8* hhea = font->data + font->hhea.off;
     font->ascender  = tty_get_int16(hhea + 4);
     font->descender = tty_get_int16(hhea + 6);
     font->lineGap   = tty_get_int16(hhea + 8);
 }
 
-static TTY_bool tty_interpreter_init(TTY* font) {
+static TTY_bool tty_interpreter_init(TTY_Font* font) {
     font->interp.stack.cap = tty_get_uint16(font->data + font->maxp.off + 24);
     font->interp.funcs.cap = tty_get_uint16(font->data + font->maxp.off + 20);
     
@@ -1355,7 +1359,7 @@ static TTY_bool tty_unhinted_init(TTY_Unhinted* unhinted,
     return TTY_TRUE;
 }
 
-static TTY_bool tty_zone0_init(TTY* font, TTY_Zone* zone) {
+static TTY_bool tty_zone0_init(TTY_Font* font, TTY_Zone* zone) {
     zone->numOutlinePoints = tty_get_uint16(font->data + font->maxp.off + 16);
     zone->numPoints        = zone->numOutlinePoints + TTY_NUM_PHANTOM_POINTS;
     zone->numEndPoints     = 0;
@@ -1471,7 +1475,7 @@ static TTY_uint16 tty_get_glyph_index_format_4(TTY_uint8* subtable, TTY_uint32 c
 /* ---------------- */
 /* glyf Table Stuff */
 /* ---------------- */
-static TTY_uint8* tty_get_glyf_data_block(TTY* font, TTY_uint32 glyphIdx) {
+static TTY_uint8* tty_get_glyf_data_block(TTY_Font* font, TTY_uint32 glyphIdx) {
     #define TTY_GET_OFF_16(idx)\
         (tty_get_offset16(font->data + font->loca.off + (2 * (idx))) * 2)
 
@@ -1508,7 +1512,7 @@ static TTY_uint8* tty_get_glyf_data_block(TTY* font, TTY_uint32 glyphIdx) {
     #undef TTY_GET_OFF_32
 }
 
-static TTY_uint8* tty_get_next_child_glyf_data_block(TTY*        font,
+static TTY_uint8* tty_get_next_child_glyf_data_block(TTY_Font*   font,
                                                      TTY_uint8*  parentBlock, 
                                                      TTY_uint32* parentOff,
                                                      TTY_bool*   isLastBlock) {
@@ -1543,7 +1547,7 @@ static TTY_uint8* tty_get_next_child_glyf_data_block(TTY*        font,
     return childBlock;
 }
 
-static TTY_bool tty_extract_composite_glyph_points(TTY*            font, 
+static TTY_bool tty_extract_composite_glyph_points(TTY_Font*       font, 
                                                    TTY_Instance*   instance, 
                                                    TTY_Glyph_Data* data) {
     {
@@ -1789,7 +1793,7 @@ static TTY_bool tty_extract_composite_glyph_points(TTY*            font,
     return TTY_TRUE;
 }
 
-static TTY_uint32 tty_get_num_composite_glyph_outline_points(TTY* font, TTY_uint8* glyfBlock) {
+static TTY_uint32 tty_get_num_composite_glyph_outline_points(TTY_Font* font, TTY_uint8* glyfBlock) {
     TTY_uint32 off       = 0;
     TTY_uint32 numPoints = 0;
 
@@ -1814,7 +1818,7 @@ static TTY_uint32 tty_get_num_composite_glyph_outline_points(TTY* font, TTY_uint
     return numPoints;
 }
 
-static TTY_uint32 tty_get_num_composite_glyph_end_points(TTY* font, TTY_uint8* glyfBlock) {
+static TTY_uint32 tty_get_num_composite_glyph_end_points(TTY_Font* font, TTY_uint8* glyfBlock) {
     TTY_uint32 off         = 0;
     TTY_uint32 numContours = 0;
 
@@ -1839,7 +1843,7 @@ static TTY_uint32 tty_get_num_composite_glyph_end_points(TTY* font, TTY_uint8* g
     return numContours;
 }
 
-static TTY_bool tty_extract_glyph_points(TTY*            font, 
+static TTY_bool tty_extract_glyph_points(TTY_Font*       font, 
                                          TTY_Instance*   instance, 
                                          TTY_Glyph_Data* data) {
     {
@@ -2022,7 +2026,7 @@ static TTY_int32 tty_get_next_coord_off(TTY_uint8** data,
     return coord;
 }
 
-static void tty_set_phantom_points(TTY* font, TTY_Glyph_Data* data, TTY_V2* phantomPoints) {
+static void tty_set_phantom_points(TTY_Font* font, TTY_Glyph_Data* data, TTY_V2* phantomPoints) {
     TTY_int16  xMin = tty_get_int16(data->glyfBlock + 2);
     TTY_int16  yMax = tty_get_int16(data->glyfBlock + 8);
     TTY_uint16 xAdv = tty_get_glyph_advance_width(font, data->glyph->idx);
@@ -2064,7 +2068,7 @@ static void tty_round_phantom_points(TTY_F26Dot6_V2* phantomPoints) {
 /* --------- */
 /* Rendering */
 /* --------- */
-static TTY_bool tty_render_glyph_internal(TTY*          font, 
+static TTY_bool tty_render_glyph_internal(TTY_Font*     font, 
                                           TTY_Instance* instance, 
                                           TTY_Glyph*    glyph,
                                           TTY_Image*    image, 
@@ -2407,7 +2411,7 @@ static TTY_bool tty_render_glyph_internal(TTY*          font,
     return TTY_TRUE;
 }
 
-static TTY_bool tty_glyph_data_init(TTY*            font, 
+static TTY_bool tty_glyph_data_init(TTY_Font*       font, 
                                     TTY_Instance*   instance, 
                                     TTY_Glyph*      glyph, 
                                     TTY_Glyph_Data* data,
@@ -2454,7 +2458,7 @@ static void tty_get_max_and_min_points(TTY_F26Dot6_V2* points,
     }
 }
 
-static void tty_set_hinted_glyph_metrics(TTY*            font,
+static void tty_set_hinted_glyph_metrics(TTY_Font*       font,
                                          TTY_Instance*   instance,
                                          TTY_Glyph*      glyph,
                                          TTY_F26Dot6_V2* phantomPoints,
@@ -2490,7 +2494,7 @@ static void tty_set_hinted_glyph_metrics(TTY*            font,
     glyph->offset.y = tty_f26dot6_ceil(max->y) >> 6;
 }
 
-static void tty_set_unhinted_glyph_metrics(TTY*            font,
+static void tty_set_unhinted_glyph_metrics(TTY_Font*       font,
                                            TTY_Instance*   instance,
                                            TTY_Glyph*      glyph,
                                            TTY_F26Dot6_V2* phantomPoints,
@@ -2933,7 +2937,7 @@ static TTY_Cache_Node* tty_hash_table_replace_lru(TTY_Hash_Table* table, TTY_uin
 /* --------------------- */
 /* Instruction Execution */
 /* --------------------- */
-static void tty_execute_font_program(TTY* font) {
+static void tty_execute_font_program(TTY_Font* font) {
     TTY_LOG_PROGRAM("Font Program");
     
     TTY_Temp_Interp_Data temp;
@@ -2952,7 +2956,7 @@ static void tty_execute_font_program(TTY* font) {
     }
 }
 
-static void tty_execute_cv_program(TTY* font, TTY_Instance* instance) {
+static void tty_execute_cv_program(TTY_Font* font, TTY_Instance* instance) {
     TTY_LOG_PROGRAM("CV Program");
 
     // "Every time the control value program is run, the zone 0 contour data is
@@ -2976,7 +2980,7 @@ static void tty_execute_cv_program(TTY* font, TTY_Instance* instance) {
     }
 }
 
-static void tty_execute_glyph_program(TTY*            font, 
+static void tty_execute_glyph_program(TTY_Font*       font, 
                                       TTY_Instance*   instance, 
                                       TTY_Glyph_Data* data,
                                       TTY_Ins_Stream* stream,
@@ -5335,7 +5339,7 @@ static void tty_max_min(TTY_int32 a, TTY_int32 b, TTY_int32* max, TTY_int32* min
     }
 }
 
-static TTY_uint16 tty_get_glyph_advance_width(TTY* font, TTY_uint32 glyphIdx) {
+static TTY_uint16 tty_get_glyph_advance_width(TTY_Font* font, TTY_uint32 glyphIdx) {
     TTY_uint8* hmtxData    = font->data + font->hmtx.off;
     TTY_uint16 numHMetrics = tty_get_uint16(font->data + font->hhea.off + 34);
     if (glyphIdx < numHMetrics) {
@@ -5344,7 +5348,7 @@ static TTY_uint16 tty_get_glyph_advance_width(TTY* font, TTY_uint32 glyphIdx) {
     return 0;
 }
 
-static TTY_int16 tty_get_glyph_left_side_bearing(TTY* font, TTY_uint32 glyphIdx) {
+static TTY_int16 tty_get_glyph_left_side_bearing(TTY_Font* font, TTY_uint32 glyphIdx) {
     TTY_uint8* hmtxData    = font->data + font->hmtx.off;
     TTY_uint16 numHMetrics = tty_get_uint16(font->data + font->hhea.off + 34);
     if (glyphIdx < numHMetrics) {
@@ -5353,7 +5357,7 @@ static TTY_int16 tty_get_glyph_left_side_bearing(TTY* font, TTY_uint32 glyphIdx)
     return tty_get_int16(hmtxData + 4 * numHMetrics + 2 * (numHMetrics - glyphIdx));
 }
 
-static TTY_int32 tty_get_glyph_advance_height(TTY* font) {
+static TTY_int32 tty_get_glyph_advance_height(TTY_Font* font) {
     if (font->vmtx.exists) {
         // TODO: Get from vmtx
         TTY_ASSERT(0);
@@ -5370,7 +5374,7 @@ static TTY_int32 tty_get_glyph_advance_height(TTY* font) {
     return font->ascender - font->descender;
 }
 
-static TTY_int32 tty_get_glyph_top_side_bearing(TTY* font, TTY_int16 yMax) {
+static TTY_int32 tty_get_glyph_top_side_bearing(TTY_Font* font, TTY_int16 yMax) {
     if (font->vmtx.exists) {
         // TODO: Get from vmtx
         TTY_ASSERT(0);
@@ -5385,13 +5389,17 @@ static TTY_int32 tty_get_glyph_top_side_bearing(TTY* font, TTY_int16 yMax) {
     return font->ascender - yMax;
 }
 
-static void tty_set_unhinted_glyph_x_advance(TTY* font, TTY_Instance* instance, TTY_Glyph* glyph) {
+static void tty_set_unhinted_glyph_x_advance(TTY_Font*     font, 
+                                             TTY_Instance* instance, 
+                                             TTY_Glyph*    glyph) {
     glyph->advance.x = tty_get_glyph_advance_width(font, glyph->idx);
     glyph->advance.x = TTY_F10DOT22_MUL(glyph->advance.x << 6, instance->scale);
     glyph->advance.x = tty_f26dot6_round(glyph->advance.x) >> 6;
 }
 
-static void tty_set_unhinted_glyph_y_advance(TTY* font, TTY_Instance* instance, TTY_Glyph* glyph) {
+static void tty_set_unhinted_glyph_y_advance(TTY_Font*     font, 
+                                             TTY_Instance* instance, 
+                                             TTY_Glyph*    glyph) {
     glyph->advance.y = tty_get_glyph_advance_height(font);
     glyph->advance.y = TTY_F10DOT22_MUL(glyph->advance.y << 6, instance->scale);
     glyph->advance.y = tty_f26dot6_round(glyph->advance.y) >> 6;
