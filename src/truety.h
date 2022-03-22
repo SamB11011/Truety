@@ -31,6 +31,14 @@ typedef TTY_int32  TTY_F26Dot6;
 typedef TTY_uint8* TTY_Func;
 
 typedef enum {
+    TTY_ERROR_NONE                     ,
+    TTY_ERROR_INVALID_PATH             ,
+    TTY_ERROR_OUT_OF_MEMORY            ,
+    TTY_ERROR_FILE_IS_NOT_TTF          ,
+    TTY_ERROR_UNSUPPORTED_CHAR_ENCODING,
+} TTY_Error;
+
+typedef enum {
     TTY_INSTANCE_DEFAULT    = 0x0,
     TTY_INSTANCE_NO_HINTING = 0x1,
 } TTY_Instance_Flag;
@@ -266,7 +274,7 @@ typedef struct {
 } TTY_Atlas_Cache;
 
 
-TTY_bool tty_init(TTY_Font* font, const char* path);
+TTY_Error tty_font_init(TTY_Font* font, const char* path);
 
 TTY_bool tty_instance_init(TTY_Font*              font, 
                            TTY_Instance*     instance, 

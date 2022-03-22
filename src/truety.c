@@ -843,23 +843,29 @@ static void tty_set_unhinted_glyph_y_advance(TTY_Font*     font,
 /* ---------------- */
 /* Public Functions */
 /* ---------------- */
-TTY_bool tty_init(TTY_Font* font, const char* path) {
+TTY_Error tty_font_init(TTY_Font* font, const char* path) {
+    TTY_Error error = TTY_ERROR_NONE;
+
     memset(font, 0, sizeof(TTY_Font));
 
     if (!tty_read_file_into_buffer(font, path)) {
+        error = TTY_ERROR_INVALID_PATH;
         goto init_failure;
     }
     
     if (tty_get_uint32(font->data) != 0x00010000) {
         // The font doesn't contain TrueType outlines
+        error = TTY_ERROR_FILE_IS_NOT_TTF;
         goto init_failure;
     }
 
     if (!tty_extract_info_from_table_directory(font)) {
+        error = TTY_ERROR_FILE_IS_NOT_TTF;
         goto init_failure;
     }
 
     if (!tty_extract_char_encoding(font)) {
+        error = TTY_ERROR_UNSUPPORTED_CHAR_ENCODING;
         goto init_failure;
     }
 
@@ -869,16 +875,17 @@ TTY_bool tty_init(TTY_Font* font, const char* path) {
 
     if (font->hasHinting) {
         if (!tty_interpreter_init(font)) {
+            error = TTY_ERROR_OUT_OF_MEMORY;
             goto init_failure;
         }
         tty_execute_font_program(font);
     }
 
-    return TTY_TRUE;
+    return error;
 
 init_failure:
     tty_free(font);
-    return TTY_FALSE;
+    return error;
 }
 
 TTY_bool tty_instance_init(TTY_Font*         font, 

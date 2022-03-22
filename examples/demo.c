@@ -25,7 +25,7 @@
 int main() {
     // Load the font
     TTY_Font font;
-    if (!tty_init(&font, FONT_PATH)) {
+    if (tty_font_init(&font, FONT_PATH) != TTY_ERROR_NONE) {
         fprintf(stderr, "Failed to load the font\n");
         exit(1);
     }
