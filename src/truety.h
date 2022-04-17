@@ -3,334 +3,346 @@
 
 #include <stdint.h>
 
+
 #define TTY_TRUE  1
 #define TTY_FALSE 0
 
-typedef uint8_t  TTY_uint8;
-typedef uint16_t TTY_uint16;
-typedef uint32_t TTY_uint32;
-typedef uint64_t TTY_uint64;
 
-typedef int8_t  TTY_int8;
-typedef int16_t TTY_int16;
-typedef int32_t TTY_int32;
-typedef int64_t TTY_int64;
+struct TTY_Program_Context;
+struct TTY_Zone;
 
-typedef TTY_uint8  TTY_bool;
-typedef TTY_int16  TTY_FWORD;
-typedef TTY_uint16 TTY_UFWORD;
-typedef TTY_uint16 TTY_Offset16;
-typedef TTY_uint32 TTY_Offset32;
-typedef TTY_uint32 TTY_Version16Dot16;
-typedef TTY_int32  TTY_F2Dot14;
-typedef TTY_int32  TTY_F2Dot30;
-typedef TTY_int32  TTY_F10Dot22;
-typedef TTY_int32  TTY_F16Dot16;
-typedef TTY_int32  TTY_F26Dot6;
+typedef uint8_t  TTY_Bool;
+typedef uint8_t  TTY_U8;
+typedef uint16_t TTY_U16;
+typedef uint32_t TTY_U32;
+typedef uint64_t TTY_U64;
 
-typedef TTY_uint8* TTY_Func;
+typedef int8_t  TTY_S8;
+typedef int16_t TTY_S16;
+typedef int32_t TTY_S32;
+typedef int64_t TTY_S64;
+
+typedef TTY_S32 TTY_F2Dot14;
+typedef TTY_S32 TTY_F2Dot30;
+typedef TTY_S32 TTY_F10Dot22;
+typedef TTY_S32 TTY_F16Dot16;
+typedef TTY_S32 TTY_F26Dot6;
+
+typedef void (*TTY_Move_Point_Func)(struct TTY_Program_Context*, struct TTY_Zone*, TTY_U32, TTY_F26Dot6);
+
 
 typedef enum {
-    TTY_ERROR_NONE                     ,
-    TTY_ERROR_INVALID_PATH             ,
-    TTY_ERROR_OUT_OF_MEMORY            ,
-    TTY_ERROR_FILE_IS_NOT_TTF          ,
-    TTY_ERROR_UNSUPPORTED_CHAR_ENCODING,
+    TTY_ERROR_NONE                       ,
+    TTY_ERROR_FAILED_TO_READ_FILE        ,
+    TTY_ERROR_FILE_IS_NOT_TTF            ,
+    TTY_ERROR_FILE_IS_CORRUPTED          ,
+    TTY_ERROR_UNSUPPORTED_FEATURE        , /* TODO: documentation can explain why a function returns this */
+    TTY_ERROR_OUT_OF_MEMORY              ,
+    TTY_ERROR_UNKNOWN_INSTRUCTION        , /* TODO: This will be deprecated once all instructions are implemented */
+    TTY_ERROR_GLYPH_DOES_NOT_FIT_IN_IMAGE,
 } TTY_Error;
 
 typedef enum {
-    TTY_INSTANCE_DEFAULT    = 0x0,
-    TTY_INSTANCE_NO_HINTING = 0x1,
+    TTY_INSTANCE_DEFAULT                = 0,
+    TTY_INSTANCE_NO_HINTING             = 1,
+    TTY_INSTANCE_SUBPIXEL_RENDERING_RGB = 2,
 } TTY_Instance_Flag;
 
-typedef enum {
-    TTY_ON_CURVE_POINT ,
-    TTY_OFF_CURVE_POINT,
-} TTY_Point_Type;
-
-enum {
-    TTY_UNTOUCHED = 0x0,
-    TTY_TOUCH_X   = 0x1,
-    TTY_TOUCH_Y   = 0x2,
-    TTY_TOUCH_XY  = 0x3,
-};
-
-enum {
-    TTY_IUP_STATE_DEFAULT = 0x0,
-    TTY_IUP_STATE_X       = 0x1,
-    TTY_IUP_STATE_Y       = 0x2,
-    TTY_IUP_STATE_XY      = 0x3,
-};
-
-
-struct TTY_Interp;
-
 typedef struct {
-    TTY_int32 x, y;
+    TTY_S32  x, y;
 } TTY_V2,
-  TTY_Fix_V2,
   TTY_F2Dot14_V2,
   TTY_F26Dot6_V2;
 
 typedef struct {
-    TTY_uint8* buffer;
-    TTY_uint32 off;
-} TTY_Ins_Stream;
+    TTY_U32  x, y;
+} TTY_U32_V2;
 
 typedef struct {
-    TTY_int32* buffer;
-    TTY_uint32 count;
-    TTY_uint32 cap;
-} TTY_Stack;
-
-typedef struct {
-    TTY_Func*  buffer;
-    TTY_uint32 cap;
+    TTY_U8**  insPtrs;
+    TTY_U32*  sizes;
+    TTY_U16   cap;
+    TTY_U16   count;
 } TTY_Funcs;
 
 typedef struct {
-    TTY_F26Dot6* buffer;
-    TTY_uint32   cap;
+    TTY_F26Dot6*  buff;
+    TTY_S16       cap;
+    TTY_S16       count;
 } TTY_CVT;
 
-typedef struct {
-    TTY_int32* buffer;
-    TTY_uint32 cap;
+typedef struct  {
+    TTY_S32*  buff;
+    TTY_U32   cap;
+    TTY_U32   count;
 } TTY_Storage_Area;
 
 typedef struct {
-    TTY_uint8*      mem;
-    size_t          memSize;
-    TTY_V2*         org;
-    TTY_F26Dot6_V2* orgScaled;
-    TTY_F26Dot6_V2* cur;
-    TTY_uint8*      touchFlags;
-    TTY_Point_Type* pointTypes;
-    TTY_uint32*     endPointIndices;
-    TTY_uint32      numEndPoints;
-    TTY_uint32      numOutlinePoints; /* Non-phantom points */
-    TTY_uint32      numPoints;
+    TTY_U32*  buff;
+    TTY_U16   cap;
+    TTY_U16   count;
+} TTY_Interp_Stack;
+
+/* org, pointTypes, endPointIndices, numOutlinePoints, numEndPoints, and 
+   maxEndPoints are only used by zone1 */
+typedef struct TTY_Zone {
+    TTY_V2*          org;       /* Unscaled glyph points at their original positions  */
+    TTY_F26Dot6_V2*  orgScaled; /* Scaled glyph points at their original positions    */
+    TTY_F26Dot6_V2*  cur;       /* Scaled glyph points at their hinted positions      */
+    TTY_U8*          pointTypes;
+    TTY_U8*          touchFlags;
+    TTY_U16*         endPointIndices;
+    TTY_U32          numPoints;
+    TTY_U32          numOutlinePoints; /* The number of points excluding phantom points */
+    TTY_U32          maxPoints;
+    TTY_U16          numEndPoints;
+    TTY_U16          maxEndPoints;
 } TTY_Zone;
 
 typedef struct {
-    TTY_bool       autoFlip;
-    TTY_F26Dot6    controlValueCutIn;
-    TTY_uint32     deltaBase;
-    TTY_uint32     deltaShift;
-    TTY_F2Dot14_V2 dualProjVec;
-    TTY_F2Dot14_V2 freedomVec;
-    TTY_uint8      gep0;
-    TTY_uint8      gep1;
-    TTY_uint8      gep2;
-    TTY_uint32     loop;
-    TTY_F26Dot6    minDist;
-    TTY_F2Dot14_V2 projVec;
-    TTY_uint8      roundState;
-    TTY_uint32     rp0;
-    TTY_uint32     rp1;
-    TTY_uint32     rp2;
-    TTY_bool       scanControl;
-    TTY_uint8      scanType;
-    TTY_F26Dot6    singleWidthCutIn;
-    TTY_F26Dot6    singleWidthValue;
-    TTY_Zone*      zp0;
-    TTY_Zone*      zp1;
-    TTY_Zone*      zp2;
-    
-    TTY_F2Dot30 projDotFree;
-    void (*move_point)(struct TTY_Interp*, TTY_Zone*, TTY_uint32, TTY_F26Dot6);
+    TTY_Move_Point_Func  move_point;
+    TTY_Zone*            zp0;
+    TTY_Zone*            zp1;
+    TTY_Zone*            zp2;
+    TTY_F2Dot30          projDotFree;
+    TTY_F26Dot6          minDist;
+    TTY_F26Dot6          controlValueCutIn;
+    TTY_F26Dot6          singleWidthCutIn;
+    TTY_F26Dot6          singleWidthValue;
+    TTY_F2Dot14_V2       dualProjVec;
+    TTY_F2Dot14_V2       freedomVec;
+    TTY_F2Dot14_V2       projVec;
+    TTY_U32              deltaBase;
+    TTY_U32              deltaShift;
+    TTY_U32              loop;
+    TTY_U32              rp0;
+    TTY_U32              rp1;
+    TTY_U32              rp2;
+    TTY_U8               gep0;
+    TTY_U8               gep1;
+    TTY_U8               gep2;
+    TTY_U8               roundState;
+    TTY_U8               scanType;
+    TTY_Bool             autoFlip;
+    TTY_Bool             scanControl;
 } TTY_Graphics_State;
 
+/* Glyph points are stored in zone1 even if the font doesn't have hinting or 
+   hinting is disabled */
 typedef struct {
-    TTY_uint8*      mem;
-    TTY_V2*         points;
-    TTY_Point_Type* pointTypes;
-    TTY_uint32*     endPointIndices;
-    TTY_uint32      numEndPoints;
-    TTY_uint32      numOutlinePoints;
-    TTY_uint32      numPoints;
-} TTY_Unhinted;
-
-typedef struct {
-    TTY_uint8*       mem;
-    TTY_CVT          cvt;
-    TTY_Storage_Area storage;
-    TTY_Zone         zone0;
-    TTY_bool         useHinting;
-    TTY_bool         isRotated;
-    TTY_bool         isStretched;
-    TTY_uint32       ppem;
-    TTY_F10Dot22     scale;
-    TTY_V2           maxGlyphSize;
-} TTY_Instance;
+    TTY_U8*             mem;
+    TTY_Interp_Stack    stack;
+    TTY_Funcs           funcs;
+    TTY_Graphics_State  gs;
+    TTY_Zone            zone1;
+} TTY_Font_Hinting_Data;
 
 typedef struct {
-    TTY_uint32 idx;
-    TTY_V2     advance;
-    TTY_V2     offset;
-    TTY_V2     size;
-} TTY_Glyph;
-
-typedef struct {
-    TTY_Glyph* glyph;
-    TTY_uint8* glyfBlock;
-    TTY_int16  numContours;
-
-    union {
-        TTY_Unhinted unhinted;
-        TTY_Zone     zone1;
-    };
-} TTY_Glyph_Data;
-
-typedef struct {
-    TTY_Ins_Stream  stream;
-    TTY_Instance*   instance;
-    TTY_Glyph_Data* glyphData;
-    TTY_uint8       iupState;
-    void (*execute_next_ins)(struct TTY_Interp*);
-} TTY_Temp_Interp_Data;
-
-typedef struct TTY_Interp {
-    TTY_uint8*            mem;
-    TTY_Stack             stack;
-    TTY_Funcs             funcs;
-    TTY_Graphics_State    gState;
-    TTY_Temp_Interp_Data* temp;
-} TTY_Interp;
-
-typedef struct {
-    TTY_uint8* pixels;
-    TTY_V2     size;
-} TTY_Image;
-
-typedef struct {
-    TTY_bool     exists;
-    TTY_Offset32 off;
-    TTY_uint32   size;
+    TTY_U32   off;
+    TTY_U32   size;
+    TTY_Bool  exists;
 } TTY_Table;
 
 typedef struct {
-    TTY_uint16   platformID;
-    TTY_uint16   encodingID;
-    TTY_uint16   format;
-    TTY_Offset32 off;
+    TTY_U32   off;
+    TTY_U16   platformId;
+    TTY_U16   encodingId;
+    TTY_U16   format;
 } TTY_Encoding;
 
 typedef struct {
-    TTY_uint8*   data;
-    TTY_int32    size;
-    TTY_Table    cmap;
-    TTY_Table    cvt;
-    TTY_Table    fpgm;
-    TTY_Table    glyf;
-    TTY_Table    head;
-    TTY_Table    hhea;
-    TTY_Table    hmtx;
-    TTY_Table    loca;
-    TTY_Table    maxp;
-    TTY_Table    OS2;
-    TTY_Table    prep;
-    TTY_Table    vmtx;
-    TTY_Encoding encoding;
-    TTY_bool     hasHinting;
-    TTY_uint16   upem;
-    TTY_int16    ascender;
-    TTY_int16    descender;
-    TTY_int16    lineGap;
-    TTY_Interp   interp;
+    TTY_Font_Hinting_Data  hint;
+    TTY_U8*                data;
+    TTY_S32                size;
+    TTY_Table              cmap;
+    TTY_Table              cvt;
+    TTY_Table              fpgm;
+    TTY_Table              glyf;
+    TTY_Table              head;
+    TTY_Table              hhea;
+    TTY_Table              hmtx;
+    TTY_Table              loca;
+    TTY_Table              maxp;
+    TTY_Table              OS2;
+    TTY_Table              prep;
+    TTY_Table              vmtx;
+    TTY_Encoding           encoding;
+    TTY_U32                numGlyphs;
+    TTY_U32                startingEdgeCap;
+    TTY_U16                upem;
+    TTY_S16                ascender;
+    TTY_S16                descender;
+    TTY_S16                lineGap;
+    TTY_S16                maxHoriExtent;
+    TTY_Bool               hasHinting;
 } TTY_Font;
 
+/* I think each instance needs its own zone0 data since the data persists until
+   a CV program is run. */
 typedef struct {
-    TTY_Glyph glyph;
-    TTY_V2    atlasPos;
-} TTY_Cache_Entry;
-
-typedef struct TTY_Cache_Node {
-    TTY_uint32      codePoint;
-    TTY_Cache_Entry entry;
-    struct TTY_Cache_Node* lruPrev;
-    struct TTY_Cache_Node* lruNext;
-    struct TTY_Cache_Node* next;
-} TTY_Cache_Node;
+    TTY_U8*           mem;
+    TTY_CVT           cvt;
+    TTY_Storage_Area  storage;
+    TTY_Zone          zone0;
+} TTY_Instance_Hinting_Data;
 
 typedef struct {
-    TTY_Cache_Node*  nodes;
-    TTY_Cache_Node** chains;
-    TTY_Cache_Node*  reusable;
-    TTY_Cache_Node*  lruHead;
-    TTY_Cache_Node*  lruTail;
-    TTY_uint32       numUsedNodes;
-    TTY_uint32       maxNodes;
-} TTY_Hash_Table;
+    TTY_Instance_Hinting_Data  hint;
+    TTY_U32                    ppem;
+    TTY_S32                    ascender;
+    TTY_S32                    descender;
+    TTY_S32                    lineGap;
+    TTY_V2                     maxGlyphSize;
+    TTY_F10Dot22               scale;
+    TTY_Bool                   useHinting;
+    TTY_Bool                   useSubpixelRendering;
+    TTY_Bool                   isRotated;   /* TODO: Implement rotation */
+    TTY_Bool                   isStretched; /* TODO: Implement stretching */
+} TTY_Instance;
+
+/* advance, offset, and size are not calculated until the glyph is rendered */
+typedef struct {
+    TTY_U8*  glyfBlock;
+    TTY_U32  idx;
+    TTY_V2   advance;
+    TTY_V2   offset;
+    TTY_V2   size;
+    TTY_S16  numContours; /* Equals -1 if the glyph is a composite glyph */
+} TTY_Glyph;
 
 typedef struct {
-    TTY_uint8*     mem;
-    TTY_Hash_Table table;
-    TTY_Image      atlas;
-    TTY_V2         slotSize;
-    TTY_V2         renderPos;
-    TTY_uint32     numGlyphs;
-    TTY_uint32     maxGlyphs;
+    TTY_U8*     pixels;
+    TTY_U32_V2  size;
+} TTY_Image;
+
+typedef struct {
+    TTY_Glyph   glyph;
+    TTY_U32_V2  atlasPos;
+} TTY_Atlas_Cache_Entry;
+
+typedef struct TTY_Atlas_Cache_Node {
+    TTY_U32                       codePoint;
+    TTY_Atlas_Cache_Entry         entry;
+    struct TTY_Atlas_Cache_Node*  lruPrev;
+    struct TTY_Atlas_Cache_Node*  lruNext;
+    struct TTY_Atlas_Cache_Node*  next;
+} TTY_Atlas_Cache_Node;
+
+typedef struct {
+    TTY_U8*                mem;
+    TTY_Atlas_Cache_Node*  nodes;
+    TTY_Atlas_Cache_Node** chainHeads;
+    TTY_Atlas_Cache_Node*  lruHead;
+    TTY_Atlas_Cache_Node*  lruTail;
+    TTY_Image              atlas;
+    TTY_U32_V2             slotSize;
+    TTY_U32_V2             nextAtlasPos;
+    TTY_U32                numGlyphs;
+    TTY_U32                maxGlyphs;
 } TTY_Atlas_Cache;
 
 
+/* 
+ * Creates a `TTY_Font` using the TTF file specified by `path`.
+ *
+ * Returns one of the following:
+ *     TTY_ERROR_NONE                - The font was successfully loaded.
+ *     TTY_ERROR_OUT_OF_MEMORY       - Not enough memory could be allocated to load the font.
+ *     TTY_ERROR_FAILED_TO_READ_FILE - The file contents could not be read.
+ *     TTY_ERROR_FILE_IS_NOT_TTF     - The file does not contain a TTF file signature.
+ *     TTY_ERROR_FILE_IS_CORRUPTED   - The file content differs from what is expected.
+ *     TTY_ERROR_UNSUPPORTED_FEATURE - The file uses an encoding that is not Unicode.
+ *     TTY_ERROR_UNKNOWN_INSTRUCTION - The font has hinting and the font program has an instruction that is not yet handled.
+ */
 TTY_Error tty_font_init(TTY_Font* font, const char* path);
 
-TTY_bool tty_instance_init(TTY_Font*              font, 
-                           TTY_Instance*     instance, 
-                           TTY_uint32        ppem, 
-                           TTY_Instance_Flag flags);
+void tty_font_free(TTY_Font* font);
 
-void tty_glyph_init(TTY_Glyph* glyph, TTY_uint32 glyphIdx);
+/*
+ * Creates a `TTY_Instance` which is an instance of a 'TTY_Font'. Each 
+ * `TTY_Instance` corresponds to exactly one font and exactly one size (ppem).
+ * Each `TTY_Font` can have any number of instances.
+ *
+ * Returns one of the following:
+ *     TTY_ERROR_NONE                - The font was successfully loaded.
+ *     TTY_ERROR_OUT_OF_MEMORY       - Not enough memory could be allocated to create an instance of the font.
+ *     TTY_ERROR_UNKNOWN_INSTRUCTION - The instance uses hinting and the CV program has an instruction that is not yet handled.
+ */
+TTY_Error tty_instance_init(TTY_Font* font, TTY_Instance* instance, TTY_U32 ppem, TTY_U32 flags);
 
-TTY_bool tty_image_init(TTY_Image* image, TTY_uint8* pixels, TTY_uint32 w, TTY_uint32 h);
 
-TTY_bool tty_atlas_cache_init(TTY_Instance*    instance, 
-                              TTY_Atlas_Cache* cache, 
-                              TTY_uint32       w, 
-                              TTY_uint32       h);
-
-void tty_free(TTY_Font* font);
+/*
+ * Returns one of the following:
+ *     TTY_ERROR_NONE                - The font was successfully loaded.
+ *     TTY_ERROR_UNKNOWN_INSTRUCTION - The instance uses hinting and the CV program has an instruction that is not yet handled.
+ */
+TTY_Error tty_instance_resize(TTY_Font* font, TTY_Instance* instance, TTY_U32 ppem);
 
 void tty_instance_free(TTY_Instance* instance);
 
+
+/* 
+ * Returns one of the following:
+ *     TTY_ERROR_NONE                - The glyph index was successfully retrieved.
+ *     TTY_ERROR_UNSUPPORTED_FEATURE - The font's encoding format is not handled yet.
+ */
+TTY_Error tty_get_glyph_index(TTY_Font* font, TTY_U32 codePoint, TTY_U32* idx);
+
+/*
+ * Returns one of the following:
+ *     TTY_ERROR_NONE - The glyph was successfully loaded.
+ */
+TTY_Error tty_glyph_init(TTY_Font* font, TTY_Glyph* glyph, TTY_U32 idx);
+
+
+/*
+ * Returns one of the following:
+ *     TTY_ERROR_NONE          - The image was successfully created.
+ *     TTY_ERROR_OUT_OF_MEMORY - If `pixels` is NULL and `w * h` bytes could not be allocated.
+ */
+TTY_Error tty_image_init(TTY_Image* image, TTY_U8* pixels, TTY_U32 w, TTY_U32 h);
+
 void tty_image_free(TTY_Image* image);
+
+
+/* 
+ * Returns one of the following:
+ *    TTY_ERROR_NONE                - The glyph was rendered successfully.
+ *    TTY_ERROR_OUT_OF_MEMORY       - Not enough memory could be allocated to render the glyph.
+ *    TTY_ERROR_UNSUPPORTED_FEATURE - The glyph is a composite glyph that uses point matching.
+ *    TTY_ERROR_UNKNOWN_INSTRUCTION - The instance uses hinting and the glyph program has an instruction that is not yet handled.
+ */
+TTY_Error tty_render_glyph(TTY_Font* font, TTY_Instance* instance, TTY_Glyph* glyph, TTY_Image* image);
+
+/* 
+ * Returns one of the following:
+ *    TTY_ERROR_NONE                        - The glyph was rendered successfully.
+ *    TTY_ERROR_OUT_OF_MEMORY               - Not enough memory could be allocated to render the glyph.
+ *    TTY_ERROR_UNSUPPORTED_FEATURE         - The glyph is a composite glyph that uses point matching.
+ *    TTY_ERROR_UNKNOWN_INSTRUCTION         - The instance uses hinting and the glyph program has an instruction that is not yet handled.
+ *    TTY_ERROR_GLYPH_DOES_NOT_FIT_IN_IMAGE - The provided image is not large enough to contain the rasterized glyph.
+ */
+TTY_Error tty_render_glyph_to_existing_image(TTY_Font* font, TTY_Instance* instance, TTY_Glyph* glyph, TTY_Image* image, TTY_U32 x, TTY_U32 y);
+
+/*
+ * Returns one of the following:
+ *     TTY_ERROR_NONE          - The cache was successfully created.
+ *     TTY_ERROR_OUT_OF_MEMORY - Not enough memory could be allocated for the cache.
+ */
+TTY_Error tty_atlas_cache_init(TTY_Instance* instance, TTY_Atlas_Cache* cache, TTY_U32 w, TTY_U32 h);
 
 void tty_atlas_cache_free(TTY_Atlas_Cache* cache);
 
-TTY_uint32 tty_get_glyph_index(TTY_Font* font, TTY_uint32 codePoint);
+/*
+ * Returns TTY_ERROR_NONE on success. If the entry was not already cached, then
+ * this function may return any error produced by `tty_render_glyph_to_existing_image`.
+ */
+TTY_Error tty_atlas_cache_get_entry(TTY_Font* font, TTY_Instance* instance, TTY_Atlas_Cache* cache, TTY_Atlas_Cache_Entry* entry, TTY_U32 codePoint);
 
-TTY_uint16 tty_get_num_glyphs(TTY_Font* font);
+/* Note: This does not update the cache */
+TTY_Bool tty_atlas_cache_contains(TTY_Atlas_Cache* cache, TTY_U32 codePoint);
 
-TTY_int32 tty_get_ascender(TTY_Font* font, TTY_Instance* instance);
+TTY_Bool tty_atlas_cache_is_full(TTY_Atlas_Cache* cache);
 
-TTY_int32 tty_get_descender(TTY_Font* font, TTY_Instance* instance);
-
-TTY_int32 tty_get_line_gap(TTY_Font* font, TTY_Instance* instance);
-
-TTY_int32 tty_get_new_line_offset(TTY_Font* font, TTY_Instance* instance);
-
-TTY_int32 tty_get_max_horizontal_extent(TTY_Font* font, TTY_Instance* instance);
-
-TTY_bool tty_render_glyph(TTY_Font*     font,
-                          TTY_Instance* instance,
-                          TTY_Glyph*    glyph,
-                          TTY_Image*    image);
-
-TTY_bool tty_render_glyph_to_existing_image(TTY_Font*     font, 
-                                            TTY_Instance* instance, 
-                                            TTY_Glyph*    glyph,
-                                            TTY_Image*    image,
-                                            TTY_uint32    x, 
-                                            TTY_uint32    y);
-
-TTY_bool tty_get_atlas_cache_entry(TTY_Font*        font,
-                                   TTY_Instance*    instance, 
-                                   TTY_Atlas_Cache* cache, 
-                                   TTY_Cache_Entry* entry,
-                                   TTY_bool*        wasCached, 
-                                   TTY_uint32       codePoint);
-
-TTY_bool tty_atlas_cache_contains(TTY_Atlas_Cache* cache, TTY_uint32 codePoint);
 
 #endif

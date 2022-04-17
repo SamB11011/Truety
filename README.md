@@ -10,24 +10,15 @@ A small TrueType font rendering library.
   - No dependencies (besides the C standard library).
   - Should compile with any C99 compiler.
 - Supports TrueType (.ttf) files and OpenType (.otf) files that contain TrueType outlines.
+
 # Limitations
-- Truety is still under development and won't work for ALL supported fonts until the following tasks are completed
-  - Finish implementing bytecode instructions. Approximately 75% of instructions are implemented.
-  - Handle all supported *cmap* table encodings and formats.
-  - Use the *vmtx* table for vertical metrics when applicable.
-- Limited error checking
-  - As of right now, this library does not adequately validate the integrity of font files. For this reason, you should only use it with font files you trust.
+- Some things are not fully implemented yet
+    - Only ~75% of bytecode instructions have been implemented so far.
+    - Not all supported encoding formats provided by the *cmap* table are handled yet.
+    - The *vmtx* table is not currently used even if it is present.
+- There is limited error checking:
+    - This library does not adequately validate the integrity of font files. For this reason, it should only be used with trusted font files.
 - Unicode is the only supported character encoding.
-# Planned Features
-- Robust error handling
-- Glyph rotation and stretching
-- Underlining, subscript and superscript
-- Subpixel rendering
-- Kerning
-  - Provided by the *kern* table
-- Support for OpenType text layout features
-  - Provided by the *GSUB*, *GPOS*, *BASE*, *JSTF*, and *GDEF* tables
-- Support for OpenType variable fonts
-- Support for TrueType Collection (.ttc) files
+
 # Acknowledgements
-[FreeType](https://freetype.org/) and [stb_truetype](https://github.com/nothings/stb/blob/master/stb_truetype.h) are two other font rendering libraries that served as great references while creating Truety. Thank you very much.
+[FreeType](https://freetype.org/) and [stb_truetype](https://github.com/nothings/stb/blob/master/stb_truetype.h) are two other font rendering libraries that served as great references while creating Truety.
