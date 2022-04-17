@@ -11,10 +11,10 @@ if [ "$exfile" = "" ]; then
     exit 1
 fi
 
-gcc -Wall $exfile ../src/*.c -I../src
+gcc -Wall -std=c99 -oexample $exfile ../src/*.c -I../src
 
 if [ $? = 0 ]; then
     if [ "$run" != "" ]; then
-        ./a.exe
+        ./example
     fi
 fi

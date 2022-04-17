@@ -13,11 +13,12 @@ if "%exfile%"=="" (
     goto :eof
 )
 
-gcc -Wall %exfile% ../src/*.c -I../src
+cl %exfile% /Fe.\example ../src/*.c -I../src
 
 if %errorlevel%==0 (
+    del *.obj
     if not "%run%"=="" (
-        .\a.exe
+        .\example.exe
 
         if "%run%"=="runview" (
             start .\output_image.png
