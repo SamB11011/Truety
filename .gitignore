@@ -1,3 +1,5 @@
 .vs
 *.exe
 *.png
+*.out
+
