@@ -15,6 +15,7 @@
 #define TTY_SUBDIVIDE_SQRD_ERROR   0x1  /* 26.6 */
 #define TTY_PIXELS_PER_SCANLINE    0x10 /* 26.6 */
 
+
 /* --------- */
 /* Debugging */
 /* --------- */
@@ -4070,7 +4071,7 @@ static void tty_sort_active_edges(TTY_Active_Edge_List* list) {
     }
 }
 
-static TTY_Error tty_insert_newly_active_edges(TTY_Active_Edge_List* list, TTY_Edges* edges, TTY_F26Dot6 scanline, TTY_F26Dot6 xIntersectionOff) {
+static TTY_Error tty_insert_new_active_edges(TTY_Active_Edge_List* list, TTY_Edges* edges, TTY_F26Dot6 scanline, TTY_F26Dot6 xIntersectionOff) {
     // Find any edges that intersect the current scanline and insert them into
     // the active edge list
 
@@ -4116,7 +4117,7 @@ static TTY_Error tty_insert_newly_active_edges(TTY_Active_Edge_List* list, TTY_E
     return TTY_ERROR_NONE;
 }
 
-static void tty_rasterize_active_edges(TTY_Active_Edge_List* activeEdges, TTY_F26Dot6* pixelBuff, TTY_U32 pixelBuffLen) {
+static void tty_rasterize_using_active_edges(TTY_Active_Edge_List* activeEdges, TTY_F26Dot6* pixelBuff, TTY_U32 pixelBuffLen) {
     #define TTY_INCREMENT_PIXEL_VALUE(idx, increment)\
         pixelBuff[idx]
 
@@ -4322,16 +4323,12 @@ static TTY_Error tty_render_glyph_impl(TTY_Font* font, TTY_Instance* instance, T
 
 
     while (scanline >= scanlineEnd) {
-        // This is the current y-coordinate of the scanline without the 
-        // supplied y-offset applied. This is needed when working with edges
-        // since they also don't have the y-offset applied.
-
         tty_update_or_remove_active_edges(&activeEdges, scanline, xIntersectionOff);
         tty_sort_active_edges(&activeEdges);
 
         {
             TTY_Error error;
-            if ((error = tty_insert_newly_active_edges(&activeEdges, &edges, scanline, xIntersectionOff))) {
+            if ((error = tty_insert_new_active_edges(&activeEdges, &edges, scanline, xIntersectionOff))) {
                 free(edges.buff);
                 free(pixelBuff);
                 tty_active_edge_list_free(&activeEdges);
@@ -4339,7 +4336,7 @@ static TTY_Error tty_render_glyph_impl(TTY_Font* font, TTY_Instance* instance, T
             }
         }
 
-        tty_rasterize_active_edges(&activeEdges, pixelBuff, pixelBuffLen);
+        tty_rasterize_using_active_edges(&activeEdges, pixelBuff, pixelBuffLen);
         scanline -= TTY_PIXELS_PER_SCANLINE;
 
         if ((scanline & 0x3F) == 0) {
