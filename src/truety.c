@@ -3198,10 +3198,17 @@ static TTY_Error tty_add_glyph_points_to_zone_1(TTY_Font* font, TTY_Instance* in
 static TTY_U16 tty_get_glyph_advance_width(TTY_Font* font, TTY_U32 glyphIdx) {
     TTY_U8* hmtxData    = font->data + font->hmtx.off;
     TTY_U16 numHMetrics = tty_get_u16(font->data + font->hhea.off + 34);
-    if (glyphIdx < numHMetrics) {
-        return tty_get_u16(hmtxData + 4 * glyphIdx);
+    if (numHMetrics == 0) {
+        TTY_ASSERT(0);
+        return 0;
     }
-    return 0;
+    if (glyphIdx >= numHMetrics) {
+        // "As an optimization, the number of records can be less than the 
+        // number of glyphs, in which case the advance width value of the 
+        // last record applies to all remaining glyph IDs."
+        glyphIdx = numHMetrics - 1;
+    }
+    return tty_get_u16(hmtxData + 4 * glyphIdx);
 }
 
 static TTY_S32 tty_get_glyph_advance_height(TTY_Font* font) {
