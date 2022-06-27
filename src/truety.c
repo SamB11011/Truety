@@ -3230,7 +3230,7 @@ static TTY_S16 tty_get_glyph_left_side_bearing(TTY_Font* font, TTY_U32 glyphIdx)
     if (glyphIdx < numHMetrics) {
         return tty_get_s16(hmtxData + 4 * glyphIdx + 2);
     }
-    return tty_get_s16(hmtxData + 4 * numHMetrics + 2 * (numHMetrics - glyphIdx));
+    return tty_get_s16(hmtxData + 4 * numHMetrics + 2 * (glyphIdx - numHMetrics));
 }
 
 static TTY_S32 tty_get_glyph_top_side_bearing(TTY_Font* font, TTY_S16 yMax) {
