@@ -9,6 +9,7 @@
 #define IMAGE_PATH "./output_image.png"
 
 int main() {
+    {
     TTY_Font font;
     if (tty_font_init(&font, "./fonts/Roboto-Regular.ttf")) {
         goto failure;
@@ -58,6 +59,7 @@ int main() {
     tty_image_free(&image);
     tty_instance_free(&instance);
     tty_font_free(&font);
+    }
     return 0;
 
 failure:

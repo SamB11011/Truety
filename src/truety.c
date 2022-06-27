@@ -2728,19 +2728,16 @@ static void tty_execute_next_font_program_ins(TTY_Program_Context* ctx) {
 static TTY_Error tty_execute_font_program(TTY_Font* font) {
     TTY_LOG_PROGRAM("Font Program");
     
-    TTY_Program_Context ctx = {
-        .font            = font,
-        .instance        = NULL,
-        .glyph           = NULL,
-        .iupState        = TTY_IUP_STATE_DEFAULT,
-        .foundUnknownIns = TTY_FALSE,
-        .stream   = {
-            .execute_next_ins = tty_execute_next_font_program_ins,
-            .buff             = font->data + font->fpgm.off,
-            .cap              = font->fpgm.size,
-            .off              = 0,
-        }
-    };
+    TTY_Program_Context ctx;
+    ctx.font                    = font;
+    ctx.instance                = NULL;
+    ctx.glyph                   = NULL;
+    ctx.iupState                = TTY_IUP_STATE_DEFAULT;
+    ctx.foundUnknownIns         = TTY_FALSE;
+    ctx.stream.execute_next_ins = tty_execute_next_font_program_ins;
+    ctx.stream.buff             = font->data + font->fpgm.off;
+    ctx.stream.cap              = font->fpgm.size;
+    ctx.stream.off              = 0;
 
     return tty_execute_program(&ctx);
 }
@@ -2891,19 +2888,17 @@ static TTY_Error tty_execute_cv_program(TTY_Font* font, TTY_Instance* instance) 
     tty_reset_graphics_state(&font->hint.gs, &font->hint.zone1);
     tty_interp_stack_clear(&font->hint.stack);
 
-    TTY_Program_Context ctx = {
-        .font            = font,
-        .instance        = instance,
-        .glyph           = NULL,
-        .iupState        = TTY_IUP_STATE_DEFAULT,
-        .foundUnknownIns = TTY_FALSE,
-        .stream   = {
-            .execute_next_ins = tty_execute_next_cv_program_ins,
-            .buff             = font->data + font->prep.off,
-            .cap              = font->prep.size,
-            .off              = 0,
-        }
-    };
+    TTY_Program_Context ctx;
+    ctx.font                    = font;
+    ctx.instance                = instance;
+    ctx.glyph                   = NULL;
+    ctx.iupState                = TTY_IUP_STATE_DEFAULT;
+    ctx.foundUnknownIns         = TTY_FALSE;
+    ctx.stream.execute_next_ins = tty_execute_next_cv_program_ins;
+    ctx.stream.buff             = font->data + font->prep.off;
+    ctx.stream.cap              = font->prep.size;
+    ctx.stream.off              = 0;
+        
     
     return tty_execute_program(&ctx);
 }
@@ -3386,19 +3381,16 @@ static TTY_Error tty_execute_glyph_program(TTY_Font* font, TTY_Instance* instanc
     tty_reset_graphics_state(&font->hint.gs, &font->hint.zone1);
     tty_interp_stack_clear(&font->hint.stack);
 
-    TTY_Program_Context ctx = {
-        .font            = font,
-        .instance        = instance,
-        .glyph           = glyph,
-        .iupState        = TTY_IUP_STATE_DEFAULT,
-        .foundUnknownIns = TTY_FALSE,
-        .stream   = {
-            .execute_next_ins = tty_execute_next_glyph_program_ins,
-            .buff             = insBuff,
-            .cap              = insCount,
-            .off              = 0,
-        }
-    };
+    TTY_Program_Context ctx;
+    ctx.font                    = font;
+    ctx.instance                = instance;
+    ctx.glyph                   = glyph;
+    ctx.iupState                = TTY_IUP_STATE_DEFAULT;
+    ctx.foundUnknownIns         = TTY_FALSE;
+    ctx.stream.execute_next_ins = tty_execute_next_glyph_program_ins;
+    ctx.stream.buff             = insBuff;
+    ctx.stream.cap              = insCount;
+    ctx.stream.off              = 0;
 
     return tty_execute_program(&ctx);
 }
@@ -4236,11 +4228,15 @@ static TTY_Error tty_render_glyph_impl(TTY_Font* font, TTY_Instance* instance, T
         // approximate the curves using edges
 
         TTY_Curves curves = {0};
-
-        TTY_Error error =
-            tty_add_glyph_points_to_zone_1(font, instance, glyph) ||
-            tty_convert_zone1_points_into_curves(font, &curves)   ||
-            tty_subdivide_curves_into_edges(&curves, &edges, font->startingEdgeCap);
+        TTY_Error  error;
+        
+        if ((error = tty_add_glyph_points_to_zone_1(font, instance, glyph))                   != TTY_ERROR_NONE ||
+            (error = tty_convert_zone1_points_into_curves(font, &curves))                     != TTY_ERROR_NONE ||
+            (error = tty_subdivide_curves_into_edges(&curves, &edges, font->startingEdgeCap)) != TTY_ERROR_NONE)
+        {
+            free(curves.buff);
+            return error;
+        }
 
         if (instance->useHinting) {
             // Touch flags need to be cleared here (Everything else in zone1 is 
@@ -4248,10 +4244,6 @@ static TTY_Error tty_render_glyph_impl(TTY_Font* font, TTY_Instance* instance, T
             memset(font->hint.zone1.touchFlags, TTY_UNTOUCHED, sizeof(TTY_U8) * font->hint.zone1.numOutlinePoints);
         }
         free(curves.buff);
-
-        if (error) {
-            return error;
-        }
     }
 
 

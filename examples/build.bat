@@ -13,7 +13,7 @@ if "%exfile%"=="" (
     goto :eof
 )
 
-cl %exfile% /Fe.\example ../src/*.c -I../src
+cl /Fe.\example %exfile% ../src/*.c -I../src
 
 if %errorlevel%==0 (
     del *.obj
