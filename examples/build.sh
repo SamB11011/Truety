@@ -1,3 +1,5 @@
+#!/bin/bash
+
 if [ "$1" = "run" ]; then
     run=$1
     exfile=$2
@@ -11,10 +13,10 @@ if [ "$exfile" = "" ]; then
     exit 1
 fi
 
-gcc -Wall -std=c99 -oexample $exfile ../src/*.c -I../src
+gcc -Wall -std=c99 -oexample.out $exfile ../src/*.c -I../src
 
 if [ $? = 0 ]; then
     if [ "$run" != "" ]; then
-        ./example
+        ./example.out
     fi
 fi
