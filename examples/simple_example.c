@@ -16,20 +16,19 @@ int main() {
     }
 
     TTY_Instance instance;
-    if (tty_instance_init(&font, &instance, 180, TTY_INSTANCE_DEFAULT)) {
+    if (tty_instance_init(&font, &instance, 18, TTY_INSTANCE_DEFAULT)) {
         goto failure;
     }
 
-    // TTY_Image image;
-    // if (tty_image_init(&image, NULL, 512, 512)) {
-    //     goto failure;
-    // }
+    TTY_Image image;
+    if (tty_image_init(&image, NULL, 512, 512)) {
+        goto failure;
+    }
 
-    // TTY_U32 x = 0, y = 0;
+    TTY_U32 x = 0, y = 0;
 
-    for (char c = 'Q'; c <= 'Q'; c++) {
-        //printf("Rendering %c at (%d, %d)\n", (char)c, (int)x, (int)y);
-        printf("Rendering %c\n", (char)c);
+    for (char c = ' '; c <= '~'; c++) {
+        printf("Rendering %c at (%d, %d)\n", (char)c, (int)x, (int)y);
 
         TTY_U32 glyphIdx;
         if (tty_get_glyph_index(&font, c, &glyphIdx)) {
@@ -41,31 +40,23 @@ int main() {
             goto failure;
         }
         
-        TTY_Image image;
-        if (tty_render_glyph(&font, &instance, &glyph, &image)) {
+        if (tty_render_glyph_to_existing_image(&font, &instance, &glyph, &image, x, y)) {
             goto failure;
         }
-        stbi_write_png(IMAGE_PATH, image.size.x, image.size.y, 1, image.pixels, image.size.x);
-
-        tty_image_free(&image);
-        // if (tty_render_glyph_to_existing_image(&font, &instance, &glyph, &image, x, y)) {
-        //     goto failure;
-        // }
         
-        // if (glyph.size.x != 0) {
-        //     x += instance.maxGlyphSize.x;
-        //     if (x + instance.maxGlyphSize.x > image.size.x) {
-        //         x = 0;
-        //         y += instance.maxGlyphSize.y;
-        //     }
-        // }
+        if (glyph.size.x != 0) {
+            x += instance.maxGlyphSize.x;
+            if (x + instance.maxGlyphSize.x > image.size.x) {
+                x = 0;
+                y += instance.maxGlyphSize.y;
+            }
+        }
     }
 
-    // stbi_write_png(IMAGE_PATH, image.size.x, image.size.y, 1, image.pixels, image.size.x);
-    // printf("Result saved as %s\n", IMAGE_PATH);
-    printf("Done\n");
+    stbi_write_png(IMAGE_PATH, image.size.x, image.size.y, 1, image.pixels, image.size.x);
+    printf("Result saved as %s\n", IMAGE_PATH);
 
-    // tty_image_free(&image);
+    tty_image_free(&image);
     tty_instance_free(&instance);
     tty_font_free(&font);
     }
