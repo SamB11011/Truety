@@ -8,7 +8,7 @@ A small TrueType font rendering library.
 - Small and easy to use
   - Consists of a single header file and a single source file.
   - No dependencies (besides the C standard library).
-  - Should compile with any C99 compiler.
+  - Should compile with any C11 compiler.
 - Supports TrueType (.ttf) files and OpenType (.otf) files that contain TrueType outlines.
 
 # Limitations

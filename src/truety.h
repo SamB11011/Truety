@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-
 #define TTY_TRUE  1
 #define TTY_FALSE 0
 
@@ -45,7 +44,7 @@ typedef enum {
 typedef enum {
     TTY_INSTANCE_DEFAULT                = 0,
     TTY_INSTANCE_NO_HINTING             = 1,
-    TTY_INSTANCE_SUBPIXEL_RENDERING_RGB = 2,
+    TTY_INSTANCE_SUBPIXEL_RENDERING_RGB = 2, /* TODO: implement subpixel rendering */
 } TTY_Instance_Flag;
 
 typedef struct {
@@ -57,6 +56,18 @@ typedef struct {
 typedef struct {
     TTY_U32  x, y;
 } TTY_U32_V2;
+
+typedef struct {
+    TTY_F26Dot6_V2  p0;
+    TTY_F26Dot6_V2  p1; /* Control point */
+    TTY_F26Dot6_V2  p2;
+} TTY_Curve;
+
+typedef struct {
+    TTY_Curve*  buff;
+    TTY_U32     cap;
+    TTY_U32     count;
+} TTY_Curves;
 
 typedef struct {
     TTY_U8**  insPtrs;
@@ -127,14 +138,15 @@ typedef struct {
     TTY_Bool             scanControl;
 } TTY_Graphics_State;
 
-/* Glyph points are stored in zone1 even if the font doesn't have hinting or 
-   hinting is disabled */
+/* Glyph points/ curves are stored in zone1 even if the font doesn't have 
+   hinting or hinting is disabled */
 typedef struct {
     TTY_U8*             mem;
+    TTY_Curves          curves;
+    TTY_Zone            zone1;
     TTY_Interp_Stack    stack;
     TTY_Funcs           funcs;
     TTY_Graphics_State  gs;
-    TTY_Zone            zone1;
 } TTY_Font_Hinting_Data;
 
 typedef struct {
@@ -152,8 +164,8 @@ typedef struct {
 
 typedef struct {
     TTY_Font_Hinting_Data  hint;
-    TTY_U8*                data;
-    TTY_S32                size;
+    TTY_U8*                fileData;
+    TTY_S32                fileSize;
     TTY_Table              cmap;
     TTY_Table              cvt;
     TTY_Table              fpgm;
@@ -177,8 +189,8 @@ typedef struct {
     TTY_Bool               hasHinting;
 } TTY_Font;
 
-/* I think each instance needs its own zone0 data since the data persists until
-   a CV program is run. */
+/* Each instance needs its own zone0 data since the data must persist for the 
+   lifetime of the instance. */
 typedef struct {
     TTY_U8*           mem;
     TTY_CVT           cvt;
@@ -195,9 +207,9 @@ typedef struct {
     TTY_V2                     maxGlyphSize;
     TTY_F10Dot22               scale;
     TTY_Bool                   useHinting;
-    TTY_Bool                   useSubpixelRendering;
-    TTY_Bool                   isRotated;   /* TODO: Implement rotation */
-    TTY_Bool                   isStretched; /* TODO: Implement stretching */
+    TTY_Bool                   useSubpixelRendering; /* TODO: Implement subpixel rendering */
+    TTY_Bool                   isRotated;            /* TODO: Implement rotation */
+    TTY_Bool                   isStretched;          /* TODO: Implement stretching */
 } TTY_Instance;
 
 /* advance, offset, and size are not calculated until the glyph is rendered */

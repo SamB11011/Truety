@@ -13,7 +13,7 @@ if [ "$exfile" = "" ]; then
     exit 1
 fi
 
-gcc -Wall -std=c99 -oexample.out $exfile ../src/*.c -I../src
+gcc -Wall -std=c11 -oexample.out $exfile ../src/*.c -I../src
 
 if [ $? = 0 ]; then
     if [ "$run" != "" ]; then

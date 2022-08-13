@@ -99,33 +99,6 @@
 /* ---- */
 /* Util */
 /* ---- */
-#define TTY_DEFINE_PADDING_FUNC(type, name)\
-    size_t tty_add_padding_to_align_##name(size_t off) {\
-        struct Align {\
-            char  c;\
-            type  t;\
-        };\
-        \
-        size_t alignment = offsetof(struct Align, t);\
-        \
-        if (alignment == 1 || off % alignment == 0) {\
-            return off;\
-        }\
-        return off + alignment - (off % alignment);\
-    }
-
-TTY_DEFINE_PADDING_FUNC(TTY_U8               , u8)
-TTY_DEFINE_PADDING_FUNC(TTY_U8*              , u8_ptr)
-TTY_DEFINE_PADDING_FUNC(TTY_U16              , u16)
-TTY_DEFINE_PADDING_FUNC(TTY_U32              , u32)
-TTY_DEFINE_PADDING_FUNC(TTY_S32              , s32)
-TTY_DEFINE_PADDING_FUNC(TTY_V2               , v2)
-TTY_DEFINE_PADDING_FUNC(TTY_V2               , edge)
-TTY_DEFINE_PADDING_FUNC(TTY_V2               , active_edge)
-TTY_DEFINE_PADDING_FUNC(TTY_V2               , f26dot6)
-TTY_DEFINE_PADDING_FUNC(TTY_Atlas_Cache_Node , atlas_cache_node)
-TTY_DEFINE_PADDING_FUNC(TTY_Atlas_Cache_Node*, atlas_cache_node_ptr)
-
 #define TTY_TAG_EQUALS(tag, val)\
     !memcmp(tag, val, 4)
 
@@ -144,6 +117,20 @@ static TTY_S16 tty_get_s16(TTY_U8* data) {
 // static TTY_S32 tty_get_s32(TTY_U8* data) {
 //     return (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
 // }
+
+static size_t tty_pad_to_align(size_t size, size_t alignment) {
+    if (alignment == 1 || size % alignment == 0) {
+        return size;
+    }
+    return size + alignment - (size % alignment);
+}
+
+static size_t tty_calc_mem_size(size_t* total, size_t amount, size_t alignment) {
+    size_t totalCopy = ((*total) += amount);
+    (*total) += tty_pad_to_align(*total, alignment);
+    amount   += *total - totalCopy;
+    return amount;
+}
 
 
 /* ---- */
@@ -2483,218 +2470,6 @@ static TTY_Bool tty_try_execute_shared_ins(TTY_Program_Context* ctx, TTY_U8 ins)
 /* ------------ */
 /* Font Loading */
 /* ------------ */
-static TTY_Error tty_read_file_into_buff(TTY_Font* font, const char* path) {
-    FILE* f = fopen(path, "rb");
-    if (f == NULL) {
-        return TTY_ERROR_FAILED_TO_READ_FILE;
-    }
-
-    if (fseek(f, 0, SEEK_END)   != 0  ||
-        (font->size = ftell(f)) <  0  ||
-        fseek(f, 0, SEEK_SET)   != 0)
-    {
-        fclose(f);
-        return TTY_ERROR_FAILED_TO_READ_FILE;
-    }
-    
-    font->data = (TTY_U8*)malloc(font->size);
-    if (font->data == NULL) {
-        fclose(f);
-        return TTY_ERROR_OUT_OF_MEMORY;
-    }
-    
-    if ((TTY_S32)fread(font->data, 1, font->size, f) != font->size) {
-        fclose(f);
-        free(font->data);
-        return TTY_ERROR_FAILED_TO_READ_FILE;
-    }
-    
-    if (fclose(f) != 0) {
-        free(font->data);
-        return TTY_ERROR_FAILED_TO_READ_FILE;
-    }
-    
-    return TTY_ERROR_NONE;
-}
-
-static TTY_Error tty_verify_file_is_ttf(TTY_Font* font) {
-    TTY_U32 sfntVersion = tty_get_u32(font->data);
-    
-    if (sfntVersion == 0x00010000            ||
-        TTY_TAG_EQUALS(&sfntVersion, "true") ||
-        TTY_TAG_EQUALS(&sfntVersion, "typ1"))
-    {
-        return TTY_ERROR_NONE;
-    }
-    
-    return TTY_ERROR_FILE_IS_NOT_TTF;
-}
-
-static TTY_Error tty_extract_table_directory(TTY_Font* font) {
-    TTY_U16 numTables = tty_get_u16(font->data + 4);
-
-    for (TTY_U32 i = 0; i < numTables; i++) {
-        TTY_U32    off = 12 + 16 * i;
-        TTY_U8*    tag = font->data + off;
-        TTY_Table* table;
-        
-        if (!font->cmap.exists && TTY_TAG_EQUALS(tag, "cmap")) {
-            table = &font->cmap;
-        }
-        else if (!font->cvt.exists && TTY_TAG_EQUALS(tag, "cvt ")) {
-            table = &font->cvt;
-        }
-        else if (!font->fpgm.exists && TTY_TAG_EQUALS(tag, "fpgm")) {
-            table = &font->fpgm;
-        }
-        else if (!font->glyf.exists && TTY_TAG_EQUALS(tag, "glyf")) {
-            table = &font->glyf;
-        }
-        else if (!font->head.exists && TTY_TAG_EQUALS(tag, "head")) {
-            table = &font->head;
-        }
-        else if (!font->hhea.exists && TTY_TAG_EQUALS(tag, "hhea")) {
-            table = &font->hhea;
-        }
-        else if (!font->hmtx.exists && TTY_TAG_EQUALS(tag, "hmtx")) {
-            table = &font->hmtx;
-        }
-        else if (!font->loca.exists && TTY_TAG_EQUALS(tag, "loca")) {
-            table = &font->loca;
-        }
-        else if (!font->maxp.exists && TTY_TAG_EQUALS(tag, "maxp")) {
-            table = &font->maxp;
-        }
-        else if (!font->OS2.exists && TTY_TAG_EQUALS(tag, "OS/2")) {
-            table = &font->OS2;
-        }
-        else if (!font->prep.exists && TTY_TAG_EQUALS(tag, "prep")) {
-            table = &font->prep;
-        }
-        else if (!font->vmtx.exists && TTY_TAG_EQUALS(tag, "vmtx")) {
-            table = &font->vmtx;
-        }
-        else {
-            table = NULL;
-        }
-
-        if (table != NULL) {
-            table->off    = tty_get_u32(font->data + off + 8);
-            table->size   = tty_get_u32(font->data + off + 12);
-            table->exists = TTY_TRUE;
-        }
-    }
-    
-    if (font->cmap.exists     && 
-        font->glyf.exists     && 
-        font->head.exists     && 
-        font->hhea.exists     &&
-        font->hmtx.exists     && 
-        font->loca.exists     &&
-        font->maxp.exists)
-    {
-        return TTY_ERROR_NONE;
-    }
-    
-    return TTY_ERROR_FILE_IS_CORRUPTED;
-}
-
-static TTY_Bool tty_format_is_supported(TTY_U16 format) {
-    switch (format) {
-        case 4:
-        // case 6:
-        // case 8:
-        // case 10:
-        // case 12:
-        // case 13:
-        // case 14:
-            return TTY_TRUE;
-    }
-    return TTY_FALSE;
-}
-
-static TTY_Error tty_extract_char_encoding(TTY_Font* font) {
-    TTY_U16 numTables = tty_get_u16(font->data + font->cmap.off + 2);
-    
-    for (TTY_U16 i = 0; i < numTables; i++) {
-        TTY_U8*  data       = font->data + font->cmap.off + 4 + i * 8;
-        TTY_U16  platformId = tty_get_u16(data);
-        TTY_U16  encodingId = tty_get_u16(data + 2);
-        TTY_Bool foundValid = TTY_FALSE;
-
-        switch (platformId) {
-            case 0:
-                foundValid = encodingId >= 3 && encodingId <= 6;
-                break;
-            case 3:
-                foundValid = encodingId == 1 || encodingId == 10;
-                break;
-        }
-
-        if (foundValid) {
-            font->encoding.platformId = platformId;
-            font->encoding.encodingId = encodingId;
-            font->encoding.off        = tty_get_u32(data + 4);
-
-            TTY_U8* subtable = font->data + font->cmap.off + font->encoding.off;
-            TTY_U16 format   = tty_get_u16(subtable);
-
-            if (tty_format_is_supported(format)) {
-                return TTY_ERROR_NONE;
-            }
-        }
-    }
-    
-    return TTY_ERROR_UNSUPPORTED_FEATURE;
-}
-
-static TTY_Error tty_alloc_font_hinting_data(TTY_Font* font) {
-    font->hint.stack.cap = tty_get_u16(font->data + font->maxp.off + 24);
-    font->hint.funcs.cap = tty_get_u16(font->data + font->maxp.off + 20);
-    
-    {
-        TTY_U16 maxContours          = tty_get_u16(font->data + font->maxp.off + 8);
-        TTY_U16 maxCompositeContours = tty_get_u16(font->data + font->maxp.off + 12);
-        font->hint.zone1.maxEndPoints = TTY_MAX(maxContours, maxCompositeContours);
-    }
-    
-    {
-        // Not sure if maxPoints or maxCompositePoints includes phantom points,
-        // so will add them just to be safe
-        TTY_U16 maxPoints            = tty_get_u16(font->data + font->maxp.off + 6);
-        TTY_U16 maxCompositePoints   = tty_get_u16(font->data + font->maxp.off + 10);
-        font->hint.zone1.maxPoints = TTY_MAX(maxPoints, maxCompositePoints) + TTY_NUM_PHANTOM_POINTS;
-    }
-
-    size_t stackSize             = tty_add_padding_to_align_u8_ptr(font->hint.stack.cap * sizeof(TTY_U32));
-    size_t funcInsPtrsSize       = tty_add_padding_to_align_u32   (font->hint.funcs.cap * sizeof(TTY_U8*));
-    size_t funcSizesSize         = tty_add_padding_to_align_v2    (font->hint.funcs.cap * sizeof(TTY_U32));
-    size_t z1OrgSize             = font->hint.zone1.maxPoints * sizeof(TTY_V2);
-    size_t z1OrgScaledSize       = z1OrgSize;
-    size_t z1CurSize             = tty_add_padding_to_align_u8 (z1OrgSize);
-    size_t z1TouchTypesSize      = tty_add_padding_to_align_u8 (font->hint.zone1.maxPoints * sizeof(TTY_U8));
-    size_t z1PointTypesSize      = tty_add_padding_to_align_u16(font->hint.zone1.maxPoints * sizeof(TTY_U8));
-    size_t z1EndPointIndicesSize = font->hint.zone1.maxEndPoints * sizeof(TTY_U16);
-
-    font->hint.mem = (TTY_U8*)malloc(stackSize + funcInsPtrsSize + funcSizesSize + z1OrgSize + z1OrgScaledSize + z1CurSize + z1TouchTypesSize + z1PointTypesSize + z1EndPointIndicesSize);
-    if (font->hint.mem == NULL) {
-        return TTY_ERROR_OUT_OF_MEMORY;
-    }
-    
-    size_t off = 0;
-    font->hint.stack.buff            = (TTY_U32*)(font->hint.mem);
-    font->hint.funcs.insPtrs         = (TTY_U8**)(font->hint.mem + (off += stackSize));
-    font->hint.funcs.sizes           = (TTY_U32*)(font->hint.mem + (off += funcInsPtrsSize));
-    font->hint.zone1.org             = (TTY_V2*) (font->hint.mem + (off += funcSizesSize));
-    font->hint.zone1.orgScaled       = (TTY_V2*) (font->hint.mem + (off += z1OrgSize));
-    font->hint.zone1.cur             = (TTY_V2*) (font->hint.mem + (off += z1OrgScaledSize));
-    font->hint.zone1.touchFlags      = (TTY_U8*) (font->hint.mem + (off += z1CurSize));
-    font->hint.zone1.pointTypes      = (TTY_U8*) (font->hint.mem + (off += z1TouchTypesSize));
-    font->hint.zone1.endPointIndices = (TTY_U16*)(font->hint.mem + (off += z1PointTypesSize));
-    
-    return TTY_ERROR_NONE;
-}
-
 static void tty_execute_next_font_program_ins(TTY_Program_Context* ctx) {
     TTY_U8 ins = tty_ins_stream_next(&ctx->stream);
 
@@ -2725,106 +2500,280 @@ static void tty_execute_next_font_program_ins(TTY_Program_Context* ctx) {
     }
 }
 
-static TTY_Error tty_execute_font_program(TTY_Font* font) {
-    TTY_LOG_PROGRAM("Font Program");
-    
-    TTY_Program_Context ctx;
-    ctx.font                    = font;
-    ctx.instance                = NULL;
-    ctx.glyph                   = NULL;
-    ctx.iupState                = TTY_IUP_STATE_DEFAULT;
-    ctx.foundUnknownIns         = TTY_FALSE;
-    ctx.stream.execute_next_ins = tty_execute_next_font_program_ins;
-    ctx.stream.buff             = font->data + font->fpgm.off;
-    ctx.stream.cap              = font->fpgm.size;
-    ctx.stream.off              = 0;
-
-    return tty_execute_program(&ctx);
-}
-
 TTY_Error tty_font_init(TTY_Font* font, const char* path) {
     memset(font, 0, sizeof(TTY_Font));
 
-    TTY_Error error;
-    
-    // Hinting data is allocated even if the font doesn't have hinting because
-    // zone1 will still be used to store glyph points
-    if ((error = tty_read_file_into_buff    (font, path)) ||
-        (error = tty_verify_file_is_ttf     (font))       ||
-        (error = tty_extract_table_directory(font))       ||
-        (error = tty_extract_char_encoding  (font))       ||
-        (error = tty_alloc_font_hinting_data(font)))
+
     {
-        goto failure;
-    }
-    
-    font->startingEdgeCap = 100;
-    font->upem            = tty_get_u16(font->data + font->head.off + 18);
-    font->numGlyphs       = tty_get_u16(font->data + font->maxp.off + 4);
-    font->ascender        = tty_get_s16(font->data + font->hhea.off + 4);
-    font->descender       = tty_get_s16(font->data + font->hhea.off + 6);
-    font->lineGap         = tty_get_s16(font->data + font->hhea.off + 8);
-    font->maxHoriExtent   = tty_get_s16(font->data + font->hhea.off + 16);
-    font->hasHinting      = font->cvt.exists && font->fpgm.exists && font->prep.exists;
-    
-    if (font->hasHinting && (error = tty_execute_font_program(font))) {
-        goto failure;
+        // Open the font file
+        FILE* f = fopen(path, "rb");
+        if (f == NULL) {
+            return TTY_ERROR_FAILED_TO_READ_FILE;
+        }
+
+        // Calculate the size of the file
+        if (fseek(f, 0, SEEK_END)       != 0  ||
+            (font->fileSize = ftell(f)) <  0  ||
+            fseek(f, 0, SEEK_SET)       != 0)
+        {
+            fclose(f);
+            return TTY_ERROR_FAILED_TO_READ_FILE;
+        }
+
+        // Allocate a buffer that will store the contents of the file
+        font->fileData = calloc(font->fileSize, 1);
+        if (font->fileData == NULL) {
+            fclose(f);
+            return TTY_ERROR_OUT_OF_MEMORY;
+        }
+
+        // Read the file contents into the buffer
+        if ((TTY_S32)fread(font->fileData, 1, font->fileSize, f) != font->fileSize) {
+            fclose(f);
+            free(font->fileData);
+            font->fileData = NULL;
+            return TTY_ERROR_FAILED_TO_READ_FILE;
+        }
+        fclose(f);
     }
 
-    return TTY_ERROR_NONE;
+
+    // Verify that the file contains a TTF file signature
+    {
+        TTY_U32 sfntVersion = tty_get_u32(font->fileData);
     
-failure:
-    tty_font_free(font);
-    return error;
+        if (sfntVersion != 0x00010000             &&
+            !TTY_TAG_EQUALS(&sfntVersion, "true") &&
+            !TTY_TAG_EQUALS(&sfntVersion, "typ1"))
+        {
+            free(font->fileData);
+            font->fileData = NULL;
+            return TTY_ERROR_FILE_IS_NOT_TTF;   
+        }
+    }
+
+
+    // Extract table directory
+    {
+        TTY_U16 numTables = tty_get_u16(font->fileData + 4);
+
+        for (TTY_U32 i = 0; i < numTables; i++) {
+            TTY_U32    off = 12 + 16 * i;
+            TTY_U8*    tag = font->fileData + off;
+            TTY_Table* table;
+            
+            if (!font->cmap.exists && TTY_TAG_EQUALS(tag, "cmap")) {
+                table = &font->cmap;
+            }
+            else if (!font->cvt.exists && TTY_TAG_EQUALS(tag, "cvt ")) {
+                table = &font->cvt;
+            }
+            else if (!font->fpgm.exists && TTY_TAG_EQUALS(tag, "fpgm")) {
+                table = &font->fpgm;
+            }
+            else if (!font->glyf.exists && TTY_TAG_EQUALS(tag, "glyf")) {
+                table = &font->glyf;
+            }
+            else if (!font->head.exists && TTY_TAG_EQUALS(tag, "head")) {
+                table = &font->head;
+            }
+            else if (!font->hhea.exists && TTY_TAG_EQUALS(tag, "hhea")) {
+                table = &font->hhea;
+            }
+            else if (!font->hmtx.exists && TTY_TAG_EQUALS(tag, "hmtx")) {
+                table = &font->hmtx;
+            }
+            else if (!font->loca.exists && TTY_TAG_EQUALS(tag, "loca")) {
+                table = &font->loca;
+            }
+            else if (!font->maxp.exists && TTY_TAG_EQUALS(tag, "maxp")) {
+                table = &font->maxp;
+            }
+            else if (!font->OS2.exists && TTY_TAG_EQUALS(tag, "OS/2")) {
+                table = &font->OS2;
+            }
+            else if (!font->prep.exists && TTY_TAG_EQUALS(tag, "prep")) {
+                table = &font->prep;
+            }
+            else if (!font->vmtx.exists && TTY_TAG_EQUALS(tag, "vmtx")) {
+                table = &font->vmtx;
+            }
+            else {
+                table = NULL;
+            }
+
+            if (table != NULL) {
+                table->off    = tty_get_u32(font->fileData + off + 8);
+                table->size   = tty_get_u32(font->fileData + off + 12);
+                table->exists = TTY_TRUE;
+            }
+        }
+        
+        if (!font->cmap.exists || 
+            !font->glyf.exists || 
+            !font->head.exists || 
+            !font->hhea.exists ||
+            !font->hmtx.exists || 
+            !font->loca.exists ||
+            !font->maxp.exists)
+        {
+            free(font->fileData);
+            font->fileData = NULL;
+            return TTY_ERROR_FILE_IS_CORRUPTED;
+        }
+    }
+
+
+    // Extract the character encoding
+    {
+        TTY_U16  numTables          = tty_get_u16(font->fileData + font->cmap.off + 2);
+        TTY_Bool foundPlatAndFormat = TTY_FALSE;
+    
+        for (TTY_U16 i = 0; i < numTables; i++) {
+            TTY_U8*  data              = font->fileData + font->cmap.off + 4 + i * 8;
+            TTY_U16  platformId        = tty_get_u16(data);
+            TTY_U16  encodingId        = tty_get_u16(data + 2);
+            TTY_Bool platformIdIsValid = TTY_FALSE;
+
+            switch (platformId) {
+                case 0:
+                    platformIdIsValid = encodingId >= 3 && encodingId <= 6;
+                    break;
+                case 3:
+                    platformIdIsValid = encodingId == 1 || encodingId == 10;
+                    break;
+            }
+
+            if (platformIdIsValid) {
+                font->encoding.platformId = platformId;
+                font->encoding.encodingId = encodingId;
+                font->encoding.off        = tty_get_u32(data + 4);
+
+                TTY_U8* subtable = font->fileData + font->cmap.off + font->encoding.off;
+                TTY_U16 format   = tty_get_u16(subtable);
+
+                // TODO: support formats 6, 8, 10, 12, 13, and 14
+                foundPlatAndFormat = format == 4;
+                if (foundPlatAndFormat) {
+                    break;
+                }
+            }
+        }
+        
+        if (!foundPlatAndFormat) {
+            free(font->fileData);
+            font->fileData = NULL;
+            return TTY_ERROR_UNSUPPORTED_FEATURE;
+        }
+    }
+
+
+    font->startingEdgeCap = 100;
+    font->upem            = tty_get_u16(font->fileData + font->head.off + 18);
+    font->numGlyphs       = tty_get_u16(font->fileData + font->maxp.off + 4);
+    font->ascender        = tty_get_s16(font->fileData + font->hhea.off + 4);
+    font->descender       = tty_get_s16(font->fileData + font->hhea.off + 6);
+    font->lineGap         = tty_get_s16(font->fileData + font->hhea.off + 8);
+    font->maxHoriExtent   = tty_get_s16(font->fileData + font->hhea.off + 16);
+    font->hasHinting      = font->cvt.exists && font->fpgm.exists && font->prep.exists;
+
+
+    // Allocate hinting data
+    // Note: Even if the font doesn't have hinting, glyph points are still 
+    //       stored in zone 1
+    {
+        if (font->hasHinting) {
+            font->hint.stack.cap = tty_get_u16(font->fileData + font->maxp.off + 24);
+            font->hint.funcs.cap = tty_get_u16(font->fileData + font->maxp.off + 20);
+        }
+        
+        {
+            TTY_U16 maxContours           = tty_get_u16(font->fileData + font->maxp.off + 8);
+            TTY_U16 maxCompositeContours  = tty_get_u16(font->fileData + font->maxp.off + 12);
+            font->hint.zone1.maxEndPoints = TTY_MAX(maxContours, maxCompositeContours);
+        }
+        
+        {
+            // Note: Not sure if maxPoints or maxCompositePoints includes phantom points,
+            //       so will add them just to be safe
+            TTY_U16 maxPoints          = tty_get_u16(font->fileData + font->maxp.off + 6);
+            TTY_U16 maxCompositePoints = tty_get_u16(font->fileData + font->maxp.off + 10);
+            font->hint.zone1.maxPoints = TTY_MAX(maxPoints, maxCompositePoints) + TTY_NUM_PHANTOM_POINTS;
+            font->hint.curves.cap      = maxCompositePoints; // The number of curves a glyph has is <= the number of points it has
+        }
+
+        size_t off                   = 0;
+        size_t totalSize             = 0;
+        size_t curvesSize            = tty_calc_mem_size(&totalSize, font->hint.curves.cap         * sizeof(TTY_Curve), _Alignof(TTY_U8*));
+        size_t funcInsPtrsSize       = tty_calc_mem_size(&totalSize, font->hint.funcs.cap          * sizeof(TTY_U8*)  , _Alignof(TTY_U32));
+        size_t funcSizesSize         = tty_calc_mem_size(&totalSize, font->hint.funcs.cap          * sizeof(TTY_U32)  , 1);
+        size_t stackSize             = tty_calc_mem_size(&totalSize, font->hint.stack.cap          * sizeof(TTY_U32)  , _Alignof(TTY_V2));
+        size_t z1OrgSize             = tty_calc_mem_size(&totalSize, font->hint.zone1.maxPoints    * sizeof(TTY_V2)   , 1);
+        size_t z1OrgScaledSize       = tty_calc_mem_size(&totalSize, z1OrgSize                                        , 1);
+        size_t z1CurSize             = tty_calc_mem_size(&totalSize, z1OrgSize                                        , _Alignof(TTY_U16));
+        size_t z1EndPointIndicesSize = tty_calc_mem_size(&totalSize, font->hint.zone1.maxEndPoints * sizeof(TTY_U16)  , 1);
+        size_t z1TouchTypesSize      = tty_calc_mem_size(&totalSize, font->hint.zone1.maxPoints    * sizeof(TTY_U8)   , 1);
+        /* size_t z1PointTypesSize = */tty_calc_mem_size(&totalSize, font->hint.zone1.maxPoints    * sizeof(TTY_U8)   , 1);
+        
+        font->hint.mem = (TTY_U8*)calloc(totalSize, 1);
+        if (font->hint.mem == NULL) {
+            free(font->fileData);
+            font->fileData = NULL;
+            return TTY_ERROR_OUT_OF_MEMORY;
+        }
+        
+        font->hint.curves.buff           = (TTY_Curve*)(font->hint.mem);
+        font->hint.funcs.insPtrs         = (TTY_U8**)  (font->hint.mem + (off += curvesSize));
+        font->hint.funcs.sizes           = (TTY_U32*)  (font->hint.mem + (off += funcInsPtrsSize));
+        font->hint.stack.buff            = (TTY_U32*)  (font->hint.mem + (off += funcSizesSize));
+        font->hint.zone1.org             = (TTY_V2*)   (font->hint.mem + (off += stackSize));
+        font->hint.zone1.orgScaled       = (TTY_V2*)   (font->hint.mem + (off += z1OrgSize));
+        font->hint.zone1.cur             = (TTY_V2*)   (font->hint.mem + (off += z1OrgScaledSize));
+        font->hint.zone1.endPointIndices = (TTY_U16*)  (font->hint.mem + (off += z1CurSize));
+        font->hint.zone1.touchFlags      = (TTY_U8*)   (font->hint.mem + (off += z1EndPointIndicesSize));
+        font->hint.zone1.pointTypes      = (TTY_U8*)   (font->hint.mem + (off += z1TouchTypesSize));
+    }
+
+
+    // Execute the font program if the font has hinting
+    if (font->hasHinting) {
+        TTY_Error           error;
+        TTY_Program_Context ctx;
+        ctx.font                    = font;
+        ctx.instance                = NULL;
+        ctx.glyph                   = NULL;
+        ctx.iupState                = TTY_IUP_STATE_DEFAULT;
+        ctx.foundUnknownIns         = TTY_FALSE;
+        ctx.stream.execute_next_ins = tty_execute_next_font_program_ins;
+        ctx.stream.buff             = font->fileData + font->fpgm.off;
+        ctx.stream.cap              = font->fpgm.size;
+        ctx.stream.off              = 0;
+
+        TTY_LOG_PROGRAM("Font Program");
+        
+        error = tty_execute_program(&ctx);
+        if (error != TTY_ERROR_NONE) {
+            tty_font_free(font);
+            return error;
+        }
+    }
+
+
+    return TTY_ERROR_NONE;
 }
 
 void tty_font_free(TTY_Font* font) {
-    if (font != NULL) {
-        free(font->data);
-        free(font->hint.mem);
-    }
+    free(font->fileData);
+    font->fileData = NULL;
+
+    free(font->hint.mem);
+    font->hint.mem = NULL;
 }
 
 
 /* ---------------- */
 /* Instance Loading */
 /* ---------------- */
-static TTY_Error tty_alloc_instance_hinting_data(TTY_Font* font, TTY_Instance* instance) {
-    instance->hint.cvt.cap         = font->cvt.size / sizeof(TTY_S16);
-    instance->hint.storage.cap     = tty_get_u16(font->data + font->maxp.off + 18);
-    instance->hint.zone0.maxPoints = tty_get_u16(font->data + font->maxp.off + 16);
-    
-    size_t cvtSize         = tty_add_padding_to_align_s32(instance->hint.cvt.cap     * sizeof(TTY_F26Dot6));
-    size_t storeSize       = tty_add_padding_to_align_v2 (instance->hint.storage.cap * sizeof(TTY_S32));
-    size_t z0OrgScaledSize = instance->hint.zone0.maxPoints * sizeof(TTY_V2);
-    size_t z0CurSize       = tty_add_padding_to_align_u8(z0OrgScaledSize);
-    size_t z0TouchSize     = instance->hint.zone0.maxPoints * sizeof(TTY_U8);
-    
-    instance->hint.mem = (TTY_U8*)malloc(cvtSize + storeSize + z0OrgScaledSize + z0CurSize + z0TouchSize);
-    if (instance->hint.mem == NULL) {
-        return TTY_ERROR_OUT_OF_MEMORY;
-    }
-    
-    size_t off = 0;
-    instance->hint.cvt.buff         = (TTY_F26Dot6*)(instance->hint.mem);
-    instance->hint.storage.buff     = (TTY_S32*)    (instance->hint.mem + (off += cvtSize));
-    instance->hint.zone0.orgScaled  = (TTY_V2*)     (instance->hint.mem + (off += storeSize));
-    instance->hint.zone0.cur        = (TTY_V2*)     (instance->hint.mem + (off += z0OrgScaledSize));
-    instance->hint.zone0.touchFlags = (TTY_U8*)     (instance->hint.mem + (off += z0CurSize));
-
-    return TTY_ERROR_NONE;
-}
-
-static void tty_fill_control_value_table(TTY_Font* font, TTY_Instance* instance) {
-    // Convert default CVT values from font units to 26.6 pixel units
-    TTY_U32 idx = 0;
-
-    for (TTY_U32 off = 0; off < font->cvt.size; off += 2) {
-        TTY_S32 funits = tty_get_s16(font->data + font->cvt.off + off);
-        instance->hint.cvt.buff[idx++] = TTY_F10DOT22_MUL(funits << 6, instance->scale);
-    }
-}
-
 static void tty_reset_graphics_state(TTY_Graphics_State* gs, TTY_Zone* zone1) {
     gs->move_point        = tty_move_point_x;
     gs->zp0               = zone1;
@@ -2876,33 +2825,6 @@ static void tty_execute_next_cv_program_ins(TTY_Program_Context* ctx) {
     ctx->foundUnknownIns = TTY_TRUE;
 }
 
-static TTY_Error tty_execute_cv_program(TTY_Font* font, TTY_Instance* instance) {
-    TTY_LOG_PROGRAM("CV Program");
-
-    // "Every time the control value program is run, the zone 0 contour data is
-    //  initialized to 0s."
-    memset(instance->hint.zone0.orgScaled,  0, instance->hint.zone0.maxPoints * sizeof(TTY_V2));
-    memset(instance->hint.zone0.cur,        0, instance->hint.zone0.maxPoints * sizeof(TTY_V2));
-    memset(instance->hint.zone0.touchFlags, 0, instance->hint.zone0.maxPoints * sizeof(TTY_U8));
-
-    tty_reset_graphics_state(&font->hint.gs, &font->hint.zone1);
-    tty_interp_stack_clear(&font->hint.stack);
-
-    TTY_Program_Context ctx;
-    ctx.font                    = font;
-    ctx.instance                = instance;
-    ctx.glyph                   = NULL;
-    ctx.iupState                = TTY_IUP_STATE_DEFAULT;
-    ctx.foundUnknownIns         = TTY_FALSE;
-    ctx.stream.execute_next_ins = tty_execute_next_cv_program_ins;
-    ctx.stream.buff             = font->data + font->prep.off;
-    ctx.stream.cap              = font->prep.size;
-    ctx.stream.off              = 0;
-        
-    
-    return tty_execute_program(&ctx);
-}
-
 TTY_Error tty_instance_init(TTY_Font* font, TTY_Instance* instance, TTY_U32 ppem, TTY_U32 flags) {
     memset(instance, 0, sizeof(TTY_Instance));
     
@@ -2911,11 +2833,30 @@ TTY_Error tty_instance_init(TTY_Font* font, TTY_Instance* instance, TTY_U32 ppem
     instance->isRotated            = TTY_FALSE;
     instance->isStretched          = TTY_FALSE;
 
+    // Allocate hinting data if the instance uses hinting
     if (instance->useHinting) {
-        TTY_Error error;
-        if ((error = tty_alloc_instance_hinting_data(font, instance))) {
-            return error;
+        instance->hint.cvt.cap         = font->cvt.size / sizeof(TTY_S16);
+        instance->hint.storage.cap     = tty_get_u16(font->fileData + font->maxp.off + 18);
+        instance->hint.zone0.maxPoints = tty_get_u16(font->fileData + font->maxp.off + 16);
+        
+        size_t off             = 0;
+        size_t totalSize       = 0;
+        size_t cvtSize         = tty_calc_mem_size(&totalSize, instance->hint.cvt.cap         * sizeof(TTY_F26Dot6), _Alignof(TTY_S32));
+        size_t storeSize       = tty_calc_mem_size(&totalSize, instance->hint.storage.cap     * sizeof(TTY_S32)    , _Alignof(TTY_V2));
+        size_t z0OrgScaledSize = tty_calc_mem_size(&totalSize, instance->hint.zone0.maxPoints * sizeof(TTY_V2)     , 1);
+        size_t z0CurSize       = tty_calc_mem_size(&totalSize, z0OrgScaledSize                                     , 1);
+        /*size_t z0TouchSize = */tty_calc_mem_size(&totalSize, instance->hint.zone0.maxPoints * sizeof(TTY_U8)     , 1);
+        
+        instance->hint.mem = (TTY_U8*)calloc(totalSize, 1);
+        if (instance->hint.mem == NULL) {
+            return TTY_ERROR_OUT_OF_MEMORY;
         }
+        
+        instance->hint.cvt.buff         = (TTY_F26Dot6*)(instance->hint.mem);
+        instance->hint.storage.buff     = (TTY_S32*)    (instance->hint.mem + (off += cvtSize));
+        instance->hint.zone0.orgScaled  = (TTY_V2*)     (instance->hint.mem + (off += storeSize));
+        instance->hint.zone0.cur        = (TTY_V2*)     (instance->hint.mem + (off += z0OrgScaledSize));
+        instance->hint.zone0.touchFlags = (TTY_U8*)     (instance->hint.mem + (off += z0CurSize));
     }
 
     return tty_instance_resize(font, instance, ppem);
@@ -2934,15 +2875,47 @@ TTY_Error tty_instance_resize(TTY_Font* font, TTY_Instance* instance, TTY_U32 pp
         return TTY_ERROR_NONE;
     }
 
-    tty_fill_control_value_table(font, instance);
-    return tty_execute_cv_program(font, instance);
+    // Convert default CVT values from font units to 26.6 pixel units
+    {
+        TTY_U32 idx = 0;
+        for (TTY_U32 off = 0; off < font->cvt.size; off += 2) {
+            TTY_S32 funits = tty_get_s16(font->fileData + font->cvt.off + off);
+            instance->hint.cvt.buff[idx++] = TTY_F10DOT22_MUL(funits << 6, instance->scale);
+        }
+    }
+
+    // Execute the CV program
+    {
+        // "Every time the control value program is run, the zone 0 contour data is
+        //  initialized to 0s."
+        memset(instance->hint.zone0.orgScaled,  0, instance->hint.zone0.maxPoints * sizeof(TTY_V2));
+        memset(instance->hint.zone0.cur,        0, instance->hint.zone0.maxPoints * sizeof(TTY_V2));
+        memset(instance->hint.zone0.touchFlags, 0, instance->hint.zone0.maxPoints * sizeof(TTY_U8));
+
+        tty_reset_graphics_state(&font->hint.gs, &font->hint.zone1);
+        tty_interp_stack_clear(&font->hint.stack);
+
+        {
+            TTY_Program_Context ctx;
+            ctx.font                    = font;
+            ctx.instance                = instance;
+            ctx.glyph                   = NULL;
+            ctx.iupState                = TTY_IUP_STATE_DEFAULT;
+            ctx.foundUnknownIns         = TTY_FALSE;
+            ctx.stream.execute_next_ins = tty_execute_next_cv_program_ins;
+            ctx.stream.buff             = font->fileData + font->prep.off;
+            ctx.stream.cap              = font->prep.size;
+            ctx.stream.off              = 0;
+
+            TTY_LOG_PROGRAM("CV Program");   
+            return tty_execute_program(&ctx);
+        }
+    }
 }
 
 void tty_instance_free(TTY_Instance* instance) {
-    if (instance != NULL) {
-        free(instance->hint.mem);
-        instance->hint.mem = NULL;
-    }
+    free(instance->hint.mem);
+    instance->hint.mem = NULL;
 }
 
 
@@ -2992,18 +2965,18 @@ static TTY_U16 tty_get_glyph_index_format_4(TTY_U8* subtable, TTY_U32 cp) {
 
 static TTY_U8* tty_get_glyf_data_block(TTY_Font* font, TTY_U32 glyphIdx) {
     #define TTY_GET_OFF_16(idx)\
-        (tty_get_u16(font->data + font->loca.off + (2 * (idx))) * 2)
+        (tty_get_u16(font->fileData + font->loca.off + (2 * (idx))) * 2)
 
     #define TTY_GET_OFF_32(idx)\
-        tty_get_u32(font->data + font->loca.off + (4 * (idx)))
+        tty_get_u32(font->fileData + font->loca.off + (4 * (idx)))
 
-    TTY_S16 version = tty_get_s16(font->data + font->head.off + 50);
+    TTY_S16 version = tty_get_s16(font->fileData + font->head.off + 50);
     TTY_U32 blockOff;
     TTY_U32 nextBlockOff;
 
     if (glyphIdx == font->numGlyphs - 1u) {
         blockOff = version == 0 ? TTY_GET_OFF_16(glyphIdx) : TTY_GET_OFF_32(glyphIdx);
-        return font->data + font->glyf.off + blockOff;
+        return font->fileData + font->glyf.off + blockOff;
     }
 
     if (version == 0) {
@@ -3020,14 +2993,14 @@ static TTY_U8* tty_get_glyf_data_block(TTY_Font* font, TTY_U32 glyphIdx) {
         return NULL;
     }
 
-    return font->data + font->glyf.off + blockOff;
+    return font->fileData + font->glyf.off + blockOff;
     
     #undef TTY_GET_OFF_16
     #undef TTY_GET_OFF_32
 }
 
 TTY_Error tty_get_glyph_index(TTY_Font* font, TTY_U32 codePoint, TTY_U32* idx) {
-    TTY_U8* subtable = font->data + font->cmap.off + font->encoding.off;
+    TTY_U8* subtable = font->fileData + font->cmap.off + font->encoding.off;
 
     switch (tty_get_u16(subtable)) {
         case 4:
@@ -3060,24 +3033,17 @@ TTY_Error tty_get_glyph_index(TTY_Font* font, TTY_U32 codePoint, TTY_U32* idx) {
 }
 
 TTY_Error tty_glyph_init(TTY_Font* font, TTY_Glyph* glyph, TTY_U32 idx) {
+    // Note: Glyph advance, offset, and size are calculated when the glyph is rendered
+    
+    memset(glyph, 0, sizeof(TTY_Glyph));
+
     glyph->idx       = idx;
     glyph->glyfBlock = tty_get_glyf_data_block(font, idx);
     
-    if (glyph->glyfBlock == NULL) {
-        // The glyph is an empty glyph (i.e. space)
-        glyph->numContours = 0;
-    }
-    else {
+    // If glyfBlock is NULL, the glyph is an empty glyph (i.e. space)
+    if (glyph->glyfBlock != NULL) {
         glyph->numContours = tty_get_s16(glyph->glyfBlock);
     }
-    
-    // These are not calculated until the glyph is rendered
-    glyph->advance.x = 0;
-    glyph->advance.y = 0;
-    glyph->offset.x  = 0;
-    glyph->offset.y  = 0;
-    glyph->size.x    = 0;
-    glyph->size.y    = 0;
     
     return TTY_ERROR_NONE;
 }
@@ -3102,10 +3068,8 @@ TTY_Error tty_image_init(TTY_Image* image, TTY_U8* pixels, TTY_U32 w, TTY_U32 h)
 }
 
 void tty_image_free(TTY_Image* image) {
-    if (image != NULL) {
-        free(image->pixels);
-        image->pixels = NULL;
-    }
+    free(image->pixels);
+    image->pixels = NULL;
 }
 
 
@@ -3144,19 +3108,6 @@ enum {
 
 typedef struct {
     TTY_F26Dot6_V2  p0;
-    TTY_F26Dot6_V2  p1; /* Control point */
-    TTY_F26Dot6_V2  p2;
-} TTY_Curve;
-
-typedef struct {
-    TTY_Curve*  buff;
-    TTY_U32     cap;
-    TTY_U32     count;
-} TTY_Curves;
-
-
-typedef struct {
-    TTY_F26Dot6_V2  p0;
     TTY_F26Dot6_V2  p1;
     TTY_F26Dot6     yMin;
     TTY_F26Dot6     yMax;
@@ -3171,7 +3122,6 @@ typedef struct {
     TTY_U32    count;
     TTY_U32    off;
 } TTY_Edges;
-
 
 typedef struct TTY_Active_Edge {
     TTY_Edge*                edge;
@@ -3194,10 +3144,9 @@ typedef struct {
 
 static TTY_Error tty_add_glyph_points_to_zone_1(TTY_Font* font, TTY_Instance* instance, TTY_Glyph* glyph);
 
-
 static TTY_U16 tty_get_glyph_advance_width(TTY_Font* font, TTY_U32 glyphIdx) {
-    TTY_U8* hmtxData    = font->data + font->hmtx.off;
-    TTY_U16 numHMetrics = tty_get_u16(font->data + font->hhea.off + 34);
+    TTY_U8* hmtxData    = font->fileData + font->hmtx.off;
+    TTY_U16 numHMetrics = tty_get_u16(font->fileData + font->hhea.off + 34);
     if (numHMetrics == 0) {
         TTY_ASSERT(0);
         return 0;
@@ -3218,7 +3167,7 @@ static TTY_S32 tty_get_glyph_advance_height(TTY_Font* font) {
     }
     
     if (font->OS2.exists) {
-        TTY_U8* os2Data   = font->data + font->OS2.off;
+        TTY_U8* os2Data   = font->fileData + font->OS2.off;
         TTY_S16 ascender  = tty_get_s16(os2Data + 68);
         TTY_S16 descender = tty_get_s16(os2Data + 70);
         return ascender - descender;
@@ -3229,8 +3178,8 @@ static TTY_S32 tty_get_glyph_advance_height(TTY_Font* font) {
 }
 
 static TTY_S16 tty_get_glyph_left_side_bearing(TTY_Font* font, TTY_U32 glyphIdx) {
-    TTY_U8* hmtxData    = font->data + font->hmtx.off;
-    TTY_U16 numHMetrics = tty_get_u16(font->data + font->hhea.off + 34);
+    TTY_U8* hmtxData    = font->fileData + font->hmtx.off;
+    TTY_U16 numHMetrics = tty_get_u16(font->fileData + font->hhea.off + 34);
     if (glyphIdx < numHMetrics) {
         return tty_get_s16(hmtxData + 4 * glyphIdx + 2);
     }
@@ -3244,7 +3193,7 @@ static TTY_S32 tty_get_glyph_top_side_bearing(TTY_Font* font, TTY_S16 yMax) {
     }
 
     if (font->OS2.exists) {
-        TTY_S16 ascender = tty_get_s16(font->data + font->OS2.off + 68);
+        TTY_S16 ascender = tty_get_s16(font->fileData + font->OS2.off + 68);
         return ascender - yMax;
     }
 
@@ -3383,28 +3332,28 @@ static void tty_execute_next_glyph_program_ins(TTY_Program_Context* ctx) {
 }
 
 static TTY_Error tty_execute_glyph_program(TTY_Font* font, TTY_Instance* instance, TTY_Glyph* glyph, TTY_U8* insBuff, TTY_U32 insCount) {
-    TTY_LOG_PROGRAM("Glyph Program");
-
     tty_reset_graphics_state(&font->hint.gs, &font->hint.zone1);
     tty_interp_stack_clear(&font->hint.stack);
 
-    TTY_Program_Context ctx;
-    ctx.font                    = font;
-    ctx.instance                = instance;
-    ctx.glyph                   = glyph;
-    ctx.iupState                = TTY_IUP_STATE_DEFAULT;
-    ctx.foundUnknownIns         = TTY_FALSE;
-    ctx.stream.execute_next_ins = tty_execute_next_glyph_program_ins;
-    ctx.stream.buff             = insBuff;
-    ctx.stream.cap              = insCount;
-    ctx.stream.off              = 0;
+    {
+        TTY_Program_Context ctx;
+        ctx.font                    = font;
+        ctx.instance                = instance;
+        ctx.glyph                   = glyph;
+        ctx.iupState                = TTY_IUP_STATE_DEFAULT;
+        ctx.foundUnknownIns         = TTY_FALSE;
+        ctx.stream.execute_next_ins = tty_execute_next_glyph_program_ins;
+        ctx.stream.buff             = insBuff;
+        ctx.stream.cap              = insCount;
+        ctx.stream.off              = 0;
 
-    return tty_execute_program(&ctx);
+        TTY_LOG_PROGRAM("Glyph Program");
+        return tty_execute_program(&ctx);
+    }
 }
 
 static TTY_S16 tty_get_next_simple_glyph_coord_off(TTY_U8** data, TTY_U8 dualFlag, TTY_U8 shortFlag, TTY_U8 flags) {
     TTY_S16 coord;
-
     if (flags & shortFlag) {
         coord = !(flags & dualFlag) ? -(**data) : **data;
         (*data)++;
@@ -3416,7 +3365,6 @@ static TTY_S16 tty_get_next_simple_glyph_coord_off(TTY_U8** data, TTY_U8 dualFla
         coord = tty_get_s16(*data);
         (*data) += 2;
     }
-
     return coord;
 }
 
@@ -3432,7 +3380,7 @@ static TTY_Error tty_add_simple_glyph_points_to_zone1(TTY_Font* font, TTY_Instan
         // y-coordinate data
         
         TTY_U32 flagsSize = 0;
-        TTY_U32 xDataSize = 0;
+        TTY_U32 xfileSize = 0;
         
         flagData  = glyph->glyfBlock + (10 + 2 * font->hint.zone1.numEndPoints);
         flagData += 2 + tty_get_u16(flagData);
@@ -3454,13 +3402,13 @@ static TTY_Error tty_add_simple_glyph_points_to_zone1(TTY_Font* font, TTY_Instan
             i += flagsReps;
 
             while (flagsReps > 0) {
-                xDataSize += xSize;
+                xfileSize += xSize;
                 flagsReps--;
             }
         }
         
         xData = flagData + flagsSize;
-        yData = xData    + xDataSize;
+        yData = xData    + xfileSize;
     }
     
     {
@@ -3684,15 +3632,9 @@ static TTY_Error tty_add_glyph_points_to_zone_1(TTY_Font* font, TTY_Instance* in
     return tty_add_simple_glyph_points_to_zone1(font, instance, glyph);
 }
 
-static TTY_Error tty_convert_zone1_points_into_curves(TTY_Font* font, TTY_Curves* curves) {
-    TTY_U32 startPointIdx = 0;
-    
-    curves->cap   = font->hint.zone1.numOutlinePoints; // The number of curves needed is <= the number of points
-    curves->count = 0;
-    curves->buff  = (TTY_Curve*)malloc(curves->cap * sizeof(TTY_Curve));
-    if (curves->buff == NULL) {
-        return TTY_ERROR_OUT_OF_MEMORY;
-    }
+static void tty_convert_zone1_points_into_curves(TTY_Font* font) {
+    TTY_U32 startPointIdx    = 0;
+    font->hint.curves.count = 0;
 
     for (TTY_U32 i = 0; i < font->hint.zone1.numEndPoints; i++) {
         TTY_U32  endPointIdx   = font->hint.zone1.endPointIndices[i];
@@ -3702,7 +3644,8 @@ static TTY_Error tty_convert_zone1_points_into_curves(TTY_Font* font, TTY_Curves
         TTY_F26Dot6_V2* nextP0     = startPoint;
         
         for (TTY_U32 j = startPointIdx + 1; j <= endPointIdx; j++) {
-            TTY_Curve* curve = curves->buff + curves->count;
+            TTY_ASSERT(font->hint.curves.count < font->hint.curves.cap);
+            TTY_Curve* curve = font->hint.curves.buff + font->hint.curves.count;
             curve->p0 = *nextP0;
             curve->p1 = font->hint.zone1.cur[j];
 
@@ -3725,21 +3668,20 @@ static TTY_Error tty_convert_zone1_points_into_curves(TTY_Font* font, TTY_Curves
             }
 
             nextP0 = &curve->p2;
-            curves->count++;
+            font->hint.curves.count++;
         }
 
         if (addFinalCurve) {
-            TTY_Curve* finalCurve = curves->buff + curves->count;
+            TTY_ASSERT(font->hint.curves.count < font->hint.curves.cap);
+            TTY_Curve* finalCurve = font->hint.curves.buff + font->hint.curves.count;
             finalCurve->p0 = *nextP0;
             finalCurve->p1 = *startPoint;
             finalCurve->p2 = *startPoint;
-            curves->count++;
+            font->hint.curves.count++;
         }
 
         startPointIdx = endPointIdx + 1;
     }
-
-    return TTY_ERROR_NONE;
 }
 
 static TTY_F16Dot16 tty_get_inv_slope(TTY_F26Dot6_V2 p0, TTY_F26Dot6_V2 p1) {
@@ -3807,7 +3749,7 @@ static TTY_Error tty_subdivide_curve_into_edges(TTY_Edges* edges, TTY_F26Dot6_V2
     #undef TTY_SUBDIVIDE
 }
 
-static TTY_Error tty_subdivide_curves_into_edges(TTY_Curves* curves, TTY_Edges* edges, TTY_U32 startingEdgeCap) {
+static TTY_Error tty_subdivide_curves_into_edges(TTY_Font* font, TTY_Edges* edges, TTY_U32 startingEdgeCap) {    
     edges->cap   = startingEdgeCap;
     edges->count = 0;
     edges->buff  = (TTY_Edge*)malloc(edges->cap * sizeof(TTY_Edge));
@@ -3815,8 +3757,8 @@ static TTY_Error tty_subdivide_curves_into_edges(TTY_Curves* curves, TTY_Edges* 
         return TTY_ERROR_OUT_OF_MEMORY;
     }
 
-    for (TTY_U32 i = 0; i < curves->count; i++) {
-        TTY_Curve* curve = curves->buff + i;
+    for (TTY_U32 i = 0; i < font->hint.curves.count; i++) {
+        TTY_Curve* curve = font->hint.curves.buff + i;
 
         if (curve->p1.x == curve->p2.x && curve->p1.y == curve->p2.y) {
             // The curve is a already straight line, no need to flatten it
@@ -4230,27 +4172,30 @@ static TTY_Error tty_render_glyph_impl(TTY_Font* font, TTY_Instance* instance, T
     TTY_Bool imagePixelsWereAllocated = TTY_FALSE;
 
 
+    // Get the glyph's points
     {
-        // Get the glyph's points, convert them into curves, and then
-        // approximate the curves using edges
-
-        TTY_Curves curves = {0};
-        TTY_Error  error;
-        
-        if ((error = tty_add_glyph_points_to_zone_1(font, instance, glyph))                   != TTY_ERROR_NONE ||
-            (error = tty_convert_zone1_points_into_curves(font, &curves))                     != TTY_ERROR_NONE ||
-            (error = tty_subdivide_curves_into_edges(&curves, &edges, font->startingEdgeCap)) != TTY_ERROR_NONE)
-        {
-            free(curves.buff);
+        TTY_Error error;
+        if ((error = tty_add_glyph_points_to_zone_1(font, instance, glyph))) {
             return error;
         }
-
         if (instance->useHinting) {
             // Touch flags need to be cleared here (Everything else in zone1 is 
             // cleared elsewhere)
+            // 
+            // TODO: ?????
             memset(font->hint.zone1.touchFlags, TTY_UNTOUCHED, sizeof(TTY_U8) * font->hint.zone1.numOutlinePoints);
         }
-        free(curves.buff);
+    }
+
+    // Convert the glyph's points into curves
+    tty_convert_zone1_points_into_curves(font);
+
+    // Approximate the curves using edges
+    {
+        TTY_Error error;
+        if ((error = tty_subdivide_curves_into_edges(font, &edges, font->startingEdgeCap))) {
+            return error;
+        }
     }
 
 
@@ -4386,14 +4331,15 @@ TTY_Error tty_render_glyph_to_existing_image(TTY_Font* font, TTY_Instance* insta
 #define TTY_HASH(key) (177573 + key)
 
 TTY_Error tty_atlas_cache_init(TTY_Instance* instance, TTY_Atlas_Cache* cache, TTY_U32 w, TTY_U32 h) {
-    TTY_U32 maxGlyphs      = (w / instance->maxGlyphSize.x) * (h / instance->maxGlyphSize.y);
-    size_t  imageSize      = tty_add_padding_to_align_atlas_cache_node(w * h);
-    size_t  nodesSize      = tty_add_padding_to_align_atlas_cache_node_ptr(maxGlyphs * sizeof(TTY_Atlas_Cache_Node));
-    size_t  chainHeadsSize = maxGlyphs * sizeof(TTY_Atlas_Cache_Node*);
+    TTY_U32 maxGlyphs      =    (w / instance->maxGlyphSize.x) * (h / instance->maxGlyphSize.y);
+    size_t  totalSize      =    0;
+    size_t  imageSize      =    tty_calc_mem_size(&totalSize, w         * h                            , _Alignof(TTY_Atlas_Cache_Node));
+    size_t  nodesSize      =    tty_calc_mem_size(&totalSize, maxGlyphs * sizeof(TTY_Atlas_Cache_Node) , _Alignof(TTY_Atlas_Cache_Node*));
+    /*size_t chainHeadsSize =*/ tty_calc_mem_size(&totalSize, maxGlyphs * sizeof(TTY_Atlas_Cache_Node*), 1);
 
     memset(cache, 0, sizeof(TTY_Atlas_Cache));
 
-    cache->mem = (TTY_U8*)calloc(imageSize + nodesSize + chainHeadsSize, 1);
+    cache->mem = (TTY_U8*)calloc(totalSize, 1);
     if (cache->mem == NULL) {
         return TTY_ERROR_OUT_OF_MEMORY;
     }
