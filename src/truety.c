@@ -102,6 +102,13 @@
 #define TTY_TAG_EQUALS(tag, val)\
     !memcmp(tag, val, 4)
 
+#ifdef __cplusplus
+    #include <type_traits>
+    #define TTY_ALIGN_OF(type) std::alignment_of<type>::value
+#else
+    #define TTY_ALIGN_OF(type) _Alignof(type)
+#endif
+
 static TTY_U16 tty_get_u16(TTY_U8* data) {
     return data[0] << 8 | data[1];
 }
@@ -2704,13 +2711,13 @@ TTY_Error tty_font_init(TTY_Font* font, const char* path) {
 
         size_t off                   = 0;
         size_t totalSize             = 0;
-        size_t curvesSize            = tty_calc_mem_size(&totalSize, font->hint.curves.cap         * sizeof(TTY_Curve), _Alignof(TTY_U8*));
-        size_t funcInsPtrsSize       = tty_calc_mem_size(&totalSize, font->hint.funcs.cap          * sizeof(TTY_U8*)  , _Alignof(TTY_U32));
+        size_t curvesSize            = tty_calc_mem_size(&totalSize, font->hint.curves.cap         * sizeof(TTY_Curve), TTY_ALIGN_OF(TTY_U8*));
+        size_t funcInsPtrsSize       = tty_calc_mem_size(&totalSize, font->hint.funcs.cap          * sizeof(TTY_U8*)  , TTY_ALIGN_OF(TTY_U32));
         size_t funcSizesSize         = tty_calc_mem_size(&totalSize, font->hint.funcs.cap          * sizeof(TTY_U32)  , 1);
-        size_t stackSize             = tty_calc_mem_size(&totalSize, font->hint.stack.cap          * sizeof(TTY_U32)  , _Alignof(TTY_V2));
+        size_t stackSize             = tty_calc_mem_size(&totalSize, font->hint.stack.cap          * sizeof(TTY_U32)  , TTY_ALIGN_OF(TTY_V2));
         size_t z1OrgSize             = tty_calc_mem_size(&totalSize, font->hint.zone1.maxPoints    * sizeof(TTY_V2)   , 1);
         size_t z1OrgScaledSize       = tty_calc_mem_size(&totalSize, z1OrgSize                                        , 1);
-        size_t z1CurSize             = tty_calc_mem_size(&totalSize, z1OrgSize                                        , _Alignof(TTY_U16));
+        size_t z1CurSize             = tty_calc_mem_size(&totalSize, z1OrgSize                                        , TTY_ALIGN_OF(TTY_U16));
         size_t z1EndPointIndicesSize = tty_calc_mem_size(&totalSize, font->hint.zone1.maxEndPoints * sizeof(TTY_U16)  , 1);
         size_t z1TouchTypesSize      = tty_calc_mem_size(&totalSize, font->hint.zone1.maxPoints    * sizeof(TTY_U8)   , 1);
         /* size_t z1PointTypesSize = */tty_calc_mem_size(&totalSize, font->hint.zone1.maxPoints    * sizeof(TTY_U8)   , 1);
@@ -2841,8 +2848,8 @@ TTY_Error tty_instance_init(TTY_Font* font, TTY_Instance* instance, TTY_U32 ppem
         
         size_t off             = 0;
         size_t totalSize       = 0;
-        size_t cvtSize         = tty_calc_mem_size(&totalSize, instance->hint.cvt.cap         * sizeof(TTY_F26Dot6), _Alignof(TTY_S32));
-        size_t storeSize       = tty_calc_mem_size(&totalSize, instance->hint.storage.cap     * sizeof(TTY_S32)    , _Alignof(TTY_V2));
+        size_t cvtSize         = tty_calc_mem_size(&totalSize, instance->hint.cvt.cap         * sizeof(TTY_F26Dot6), TTY_ALIGN_OF(TTY_S32));
+        size_t storeSize       = tty_calc_mem_size(&totalSize, instance->hint.storage.cap     * sizeof(TTY_S32)    , TTY_ALIGN_OF(TTY_V2));
         size_t z0OrgScaledSize = tty_calc_mem_size(&totalSize, instance->hint.zone0.maxPoints * sizeof(TTY_V2)     , 1);
         size_t z0CurSize       = tty_calc_mem_size(&totalSize, z0OrgScaledSize                                     , 1);
         /*size_t z0TouchSize = */tty_calc_mem_size(&totalSize, instance->hint.zone0.maxPoints * sizeof(TTY_U8)     , 1);
@@ -4333,8 +4340,8 @@ TTY_Error tty_render_glyph_to_existing_image(TTY_Font* font, TTY_Instance* insta
 TTY_Error tty_atlas_cache_init(TTY_Instance* instance, TTY_Atlas_Cache* cache, TTY_U32 w, TTY_U32 h) {
     TTY_U32 maxGlyphs      =    (w / instance->maxGlyphSize.x) * (h / instance->maxGlyphSize.y);
     size_t  totalSize      =    0;
-    size_t  imageSize      =    tty_calc_mem_size(&totalSize, w         * h                            , _Alignof(TTY_Atlas_Cache_Node));
-    size_t  nodesSize      =    tty_calc_mem_size(&totalSize, maxGlyphs * sizeof(TTY_Atlas_Cache_Node) , _Alignof(TTY_Atlas_Cache_Node*));
+    size_t  imageSize      =    tty_calc_mem_size(&totalSize, w         * h                            , TTY_ALIGN_OF(TTY_Atlas_Cache_Node));
+    size_t  nodesSize      =    tty_calc_mem_size(&totalSize, maxGlyphs * sizeof(TTY_Atlas_Cache_Node) , TTY_ALIGN_OF(TTY_Atlas_Cache_Node*));
     /*size_t chainHeadsSize =*/ tty_calc_mem_size(&totalSize, maxGlyphs * sizeof(TTY_Atlas_Cache_Node*), 1);
 
     memset(cache, 0, sizeof(TTY_Atlas_Cache));
