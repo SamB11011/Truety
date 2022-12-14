@@ -225,6 +225,7 @@ typedef struct {
 typedef struct {
     TTY_U8*     pixels;
     TTY_U32_V2  size;
+    TTY_U32     numChannels;
 } TTY_Image;
 
 typedef struct {
@@ -312,7 +313,7 @@ TTY_Error tty_glyph_init(TTY_Font* font, TTY_Glyph* glyph, TTY_U32 idx);
  *     TTY_ERROR_NONE          - The image was successfully created.
  *     TTY_ERROR_OUT_OF_MEMORY - If `pixels` is NULL and `w * h` bytes could not be allocated.
  */
-TTY_Error tty_image_init(TTY_Image* image, TTY_U8* pixels, TTY_U32 w, TTY_U32 h);
+TTY_Error tty_image_init(TTY_Image* image, TTY_U8* pixels, TTY_U32 w, TTY_U32 h, TTY_U32 numChannels);
 
 void tty_image_free(TTY_Image* image);
 

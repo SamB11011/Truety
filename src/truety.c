@@ -3059,9 +3059,9 @@ TTY_Error tty_glyph_init(TTY_Font* font, TTY_Glyph* glyph, TTY_U32 idx) {
 /* ------------- */
 /* Image Loading */
 /* ------------- */
-TTY_Error tty_image_init(TTY_Image* image, TTY_U8* pixels, TTY_U32 w, TTY_U32 h) {
+TTY_Error tty_image_init(TTY_Image* image, TTY_U8* pixels, TTY_U32 w, TTY_U32 h, TTY_U32 numChannels) {
     if (pixels == NULL) {
-        image->pixels = (TTY_U8*)calloc((size_t)w * h, 1);
+        image->pixels = (TTY_U8*)calloc((size_t)w * h * numChannels, 1);
         if (image->pixels == NULL) {
             return TTY_ERROR_OUT_OF_MEMORY;
         }
@@ -3071,6 +3071,7 @@ TTY_Error tty_image_init(TTY_Image* image, TTY_U8* pixels, TTY_U32 w, TTY_U32 h)
     }
     image->size.x = w;
     image->size.y = h;
+    image->numChannels = numChannels;
     return TTY_ERROR_NONE;
 }
 
@@ -4227,7 +4228,7 @@ static TTY_Error tty_render_glyph_impl(TTY_Font* font, TTY_Instance* instance, T
         // bounding box of the glyph
 
         TTY_Error error;
-        if ((error = tty_image_init(image, NULL, glyph->size.x, glyph->size.y))) {
+        if ((error = tty_image_init(image, NULL, glyph->size.x, glyph->size.y, 1))) {
             free(edges.buff);
             return error;
         }
@@ -4301,14 +4302,17 @@ static TTY_Error tty_render_glyph_impl(TTY_Font* font, TTY_Instance* instance, T
                 TTY_U32 pixelBuffIdx = i + pixelBuffOff;
                 TTY_ASSERT(pixelBuffIdx < pixelBuffLen);
 
-                TTY_U32 imageIdx = i + imageOff;
-                TTY_ASSERT(imageIdx < image->size.x * image->size.y);
+                TTY_U32 imageIdx = (i + imageOff) * image->numChannels;
+                TTY_ASSERT(imageIdx < image->size.x * image->size.y * image->numChannels);
 
-                TTY_F26Dot6 pixelValue = pixelBuff[pixelBuffIdx] >> 6;
+                TTY_S32 pixelValue = pixelBuff[pixelBuffIdx] >> 6;
                 TTY_ASSERT(pixelValue >= 0);
                 TTY_ASSERT(pixelValue <= 255);
-
-                image->pixels[imageIdx] = pixelValue;
+                
+                for (TTY_U32 i = 0; i < image->numChannels; i++) {
+                    image->pixels[imageIdx + i] = 255;
+                }
+                image->pixels[imageIdx + image->numChannels - 1] = pixelValue;
             }
             
             y++;
@@ -4323,6 +4327,7 @@ static TTY_Error tty_render_glyph_impl(TTY_Font* font, TTY_Instance* instance, T
 }
 
 TTY_Error tty_render_glyph(TTY_Font* font, TTY_Instance* instance, TTY_Glyph* glyph, TTY_Image* image) {
+    // TODO: Allow for number of channels to be specified
     memset(image, 0, sizeof(TTY_Image));
     return tty_render_glyph_impl(font, instance, glyph, image, 0, 0);
 }
@@ -4350,8 +4355,9 @@ TTY_Error tty_atlas_cache_init(TTY_Instance* instance, TTY_Atlas_Cache* cache, T
     if (cache->mem == NULL) {
         return TTY_ERROR_OUT_OF_MEMORY;
     }
-
-    tty_image_init(&cache->atlas, cache->mem, w, h);
+    
+    // TODO: Allow for number of channels to be specified
+    tty_image_init(&cache->atlas, cache->mem, w, h, 1);
 
     cache->numGlyphs  = 0;
     cache->maxGlyphs  = maxGlyphs;
