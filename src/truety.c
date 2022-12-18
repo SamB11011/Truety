@@ -3012,7 +3012,7 @@ TTY_Error tty_get_glyph_index(TTY_Font* font, TTY_U32 codePoint, TTY_U32* idx) {
     switch (tty_get_u16(subtable)) {
         case 4:
             *idx = tty_get_glyph_index_format_4(subtable, codePoint);
-            return TTY_ERROR_NONE;
+            return *idx == 0 ? TTY_ERROR_UNSUPPORTED_FEATURE : TTY_ERROR_NONE;
         case 6:
             // TODO
             return TTY_ERROR_UNSUPPORTED_FEATURE;
