@@ -155,11 +155,22 @@ typedef struct {
     TTY_Bool  exists;
 } TTY_Table;
 
+/*
+ * Supported platforms, encodings, and formats:
+ *     Platform    Encodings    Formats
+ *     0           3, 4, 6      4 or 6, 10 or 12, 13
+ *     3           1, 10        4, 12
+ *
+ * TODO: Handle all supported platforms, encodings, and formats
+ *       Currently, only platform 0, encoding 3, format 4 is handled
+ */
 typedef struct {
     TTY_U32   off;
     TTY_U16   platformId;
     TTY_U16   encodingId;
     TTY_U16   format;
+    TTY_U8    utf; /* This equals 16 if UTF-16 or 32 if UTF-32 (None of the supported formats are UTF-8) */
+                   /* Note: All functions with a 'codePoint' aregument expect it to have this encoding  */
 } TTY_Encoding;
 
 typedef struct {

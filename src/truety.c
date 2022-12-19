@@ -2657,17 +2657,19 @@ TTY_Error tty_font_init(TTY_Font* font, const char* path) {
                 font->encoding.off        = tty_get_u32(data + 4);
 
                 TTY_U8* subtable = font->fileData + font->cmap.off + font->encoding.off;
-                TTY_U16 format   = tty_get_u16(subtable);
-
-                // TODO: support formats 6, 8, 10, 12, 13, and 14
-                foundPlatAndFormat = format == 4;
+                font->encoding.format = tty_get_u16(subtable);
+                
+                foundPlatAndFormat = font->encoding.format == 4;
                 if (foundPlatAndFormat) {
                     break;
                 }
             }
         }
         
-        if (!foundPlatAndFormat) {
+        if (foundPlatAndFormat) {
+            font->encoding.utf = font->encoding.format == 4 || font->encoding.format == 6 ? 16 : 32;
+        }
+        else {
             free(font->fileData);
             font->fileData = NULL;
             return TTY_ERROR_UNSUPPORTED_FEATURE;
