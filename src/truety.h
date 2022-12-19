@@ -158,8 +158,19 @@ typedef struct {
 /*
  * Supported platforms, encodings, and formats:
  *     Platform    Encodings    Formats
- *     0           3, 4, 6      4 or 6, 10 or 12, 13
+ *     0           3, 4, 6      4 or 6, 10 or 12, 13   
  *     3           1, 10        4, 12
+ *
+ * Format UTF Encodings:
+ *     Format 4:  UTF-16
+ *     Format 6:  UTF-16
+ *     Format 10: UTF-32
+ *     Format 12: UTF-32
+ *     Format 13: UTF-32
+ *
+ * Note: All functions with a 'codePoint' aregument expect it to be UTF-8.
+ *       The function will then convert the code point to the required encoding
+ *       as needed.
  *
  * TODO: Handle all supported platforms, encodings, and formats
  *       Currently, only platform 0, encoding 3, format 4 is handled
@@ -170,7 +181,6 @@ typedef struct {
     TTY_U16   encodingId;
     TTY_U16   format;
     TTY_U8    utf; /* This equals 16 if UTF-16 or 32 if UTF-32 (None of the supported formats are UTF-8) */
-                   /* Note: All functions with a 'codePoint' aregument expect it to have this encoding  */
 } TTY_Encoding;
 
 typedef struct {
