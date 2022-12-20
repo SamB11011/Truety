@@ -21,7 +21,7 @@ int main() {
     }
 
     TTY_Image image;
-    if (tty_image_init(&image, NULL, 512, 512)) {
+    if (tty_image_init(&image, NULL, 512, 512, 1)) {
         goto failure;
     }
 
