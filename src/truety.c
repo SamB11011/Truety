@@ -139,6 +139,28 @@ static size_t tty_calc_mem_size(size_t* total, size_t amount, size_t alignment) 
     return amount;
 }
 
+static TTY_U32 tty_utf8_to_utf32(TTY_U32 cp) {
+    TTY_U8 hi = 0;
+    for (TTY_U8 i = 4; hi == 0 && i > 0; i--) {
+        TTY_U8 shift = 8 * (i - 1);
+        hi = (cp & (0xFF << shift)) >> shift;
+    }
+    
+    if (hi == 0 || hi >= 0b11111000) {
+        return 0;
+    }
+    if (hi < 0b11000000) {
+        return cp;
+    }
+    if (hi < 0b11100000) {
+        return ((cp & 0x3F00) >> 2) | (cp & 0x3F);
+    }
+    if (hi < 0b11110000) {
+        return ((cp & 0x1F0000) >> 4) | ((cp & 0x3F00) >> 2) | (cp & 0x3F);
+    }
+    return ((cp & 0x0F000000) >> 6) | ((cp & 0x3F0000) >> 4) | ((cp & 0x3F00) >> 2) | (cp & 0x3F);
+}
+
 
 /* ---- */
 /* Math */
@@ -2631,45 +2653,57 @@ TTY_Error tty_font_init(TTY_Font* font, const char* path) {
     }
 
 
-    // Extract the character encoding
+    // Extract character encoding
     {
-        TTY_U16  numTables          = tty_get_u16(font->fileData + font->cmap.off + 2);
-        TTY_Bool foundPlatAndFormat = TTY_FALSE;
-    
-        for (TTY_U16 i = 0; i < numTables; i++) {
-            TTY_U8*  data              = font->fileData + font->cmap.off + 4 + i * 8;
-            TTY_U16  platformId        = tty_get_u16(data);
-            TTY_U16  encodingId        = tty_get_u16(data + 2);
-            TTY_Bool platformIdIsValid = TTY_FALSE;
-
-            switch (platformId) {
-                case 0:
-                    platformIdIsValid = encodingId >= 3 && encodingId <= 6;
-                    break;
-                case 3:
-                    platformIdIsValid = encodingId == 1 || encodingId == 10;
-                    break;
+        TTY_U16 numTables = tty_get_u16(font->fileData + font->cmap.off + 2);
+        
+        for (TTY_U32 i = 0; i < numTables; i++) {
+            TTY_U8*  data        = font->fileData + font->cmap.off + 4 + i * 8;
+            TTY_U16  platformId  = tty_get_u16(data);
+            TTY_U16  encodingId  = tty_get_u16(data + 2);
+            TTY_U32  offset      = tty_get_u32(data + 4);
+            TTY_U8*  subtable    = font->fileData + font->cmap.off + offset;
+            TTY_U16  format      = tty_get_u16(subtable);
+            TTY_Bool isSupported = TTY_FALSE;
+            
+            // "Fonts should not include 16-bit Unicode subtables using both 
+            //  format 4 and format 6."
+            //
+            // Format 4 and 6 only support Unicode BMP characters while format 12
+            // supports the same BMP characters in addition to supplementary-plane 
+            // characters. For that reason, prefer format 12 over formats 4 and 6.
+            
+            if (font->encoding.format == format ||
+                (font->encoding.format == 4 && format != 12) ||
+                (font->encoding.format == 6 && format != 12))
+            {
+                continue;
             }
-
-            if (platformIdIsValid) {
+            
+            if (platformId == 0) {
+                isSupported = 
+                    (encodingId == 3 && (format ==  4 || format ==  6)) ||
+                    (encodingId == 4 && (format == 12));
+            }
+            else if (platformId == 3) {
+                isSupported =
+                    (encodingId ==  1 && format ==  4) ||
+                    (encodingId == 10 && format == 12);
+            }
+            
+            if (isSupported) {
+                font->encoding.off        = offset;
                 font->encoding.platformId = platformId;
                 font->encoding.encodingId = encodingId;
-                font->encoding.off        = tty_get_u32(data + 4);
-
-                TTY_U8* subtable = font->fileData + font->cmap.off + font->encoding.off;
-                font->encoding.format = tty_get_u16(subtable);
-                
-                foundPlatAndFormat = font->encoding.format == 4;
-                if (foundPlatAndFormat) {
+                font->encoding.format     = format;
+                if (font->encoding.format == 12) {
                     break;
                 }
             }
         }
         
-        if (foundPlatAndFormat) {
-            font->encoding.utf = font->encoding.format == 4 || font->encoding.format == 6 ? 16 : 32;
-        }
-        else {
+        if (font->encoding.format == 0) {
+            // A valid encoding was not found
             free(font->fileData);
             font->fileData = NULL;
             return TTY_ERROR_UNSUPPORTED_FEATURE;
@@ -2932,7 +2966,13 @@ void tty_instance_free(TTY_Instance* instance) {
 /* Glyph Loading */
 /* ------------- */
 static TTY_U16 tty_get_glyph_index_format_4(TTY_U8* subtable, TTY_U32 cp) {
-    #define TTY_GET_END_CODE(index) tty_get_u16(subtable + 14 + 2 * (index))
+    #define TTY_GET_FORMAT_4_END_CODE(index) tty_get_u16(subtable + 14 + 2 * (index))
+    
+    if (cp > 0xFFFF) {
+        // Format 4 only supports Unicode BMP characters
+        // BMP characters are in the the range [U+0000, U+FFFF]
+        return 0;
+    }
     
     TTY_U16 segCount = tty_get_u16(subtable + 6) >> 1;
     TTY_U16 left     = 0;
@@ -2940,10 +2980,10 @@ static TTY_U16 tty_get_glyph_index_format_4(TTY_U8* subtable, TTY_U32 cp) {
 
     while (left <= right) {
         TTY_U16 mid     = (left + right) / 2;
-        TTY_U16 endCode = TTY_GET_END_CODE(mid);
+        TTY_U16 endCode = TTY_GET_FORMAT_4_END_CODE(mid);
 
         if (endCode >= cp) {
-            if (mid == 0 || TTY_GET_END_CODE(mid - 1) < cp) {
+            if (mid == 0 || TTY_GET_FORMAT_4_END_CODE(mid - 1) < cp) {
                 TTY_U32 off            = 16 + 2 * mid;
                 TTY_U8* idRangeOffsets = subtable + 6 * segCount + off;
                 TTY_U16 idRangeOffset  = tty_get_u16(idRangeOffsets);
@@ -2969,7 +3009,28 @@ static TTY_U16 tty_get_glyph_index_format_4(TTY_U8* subtable, TTY_U32 cp) {
 
     return 0;
 
-    #undef TTY_GET_END_CODE
+    #undef TTY_GET_FORMAT_4_END_CODE
+}
+
+static TTY_U32 tty_get_glyph_index_format_6(TTY_U8* subtable, TTY_U32 cp) {
+    TTY_U16 cpStart = tty_get_u16(subtable + 6);
+    TTY_U16 count   = tty_get_u16(subtable + 8);
+    TTY_U32 idx     = cp - cpStart;
+    return idx >= count ? 0 : tty_get_u16(subtable + 10 + idx * 2);
+}
+
+static TTY_U32 tty_get_glyph_index_format_12(TTY_U8* subtable, TTY_U32 cp) {
+    TTY_U32 numGroups = tty_get_u32(subtable + 12);
+    for (TTY_U64 i = 0; i < numGroups; i++) {
+        TTY_U8* group   = subtable + 16 + i * 12;
+        TTY_U32 cpStart = tty_get_u32(group);
+        TTY_U32 cpEnd   = tty_get_u32(group + 4);
+        if (cp >= cpStart && cp <= cpEnd) {
+            TTY_U32 startId = tty_get_u32(group + 8);
+            return startId + cp - cpStart;
+        }
+    }
+    return 0;
 }
 
 static TTY_U8* tty_get_glyf_data_block(TTY_Font* font, TTY_U32 glyphIdx) {
@@ -3009,36 +3070,24 @@ static TTY_U8* tty_get_glyf_data_block(TTY_Font* font, TTY_U32 glyphIdx) {
 }
 
 TTY_Error tty_get_glyph_index(TTY_Font* font, TTY_U32 codePoint, TTY_U32* idx) {
+    TTY_U32 cp       = tty_utf8_to_utf32(codePoint);
     TTY_U8* subtable = font->fileData + font->cmap.off + font->encoding.off;
-
-    switch (tty_get_u16(subtable)) {
+    
+    *idx = 0;
+    
+    switch (font->encoding.format) {
         case 4:
-            *idx = tty_get_glyph_index_format_4(subtable, codePoint);
-            return *idx == 0 ? TTY_ERROR_UNSUPPORTED_FEATURE : TTY_ERROR_NONE;
+            *idx = tty_get_glyph_index_format_4(subtable, cp);
+            break;
         case 6:
-            // TODO
-            return TTY_ERROR_UNSUPPORTED_FEATURE;
-        case 8:
-            // TODO
-            return TTY_ERROR_UNSUPPORTED_FEATURE;
-        case 10:
-            // TODO
-            return TTY_ERROR_UNSUPPORTED_FEATURE;
+            *idx = tty_get_glyph_index_format_6(subtable, cp);
+            break;
         case 12:
-            // TODO
-            return TTY_ERROR_UNSUPPORTED_FEATURE;
-        case 13:
-            // TODO
-            return TTY_ERROR_UNSUPPORTED_FEATURE;
-        case 14:
-            // TODO
-            return TTY_ERROR_UNSUPPORTED_FEATURE;
+            *idx = tty_get_glyph_index_format_12(subtable, cp);
+            break;
     }
     
-    // This shouldn't happen because 'tty_font_init' fails if a supported 
-    // encoding is not found
-    TTY_ASSERT(TTY_FALSE);
-    return TTY_ERROR_UNSUPPORTED_FEATURE;
+    return *idx == 0 ? TTY_ERROR_UNSUPPORTED_FEATURE : TTY_ERROR_NONE;
 }
 
 TTY_Error tty_glyph_init(TTY_Font* font, TTY_Glyph* glyph, TTY_U32 idx) {
