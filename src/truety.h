@@ -160,9 +160,6 @@ typedef struct {
  *     Platform    Encodings    Formats
  *     0           3, 4         (4, 6), 12
  *     3           1, 10        4, 12
- *
- * Note: All functions with a 'codePoint' argument expect it to be UTF-8.
- *       The function will then internally convert the code point to UTF-32.
  */
 typedef struct {
     TTY_U32   off;

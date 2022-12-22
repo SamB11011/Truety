@@ -139,28 +139,6 @@ static size_t tty_calc_mem_size(size_t* total, size_t amount, size_t alignment) 
     return amount;
 }
 
-static TTY_U32 tty_utf8_to_utf32(TTY_U32 cp) {
-    TTY_U8 hi = 0;
-    for (TTY_U8 i = 4; hi == 0 && i > 0; i--) {
-        TTY_U8 shift = 8 * (i - 1);
-        hi = (cp & (0xFF << shift)) >> shift;
-    }
-    
-    if (hi == 0 || hi >= 0b11111000) {
-        return 0;
-    }
-    if (hi < 0b11000000) {
-        return cp;
-    }
-    if (hi < 0b11100000) {
-        return ((cp & 0x3F00) >> 2) | (cp & 0x3F);
-    }
-    if (hi < 0b11110000) {
-        return ((cp & 0x1F0000) >> 4) | ((cp & 0x3F00) >> 2) | (cp & 0x3F);
-    }
-    return ((cp & 0x0F000000) >> 6) | ((cp & 0x3F0000) >> 4) | ((cp & 0x3F00) >> 2) | (cp & 0x3F);
-}
-
 
 /* ---- */
 /* Math */
@@ -3070,20 +3048,19 @@ static TTY_U8* tty_get_glyf_data_block(TTY_Font* font, TTY_U32 glyphIdx) {
 }
 
 TTY_Error tty_get_glyph_index(TTY_Font* font, TTY_U32 codePoint, TTY_U32* idx) {
-    TTY_U32 cp       = tty_utf8_to_utf32(codePoint);
     TTY_U8* subtable = font->fileData + font->cmap.off + font->encoding.off;
     
     *idx = 0;
     
     switch (font->encoding.format) {
         case 4:
-            *idx = tty_get_glyph_index_format_4(subtable, cp);
+            *idx = tty_get_glyph_index_format_4(subtable, codePoint);
             break;
         case 6:
-            *idx = tty_get_glyph_index_format_6(subtable, cp);
+            *idx = tty_get_glyph_index_format_6(subtable, codePoint);
             break;
         case 12:
-            *idx = tty_get_glyph_index_format_12(subtable, cp);
+            *idx = tty_get_glyph_index_format_12(subtable, codePoint);
             break;
     }
     
